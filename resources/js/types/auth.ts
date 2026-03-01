@@ -12,8 +12,36 @@ export type User = {
     [key: string]: unknown;
 };
 
+export type ActiveRole = {
+    id: number;
+    name: string;
+    team: {
+        id: number;
+        name: string;
+        organization: {
+            id: number;
+            name: string;
+        };
+    };
+};
+
+export type ActiveWorkspace = {
+    id: number;
+    name: string;
+    description: string | null;
+};
+
+export type WorkspaceGroup = {
+    workspace: ActiveWorkspace;
+    roles: ActiveRole[];
+};
+
 export type Auth = {
     user: User;
+    activeRole?: ActiveRole | null;
+    activeWorkspace?: ActiveWorkspace | null;
+    permissions: string[];
+    workspaces: WorkspaceGroup[];
 };
 
 export type TwoFactorSetupData = {
