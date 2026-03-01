@@ -2,6 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Role;
+use App\Models\Workspace;
+use App\Services\ActiveSessionService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -38,10 +41,42 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'name' => config('app.name'),
-            'auth' => [
-                'user' => $request->user(),
-            ],
+            'auth' => $this->getAuthData($request),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getAuthData(Request $request): array
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return ['user' => null];
+        }
+
+        $session = app(ActiveSessionService::class);
+
+        $data = [
+            'user' => $user,
+            'permissions' => $session->getActivePermissions(),
+        ];
+
+        $activeRoleId = $session->getActiveRoleId();
+        $activeWorkspaceId = $session->getActiveWorkspaceId();
+
+        if ($activeRoleId) {
+            $data['activeRole'] = Role::with('team.organization')->find($activeRoleId);
+        }
+
+        if ($activeWorkspaceId) {
+            $data['activeWorkspace'] = Workspace::find($activeWorkspaceId);
+        }
+
+        $data['workspaces'] = $user->getAccessibleWorkspaces();
+
+        return $data;
     }
 }
