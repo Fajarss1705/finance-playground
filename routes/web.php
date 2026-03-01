@@ -14,7 +14,7 @@ Route::middleware(['auth'])->group(function () {
     Route::inertia('no-access', 'no-access')->name('no-access');
 });
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 });
 
