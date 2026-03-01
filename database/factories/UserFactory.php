@@ -2,6 +2,10 @@
 
 namespace Database\Factories;
 
+use App\Models\Organization;
+use App\Models\Role;
+use App\Models\Team;
+use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -55,5 +59,32 @@ class UserFactory extends Factory
             'two_factor_recovery_codes' => encrypt(json_encode(['recovery-code-1'])),
             'two_factor_confirmed_at' => now(),
         ]);
+    }
+
+    /**
+     * Create user with a role and the full RBAC chain (Organization → Team → Role, Workspace linked to Organization).
+     */
+    public function withRole(?Role $role = null, ?Workspace $workspace = null): static
+    {
+        return $this->afterCreating(function ($user) use ($role, $workspace) {
+            if ($role) {
+                $user->roles()->attach($role);
+
+                if ($workspace) {
+                    $organization = $role->team->organization;
+                    $organization->workspaces()->syncWithoutDetaching($workspace);
+                }
+
+                return;
+            }
+
+            $organization = Organization::factory()->create();
+            $team = Team::factory()->for($organization)->create();
+            $createdRole = Role::factory()->for($team)->create();
+            $createdWorkspace = $workspace ?? Workspace::factory()->create();
+
+            $organization->workspaces()->attach($createdWorkspace);
+            $user->roles()->attach($createdRole);
+        });
     }
 }
