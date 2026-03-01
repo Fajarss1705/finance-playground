@@ -10,7 +10,7 @@ test('login screen can be rendered', function () {
     $response->assertOk();
 });
 
-test('users can authenticate using the login screen', function () {
+test('users without roles are redirected to no-access after login', function () {
     $user = User::factory()->create();
 
     $response = $this->post(route('login.store'), [
@@ -19,7 +19,19 @@ test('users can authenticate using the login screen', function () {
     ]);
 
     $this->assertAuthenticated();
-    $response->assertRedirect(route('dashboard', absolute: false));
+    $response->assertRedirect(route('no-access'));
+});
+
+test('users with roles are redirected to role-selector after login', function () {
+    $user = User::factory()->withRole()->create();
+
+    $response = $this->post(route('login.store'), [
+        'email' => $user->email,
+        'password' => 'password',
+    ]);
+
+    $this->assertAuthenticated();
+    $response->assertRedirect(route('role-selector.index'));
 });
 
 test('users with two factor enabled are redirected to two factor challenge', function () {
