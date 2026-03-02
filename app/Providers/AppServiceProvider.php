@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\ActiveSessionService;
+use App\Services\NotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ActiveSessionService::class);
+        $this->app->singleton(NotificationService::class);
     }
 
     /**

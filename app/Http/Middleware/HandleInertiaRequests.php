@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Notification;
 use App\Models\Role;
 use App\Models\Workspace;
 use App\Services\ActiveSessionService;
@@ -76,6 +77,10 @@ class HandleInertiaRequests extends Middleware
         }
 
         $data['workspaces'] = $user->getAccessibleWorkspaces();
+        $data['unreadNotificationsCount'] = Notification::query()
+            ->forUser($user->id)
+            ->unread()
+            ->count();
 
         return $data;
     }
