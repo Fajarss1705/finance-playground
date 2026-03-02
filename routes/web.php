@@ -16,6 +16,10 @@ Route::middleware(['auth'])->group(function () {
 
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
+
+    // Browser test routes — remove after testing
+    Route::inertia('test/permission-check', 'test/permission-check')->name('test.permission-check');
+    Route::get('test/unnamed-route', fn () => 'This should never be visible');
 });
 
 require __DIR__.'/settings.php';
