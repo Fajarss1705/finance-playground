@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            FeatureTestPermissionsAuthorization20260302Seeder::class,
+            FeatureTestNotificationBackend20260302Seeder::class,
         ]);
     }
 }
