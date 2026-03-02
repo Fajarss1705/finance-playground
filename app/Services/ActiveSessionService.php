@@ -44,6 +44,16 @@ class ActiveSessionService
         return Session::get(self::KEY_PERMISSIONS, []);
     }
 
+    public function refreshPermissions(): void
+    {
+        $roleId = $this->getActiveRoleId();
+
+        if ($roleId) {
+            $role = Role::find($roleId);
+            Session::put(self::KEY_PERMISSIONS, $role ? $role->permissions()->pluck('name')->all() : []);
+        }
+    }
+
     public function clearActiveSession(): void
     {
         Session::forget([self::KEY_ROLE_ID, self::KEY_WORKSPACE_ID, self::KEY_PERMISSIONS]);

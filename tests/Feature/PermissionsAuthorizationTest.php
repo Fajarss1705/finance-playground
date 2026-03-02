@@ -83,6 +83,27 @@ it('shares active role and workspace via Inertia', function () {
         );
 });
 
+// --- refreshPermissions ---
+
+it('refreshes permissions from database on each request', function () {
+    $user = User::factory()->withRole()->create();
+    $role = $user->roles->first();
+    $workspace = $role->team->organization->workspaces->first();
+
+    $this->actingAs($user);
+    app(ActiveSessionService::class)->switchTo($role, $workspace);
+
+    // No permission yet → 403
+    $this->get(route('dashboard'))->assertForbidden();
+
+    // Admin adds permission to role in DB (without user re-switching)
+    $permission = Permission::create(['name' => 'dashboard']);
+    $role->permissions()->attach($permission);
+
+    // Next request picks up the new permission automatically
+    $this->get(route('dashboard'))->assertSuccessful();
+});
+
 // --- Full flow integration ---
 
 it('completes full login to dashboard flow', function () {

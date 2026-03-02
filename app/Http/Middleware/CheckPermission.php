@@ -21,7 +21,7 @@ class CheckPermission
         $routeName = $request->route()?->getName();
 
         if ($routeName === null) {
-            return $next($request);
+            abort(403);
         }
 
         $permissions = $this->sessionService->getActivePermissions();

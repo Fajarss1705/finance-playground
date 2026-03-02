@@ -19,6 +19,8 @@ class EnsureRoleSelected
     public function handle(Request $request, Closure $next): Response
     {
         if ($this->sessionService->hasActiveSession()) {
+            $this->sessionService->refreshPermissions();
+
             return $next($request);
         }
 
