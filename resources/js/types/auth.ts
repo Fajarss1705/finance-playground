@@ -36,12 +36,29 @@ export type WorkspaceGroup = {
     roles: ActiveRole[];
 };
 
+export type NotificationItem = {
+    id: number;
+    subject: string;
+    body: string;
+    link: string | null;
+    is_read: boolean;
+    role: { id: number; name: string; team: { name: string } };
+    workspace: { id: number; name: string };
+    created_at: string;
+};
+
+export type NotificationGroup = {
+    items: NotificationItem[];
+    unreadCount: number;
+};
+
 export type Auth = {
     user: User;
     activeRole?: ActiveRole | null;
     activeWorkspace?: ActiveWorkspace | null;
     permissions: string[];
     workspaces: WorkspaceGroup[];
+    unreadNotificationsCount: number;
 };
 
 export type TwoFactorSetupData = {
