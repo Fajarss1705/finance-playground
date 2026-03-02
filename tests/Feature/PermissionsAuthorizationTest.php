@@ -42,6 +42,22 @@ it('returns 403 when permission is missing', function () {
         ->assertForbidden();
 });
 
+it('returns 403 for unnamed routes', function () {
+    $user = User::factory()->withRole()->create();
+    $role = $user->roles->first();
+    $workspace = $role->team->organization->workspaces->first();
+
+    $this->actingAs($user);
+    app(ActiveSessionService::class)->switchTo($role, $workspace);
+
+    // Register a temporary unnamed route with the same middleware
+    Illuminate\Support\Facades\Route::middleware(['auth', 'role.selected', 'check.permission'])
+        ->get('/unnamed-test-route', fn () => 'ok');
+
+    $this->get('/unnamed-test-route')
+        ->assertForbidden();
+});
+
 it('grants access when permission matches route name', function () {
     $user = User::factory()->withRole()->create();
     $role = $user->roles->first();
