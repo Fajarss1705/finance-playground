@@ -185,6 +185,57 @@ it('prevents deleting a team with roles', function () {
     expect($team->fresh()->deleted_at)->toBeNull();
 });
 
+// --- Trash ---
+
+it('displays trash page with soft-deleted teams', function () {
+    [$user, $role, $workspace] = setupTeamTestUser('admin.teams.trash');
+    activateTeamSession($this, $user, $role, $workspace);
+
+    $team = Team::factory()->create();
+    $team->delete();
+
+    $this->get(route('admin.teams.trash'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/teams/trash')
+            ->has('teams.data', 1)
+        );
+});
+
+it('returns 403 for trash without permission', function () {
+    [$user, $role, $workspace] = setupTeamTestUser('dashboard');
+    activateTeamSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.teams.trash'))
+        ->assertForbidden();
+});
+
+// --- Restore ---
+
+it('restores a soft-deleted team', function () {
+    [$user, $role, $workspace] = setupTeamTestUser('admin.teams.restore');
+    activateTeamSession($this, $user, $role, $workspace);
+
+    $team = Team::factory()->create();
+    $team->delete();
+
+    $this->post(route('admin.teams.restore', $team))
+        ->assertRedirect(route('admin.teams.trash'));
+
+    expect($team->fresh()->deleted_at)->toBeNull();
+});
+
+it('returns 403 for restore without permission', function () {
+    [$user, $role, $workspace] = setupTeamTestUser('dashboard');
+    activateTeamSession($this, $user, $role, $workspace);
+
+    $team = Team::factory()->create();
+    $team->delete();
+
+    $this->post(route('admin.teams.restore', $team))
+        ->assertForbidden();
+});
+
 // --- Guest ---
 
 it('redirects guests to login', function () {

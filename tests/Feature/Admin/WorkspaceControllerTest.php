@@ -199,6 +199,57 @@ it('prevents deleting a workspace with organizations', function () {
     expect($ws->fresh()->deleted_at)->toBeNull();
 });
 
+// --- Trash ---
+
+it('displays trash page with soft-deleted workspaces', function () {
+    [$user, $role, $workspace] = setupWorkspaceTestUser('admin.workspaces.trash');
+    activateWorkspaceSession($this, $user, $role, $workspace);
+
+    $ws = Workspace::factory()->create();
+    $ws->delete();
+
+    $this->get(route('admin.workspaces.trash'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workspaces/trash')
+            ->has('workspaces.data', 1)
+        );
+});
+
+it('returns 403 for trash without permission', function () {
+    [$user, $role, $workspace] = setupWorkspaceTestUser('dashboard');
+    activateWorkspaceSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workspaces.trash'))
+        ->assertForbidden();
+});
+
+// --- Restore ---
+
+it('restores a soft-deleted workspace', function () {
+    [$user, $role, $workspace] = setupWorkspaceTestUser('admin.workspaces.restore');
+    activateWorkspaceSession($this, $user, $role, $workspace);
+
+    $ws = Workspace::factory()->create();
+    $ws->delete();
+
+    $this->post(route('admin.workspaces.restore', $ws))
+        ->assertRedirect(route('admin.workspaces.trash'));
+
+    expect($ws->fresh()->deleted_at)->toBeNull();
+});
+
+it('returns 403 for restore without permission', function () {
+    [$user, $role, $workspace] = setupWorkspaceTestUser('dashboard');
+    activateWorkspaceSession($this, $user, $role, $workspace);
+
+    $ws = Workspace::factory()->create();
+    $ws->delete();
+
+    $this->post(route('admin.workspaces.restore', $ws))
+        ->assertForbidden();
+});
+
 // --- Guest ---
 
 it('redirects guests to login', function () {
