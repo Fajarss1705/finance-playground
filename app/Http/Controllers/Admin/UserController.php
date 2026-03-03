@@ -40,7 +40,7 @@ class UserController extends Controller
     public function create(): Response
     {
         return Inertia::render('admin/users/create', [
-            'roles' => Role::query()->orderBy('name')->get(['id', 'name']),
+            'roles' => Role::query()->with('team:id,name')->orderBy('name')->get(['id', 'team_id', 'name']),
         ]);
     }
 
@@ -66,7 +66,7 @@ class UserController extends Controller
     {
         return Inertia::render('admin/users/edit', [
             'user' => $user->load('roles:id,name'),
-            'roles' => Role::query()->orderBy('name')->get(['id', 'name']),
+            'roles' => Role::query()->with('team:id,name')->orderBy('name')->get(['id', 'team_id', 'name']),
         ]);
     }
 

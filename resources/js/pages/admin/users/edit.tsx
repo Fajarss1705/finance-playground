@@ -12,9 +12,10 @@ import { index as adminIndex } from '@/routes/admin';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { BreadcrumbItem } from '@/types';
 
-type RoleItem = {
+type RoleOption = {
     id: number;
     name: string;
+    team: { id: number; name: string } | null;
 };
 
 type UserData = {
@@ -23,12 +24,12 @@ type UserData = {
     email: string;
     phone_number: string | null;
     jabatan: string | null;
-    roles: RoleItem[];
+    roles: { id: number; name: string }[];
 };
 
 type Props = {
     user: UserData;
-    roles: RoleItem[];
+    roles: RoleOption[];
 };
 
 export default function UsersEdit({ user, roles }: Props) {
@@ -134,10 +135,11 @@ export default function UsersEdit({ user, roles }: Props) {
                                             {roles.map((role) => (
                                                 <div
                                                     key={role.id}
-                                                    className="flex items-center gap-2"
+                                                    className="flex items-start gap-2"
                                                 >
                                                     <Checkbox
                                                         id={`role-${role.id}`}
+                                                        className="mt-0.5"
                                                         checked={selectedRoleIds.includes(
                                                             role.id,
                                                         )}
@@ -161,12 +163,22 @@ export default function UsersEdit({ user, roles }: Props) {
                                                             );
                                                         }}
                                                     />
-                                                    <Label
-                                                        htmlFor={`role-${role.id}`}
-                                                        className="font-normal"
-                                                    >
-                                                        {role.name}
-                                                    </Label>
+                                                    <div className="grid">
+                                                        <Label
+                                                            htmlFor={`role-${role.id}`}
+                                                            className="font-normal"
+                                                        >
+                                                            {role.name}
+                                                        </Label>
+                                                        {role.team && (
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {
+                                                                    role.team
+                                                                        .name
+                                                                }
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>

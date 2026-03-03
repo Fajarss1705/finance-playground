@@ -15,6 +15,7 @@ import type { BreadcrumbItem } from '@/types';
 type RoleItem = {
     id: number;
     name: string;
+    team: { id: number; name: string } | null;
 };
 
 type Props = {
@@ -120,10 +121,11 @@ export default function UsersCreate({ roles }: Props) {
                                             {roles.map((role) => (
                                                 <div
                                                     key={role.id}
-                                                    className="flex items-center gap-2"
+                                                    className="flex items-start gap-2"
                                                 >
                                                     <Checkbox
                                                         id={`role-${role.id}`}
+                                                        className="mt-0.5"
                                                         checked={selectedRoleIds.includes(
                                                             role.id,
                                                         )}
@@ -147,12 +149,22 @@ export default function UsersCreate({ roles }: Props) {
                                                             );
                                                         }}
                                                     />
-                                                    <Label
-                                                        htmlFor={`role-${role.id}`}
-                                                        className="font-normal"
-                                                    >
-                                                        {role.name}
-                                                    </Label>
+                                                    <div className="grid">
+                                                        <Label
+                                                            htmlFor={`role-${role.id}`}
+                                                            className="font-normal"
+                                                        >
+                                                            {role.name}
+                                                        </Label>
+                                                        {role.team && (
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {
+                                                                    role.team
+                                                                        .name
+                                                                }
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
