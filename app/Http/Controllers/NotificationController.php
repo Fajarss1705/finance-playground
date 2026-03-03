@@ -7,6 +7,8 @@ use App\Services\ActiveSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class NotificationController extends Controller
 {
@@ -43,6 +45,50 @@ class NotificationController extends Controller
                 'unreadCount' => $allRoles->where('is_read', false)->count(),
             ],
         ]);
+    }
+
+    public function personal(Request $request): Response
+    {
+        $query = Notification::query()
+            ->forUser($request->user()->id)
+            ->where('workspace_id', $this->sessionService->getActiveWorkspaceId())
+            ->with('role.team')
+            ->latest();
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('subject', 'like', "%{$search}%")
+                    ->orWhere('body', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('status')) {
+            match ($request->input('status')) {
+                'unread' => $query->where('is_read', false),
+                'read' => $query->where('is_read', true),
+                default => null,
+            };
+        }
+
+        return Inertia::render('personal/notifications', [
+            'notifications' => $query->paginate(15)->withQueryString(),
+            'filters' => [
+                'search' => $request->input('search'),
+                'status' => $request->input('status'),
+            ],
+        ]);
+    }
+
+    public function markAllRead(Request $request): RedirectResponse
+    {
+        Notification::query()
+            ->forUser($request->user()->id)
+            ->where('workspace_id', $this->sessionService->getActiveWorkspaceId())
+            ->unread()
+            ->update(['is_read' => true]);
+
+        return back();
     }
 
     public function markAsRead(Request $request, Notification $notification): JsonResponse

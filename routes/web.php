@@ -32,6 +32,8 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     Route::prefix('personal')->name('personal.')->group(function () {
         Route::inertia('/', 'personal/index')->name('index');
         Route::get('files', [FileController::class, 'personal'])->name('files');
+        Route::get('notifications', [NotificationController::class, 'personal'])->name('notifications');
+        Route::patch('notifications/mark-all-read', [NotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
     });
 
     // Shared file routes
