@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            FeatureTestAdminWorkspace20260303Seeder::class,
+            FeatureTestAdminRolePermission20260303Seeder::class,
         ]);
     }
 }

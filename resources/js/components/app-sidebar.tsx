@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, Building2, Folder, Layers, LayoutGrid, Settings, Users } from 'lucide-react';
+import { BookOpen, Building2, Folder, Layers, LayoutGrid, Settings, Shield, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -15,6 +15,7 @@ import {
 import { dashboard } from '@/routes';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminOrganizationsIndex } from '@/routes/admin/organizations';
+import { index as adminRolesIndex } from '@/routes/admin/roles';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
 import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
 import type { NavItem } from '@/types';
@@ -52,6 +53,12 @@ const adminNavItems: NavItem[] = [
         href: adminTeamsIndex(),
         icon: Users,
         permission: 'admin.teams.index',
+    },
+    {
+        title: 'Role',
+        href: adminRolesIndex(),
+        icon: Shield,
+        permission: 'admin.roles.index',
     },
 ];
 
