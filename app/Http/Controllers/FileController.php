@@ -15,7 +15,7 @@ class FileController extends Controller
     {
         $session = app(ActiveSessionService::class);
 
-        return Inertia::render('files/personal', [
+        return Inertia::render('personal/files', [
             'files' => File::query()
                 ->where('workspace_id', $session->getActiveWorkspaceId())
                 ->where(fn ($q) => $q

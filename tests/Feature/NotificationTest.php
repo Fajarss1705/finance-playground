@@ -41,13 +41,13 @@ it('creates notification record and stores email html', function () {
         $user, $role, $workspace,
         'Test Subject',
         'Test body content.',
-        '/dashboard',
+        '/personal',
     );
 
     expect($notification)->toBeInstanceOf(Notification::class);
     expect($notification->subject)->toBe('Test Subject');
     expect($notification->body)->toBe('Test body content.');
-    expect($notification->link)->toBe('/dashboard');
+    expect($notification->link)->toBe('/personal');
     expect($notification->fresh()->is_read)->toBeFalse();
     expect($notification->email_html)->not->toBeNull();
     expect($notification->email_html)->toContain('Test body content.');
@@ -84,7 +84,7 @@ it('resends notification with new signed url', function () {
         $user, $role, $workspace,
         'Original',
         'Original body.',
-        '/dashboard',
+        '/personal',
     );
 
     $originalHtml = $notification->email_html;
@@ -186,11 +186,11 @@ it('marks read and redirects to notification link', function () {
         'user_id' => $user->id,
         'role_id' => $role->id,
         'workspace_id' => $workspace->id,
-        'link' => '/dashboard',
+        'link' => '/personal',
     ]);
 
     $this->get(route('notifications.go', $notification))
-        ->assertRedirect('/dashboard');
+        ->assertRedirect('/personal');
 
     expect($notification->refresh()->is_read)->toBeTrue();
 });
@@ -207,7 +207,7 @@ it('redirects to dashboard when notification has no link', function () {
     ]);
 
     $this->get(route('notifications.go', $notification))
-        ->assertRedirect(route('dashboard'));
+        ->assertRedirect(route('personal.index'));
 });
 
 // --- GET /notifications/{id}/redirect (signed URL) ---
@@ -220,7 +220,7 @@ it('switches role and workspace via signed url redirect', function () {
         'user_id' => $user->id,
         'role_id' => $role->id,
         'workspace_id' => $workspace->id,
-        'link' => '/dashboard',
+        'link' => '/personal',
     ]);
 
     $signedUrl = URL::temporarySignedRoute(
@@ -230,7 +230,7 @@ it('switches role and workspace via signed url redirect', function () {
     );
 
     $this->get($signedUrl)
-        ->assertRedirect('/dashboard');
+        ->assertRedirect('/personal');
 
     expect($notification->refresh()->is_read)->toBeTrue();
     expect(session('active_role_id'))->toBe($role->id);
@@ -286,7 +286,7 @@ it('shares unread notifications count via Inertia', function () {
     [$user, $role, $workspace] = setupUserWithSession();
     activateSession($this, $user, $role, $workspace);
 
-    $dashboardPermission = Permission::create(['name' => 'dashboard']);
+    $dashboardPermission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($dashboardPermission);
 
     // Create 2 unread + 1 read
@@ -302,7 +302,7 @@ it('shares unread notifications count via Inertia', function () {
         'workspace_id' => $workspace->id,
     ]);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
             ->where('auth.unreadNotificationsCount', 2)

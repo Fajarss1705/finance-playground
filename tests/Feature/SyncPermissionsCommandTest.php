@@ -6,17 +6,17 @@ it('creates permissions from auth routes', function () {
     $this->artisan('permissions:sync')
         ->assertSuccessful();
 
-    expect(Permission::query()->where('name', 'dashboard')->exists())->toBeTrue();
+    expect(Permission::query()->where('name', 'personal.index')->exists())->toBeTrue();
     expect(Permission::query()->count())->toBeGreaterThan(0);
 });
 
 it('does not duplicate existing permissions', function () {
-    Permission::query()->create(['name' => 'dashboard']);
+    Permission::query()->create(['name' => 'personal.index']);
 
     $this->artisan('permissions:sync')
         ->assertSuccessful();
 
-    expect(Permission::query()->where('name', 'dashboard')->count())->toBe(1);
+    expect(Permission::query()->where('name', 'personal.index')->count())->toBe(1);
 });
 
 it('detects stale permissions without removing by default', function () {

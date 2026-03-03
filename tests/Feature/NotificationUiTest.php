@@ -14,13 +14,13 @@ it('shares zero unread count when no notifications exist', function () {
     $role = $user->roles->first();
     $workspace = $role->team->organization->workspaces->first();
 
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     $this->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
             ->where('auth.unreadNotificationsCount', 0)
@@ -32,7 +32,7 @@ it('does not count other users notifications', function () {
     $role = $user->roles->first();
     $workspace = $role->team->organization->workspaces->first();
 
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     // Create notification for a different user
@@ -46,7 +46,7 @@ it('does not count other users notifications', function () {
     $this->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
             ->where('auth.unreadNotificationsCount', 0)
@@ -58,7 +58,7 @@ it('does not count read notifications', function () {
     $role = $user->roles->first();
     $workspace = $role->team->organization->workspaces->first();
 
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     // Create only read notifications
@@ -71,7 +71,7 @@ it('does not count read notifications', function () {
     $this->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
             ->where('auth.unreadNotificationsCount', 0)
