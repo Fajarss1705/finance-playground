@@ -3,7 +3,7 @@ import { router, usePage } from '@inertiajs/react';
 import { Bell } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
-import { index as fetchNotifications, go, markRead } from '@/routes/notifications';
+import { index as fetchNotifications, go } from '@/routes/notifications';
 import type { Auth, NotificationGroup, NotificationItem } from '@/types';
 
 export function NotificationBell() {
@@ -41,37 +41,13 @@ export function NotificationBell() {
         router.get(go.url(notification.id));
     };
 
-    const handleMarkAllRead = (items: NotificationItem[]) => {
-        const unread = items.filter((n) => !n.is_read);
-        unread.forEach((n) => {
-            fetch(markRead.url(n.id), {
-                method: 'PATCH',
-                headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '' },
-            });
-        });
-
-        // Optimistically update local state
-        if (currentRole) {
-            setCurrentRole({
-                items: currentRole.items.map((n) => ({ ...n, is_read: true })),
-                unreadCount: 0,
-            });
-        }
-        if (allRoles) {
-            setAllRoles({
-                items: allRoles.items.map((n) => ({ ...n, is_read: true })),
-                unreadCount: 0,
-            });
-        }
-    };
-
     return (
         <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger asChild>
                 <button className="relative rounded-md p-2 hover:bg-accent transition-colors" aria-label="Notifikasi">
                     <Bell className="size-5" />
                     {unreadCount > 0 && (
-                        <span className="absolute -top-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+                        <span className="absolute -top-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
                             {unreadCount > 99 ? '99+' : unreadCount}
                         </span>
                     )}
@@ -88,14 +64,12 @@ export function NotificationBell() {
                             title="Role Aktif"
                             group={currentRole}
                             onClickItem={handleClick}
-                            onMarkAllRead={handleMarkAllRead}
                         />
                         <Separator />
                         <NotificationSection
                             title="Semua Role"
                             group={allRoles}
                             onClickItem={handleClick}
-                            onMarkAllRead={handleMarkAllRead}
                         />
                     </div>
                 )}
@@ -108,35 +82,25 @@ function NotificationSection({
     title,
     group,
     onClickItem,
-    onMarkAllRead,
 }: {
     title: string;
     group: NotificationGroup | null;
     onClickItem: (item: NotificationItem) => void;
-    onMarkAllRead: (items: NotificationItem[]) => void;
 }) {
     const items = group?.items ?? [];
     const unreadCount = group?.unreadCount ?? 0;
 
     return (
         <div>
-            <div className="flex items-center justify-between px-4 py-2">
+            <div className="px-4 py-2">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     {title}
                     {unreadCount > 0 && (
-                        <span className="ml-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground normal-case">
+                        <span className="ml-1.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white normal-case">
                             {unreadCount}
                         </span>
                     )}
                 </h3>
-                {unreadCount > 0 && (
-                    <button
-                        onClick={() => onMarkAllRead(items)}
-                        className="text-xs text-primary hover:underline"
-                    >
-                        Tandai dibaca
-                    </button>
-                )}
             </div>
             {items.length === 0 ? (
                 <p className="px-4 pb-3 text-sm text-muted-foreground">Tidak ada notifikasi</p>

@@ -25,7 +25,7 @@ class NotificationFactory extends Factory
             'workspace_id' => Workspace::factory(),
             'subject' => fake()->sentence(4),
             'body' => fake()->paragraph(),
-            'link' => '/dashboard',
+            'link' => '/personal',
             'is_read' => false,
         ];
     }

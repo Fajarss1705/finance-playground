@@ -55,7 +55,7 @@ it('switches role and workspace on store', function () {
             'role_id' => $role->id,
             'workspace_id' => $workspace->id,
         ])
-        ->assertRedirect(route('dashboard'));
+        ->assertRedirect(route('personal.index'));
 
     expect(session('active_role_id'))->toBe($role->id);
     expect(session('active_workspace_id'))->toBe($workspace->id);

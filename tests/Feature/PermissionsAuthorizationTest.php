@@ -16,7 +16,7 @@ it('redirects to role-selector when no active session', function () {
     $user = User::factory()->withRole()->create();
 
     $this->actingAs($user)
-        ->get(route('dashboard'))
+        ->get(route('personal.index'))
         ->assertRedirect(route('role-selector.index'));
 });
 
@@ -24,7 +24,7 @@ it('redirects to no-access when user has no roles and no session', function () {
     $user = User::factory()->create();
 
     $this->actingAs($user)
-        ->get(route('dashboard'))
+        ->get(route('personal.index'))
         ->assertRedirect(route('no-access'));
 });
 
@@ -38,7 +38,7 @@ it('returns 403 when permission is missing', function () {
     $this->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertForbidden();
 });
 
@@ -63,13 +63,13 @@ it('grants access when permission matches route name', function () {
     $role = $user->roles->first();
     $workspace = $role->team->organization->workspaces->first();
 
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     $this->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful();
 });
 
@@ -80,13 +80,13 @@ it('shares active role and workspace via Inertia', function () {
     $role = $user->roles->first();
     $workspace = $role->team->organization->workspaces->first();
 
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     $this->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
             ->has('auth.activeRole')
@@ -95,7 +95,7 @@ it('shares active role and workspace via Inertia', function () {
             ->has('auth.workspaces')
             ->where('auth.activeRole.id', $role->id)
             ->where('auth.activeWorkspace.id', $workspace->id)
-            ->where('auth.permissions', ['dashboard'])
+            ->where('auth.permissions', ['personal.index'])
         );
 });
 
@@ -110,14 +110,14 @@ it('refreshes permissions from database on each request', function () {
     app(ActiveSessionService::class)->switchTo($role, $workspace);
 
     // No permission yet → 403
-    $this->get(route('dashboard'))->assertForbidden();
+    $this->get(route('personal.index'))->assertForbidden();
 
     // Admin adds permission to role in DB (without user re-switching)
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     // Next request picks up the new permission automatically
-    $this->get(route('dashboard'))->assertSuccessful();
+    $this->get(route('personal.index'))->assertSuccessful();
 });
 
 // --- Full flow integration ---
@@ -127,7 +127,7 @@ it('completes full login to dashboard flow', function () {
     $role = $user->roles->first();
     $workspace = $role->team->organization->workspaces->first();
 
-    $permission = Permission::create(['name' => 'dashboard']);
+    $permission = Permission::create(['name' => 'personal.index']);
     $role->permissions()->attach($permission);
 
     // Login → role-selector
@@ -140,10 +140,10 @@ it('completes full login to dashboard flow', function () {
     $this->post(route('role-selector.store'), [
         'role_id' => $role->id,
         'workspace_id' => $workspace->id,
-    ])->assertRedirect(route('dashboard'));
+    ])->assertRedirect(route('personal.index'));
 
     // Dashboard accessible
-    $this->get(route('dashboard'))
+    $this->get(route('personal.index'))
         ->assertSuccessful();
 
     expect(session('active_role_id'))->toBe($role->id);

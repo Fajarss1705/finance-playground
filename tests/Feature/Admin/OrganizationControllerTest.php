@@ -24,7 +24,7 @@ function setupUserWithPermissions(string ...$permissionNames): array
     return [$user, $role, $workspace];
 }
 
-function activateSession(object $test, $user, $role, $workspace): void
+function activateOrgSession(object $test, $user, $role, $workspace): void
 {
     $test->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
@@ -34,7 +34,7 @@ function activateSession(object $test, $user, $role, $workspace): void
 
 it('displays organizations index page', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.index');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     Organization::factory()->count(3)->create();
 
@@ -48,7 +48,7 @@ it('displays organizations index page', function () {
 
 it('returns 403 without permission', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('dashboard');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $this->get(route('admin.organizations.index'))
         ->assertForbidden();
@@ -58,7 +58,7 @@ it('returns 403 without permission', function () {
 
 it('displays create form', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.create');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $this->get(route('admin.organizations.create'))
         ->assertOk()
@@ -69,7 +69,7 @@ it('displays create form', function () {
 
 it('stores a new organization', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.store');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $this->post(route('admin.organizations.store'), [
         'name' => 'Organisasi Baru',
@@ -84,7 +84,7 @@ it('stores a new organization', function () {
 
 it('validates required name on store', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.store');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $this->post(route('admin.organizations.store'), [
         'name' => '',
@@ -95,7 +95,7 @@ it('validates required name on store', function () {
 
 it('displays edit form with organization data', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.edit');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create(['name' => 'Test Org']);
 
@@ -111,7 +111,7 @@ it('displays edit form with organization data', function () {
 
 it('updates an organization', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.update');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create();
 
@@ -127,7 +127,7 @@ it('updates an organization', function () {
 
 it('soft deletes an organization without teams', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.destroy');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create();
 
@@ -139,7 +139,7 @@ it('soft deletes an organization without teams', function () {
 
 it('prevents deleting an organization with teams', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.destroy');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create();
     Team::factory()->create(['organization_id' => $org->id]);
@@ -155,7 +155,7 @@ it('prevents deleting an organization with teams', function () {
 
 it('displays trash page with soft-deleted organizations', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.trash');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create();
     $org->delete();
@@ -170,7 +170,7 @@ it('displays trash page with soft-deleted organizations', function () {
 
 it('returns 403 for trash without permission', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('dashboard');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $this->get(route('admin.organizations.trash'))
         ->assertForbidden();
@@ -180,7 +180,7 @@ it('returns 403 for trash without permission', function () {
 
 it('restores a soft-deleted organization', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.restore');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create();
     $org->delete();
@@ -193,7 +193,7 @@ it('restores a soft-deleted organization', function () {
 
 it('returns 403 for restore without permission', function () {
     [$user, $role, $workspace] = setupUserWithPermissions('dashboard');
-    activateSession($this, $user, $role, $workspace);
+    activateOrgSession($this, $user, $role, $workspace);
 
     $org = Organization::factory()->create();
     $org->delete();

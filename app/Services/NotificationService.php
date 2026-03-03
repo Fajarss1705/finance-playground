@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\URL;
 
 class NotificationService
 {
+    private const LINK_EXPIRY_DAYS = 7;
+
     public function send(User $user, Role $role, Workspace $workspace, string $subject, string $body, ?string $link = null): Notification
     {
         $notification = Notification::create([
@@ -23,8 +25,7 @@ class NotificationService
             'link' => $link,
         ]);
 
-        $signedUrl = $this->generateSignedUrl($notification);
-        $mailable = new NotificationMail($notification, $signedUrl);
+        $mailable = $this->buildMailable($notification);
 
         $notification->update([
             'email_html' => $mailable->render(),
@@ -37,8 +38,7 @@ class NotificationService
 
     public function resend(Notification $notification): void
     {
-        $signedUrl = $this->generateSignedUrl($notification);
-        $mailable = new NotificationMail($notification, $signedUrl);
+        $mailable = $this->buildMailable($notification);
 
         $notification->update([
             'email_html' => $mailable->render(),
@@ -47,12 +47,20 @@ class NotificationService
         Mail::to($notification->user)->queue($mailable);
     }
 
-    private function generateSignedUrl(Notification $notification): string
+    private function buildMailable(Notification $notification): NotificationMail
     {
-        return URL::temporarySignedRoute(
+        $expiresAt = now()->addDays(self::LINK_EXPIRY_DAYS);
+
+        $signedUrl = URL::temporarySignedRoute(
             'notifications.redirect',
-            now()->addDays(7),
+            $expiresAt,
             ['notification' => $notification->id],
+        );
+
+        return new NotificationMail(
+            $notification,
+            $signedUrl,
+            $expiresAt->translatedFormat('d F Y, H:i').' WIB',
         );
     }
 }

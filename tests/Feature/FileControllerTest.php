@@ -34,7 +34,7 @@ function activateFileSession(object $test, $user, $role, $workspace): void
 // --- Personal ---
 
 it('displays personal files page', function () {
-    [$user, $role, $workspace] = setupFileTestUser('files.personal');
+    [$user, $role, $workspace] = setupFileTestUser('personal.files');
     activateFileSession($this, $user, $role, $workspace);
 
     File::factory()->create([
@@ -42,16 +42,16 @@ it('displays personal files page', function () {
         'workspace_id' => $workspace->id,
     ]);
 
-    $this->get(route('files.personal'))
+    $this->get(route('personal.files'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('files/personal')
+            ->component('personal/files')
             ->has('files.data', 1)
         );
 });
 
 it('only shows own files in personal page', function () {
-    [$user, $role, $workspace] = setupFileTestUser('files.personal');
+    [$user, $role, $workspace] = setupFileTestUser('personal.files');
     activateFileSession($this, $user, $role, $workspace);
 
     File::factory()->create([
@@ -64,7 +64,7 @@ it('only shows own files in personal page', function () {
         'workspace_id' => $workspace->id,
     ]);
 
-    $this->get(route('files.personal'))
+    $this->get(route('personal.files'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('files.data', 1)
@@ -72,7 +72,7 @@ it('only shows own files in personal page', function () {
 });
 
 it('shows workspace public files in personal page', function () {
-    [$user, $role, $workspace] = setupFileTestUser('files.personal');
+    [$user, $role, $workspace] = setupFileTestUser('personal.files');
     activateFileSession($this, $user, $role, $workspace);
 
     File::factory()->create([
@@ -86,7 +86,7 @@ it('shows workspace public files in personal page', function () {
         'is_workspace_public' => true,
     ]);
 
-    $this->get(route('files.personal'))
+    $this->get(route('personal.files'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('files.data', 2)
@@ -94,10 +94,10 @@ it('shows workspace public files in personal page', function () {
 });
 
 it('returns 403 for personal without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('dashboard');
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
     activateFileSession($this, $user, $role, $workspace);
 
-    $this->get(route('files.personal'))
+    $this->get(route('personal.files'))
         ->assertForbidden();
 });
 
@@ -143,7 +143,7 @@ it('shows workspace public files in team page', function () {
 });
 
 it('returns 403 for team without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('dashboard');
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
     activateFileSession($this, $user, $role, $workspace);
 
     $this->get(route('team.files.index'))
@@ -174,7 +174,7 @@ it('downloads a file', function () {
 });
 
 it('returns 403 for download without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('dashboard');
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
     activateFileSession($this, $user, $role, $workspace);
 
     $file = File::factory()->create([
@@ -270,7 +270,7 @@ it('soft deletes a file via admin destroy', function () {
 });
 
 it('returns 403 for admin destroy without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('dashboard');
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
     activateFileSession($this, $user, $role, $workspace);
 
     $file = File::factory()->create([
@@ -319,7 +319,7 @@ it('restores a soft-deleted file', function () {
 });
 
 it('returns 403 for admin restore without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('dashboard');
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
     activateFileSession($this, $user, $role, $workspace);
 
     $file = File::factory()->create([
@@ -334,6 +334,6 @@ it('returns 403 for admin restore without permission', function () {
 // --- Guest ---
 
 it('redirects guests to login', function () {
-    $this->get(route('files.personal'))
+    $this->get(route('personal.files'))
         ->assertRedirect(route('login'));
 });

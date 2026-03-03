@@ -7,6 +7,8 @@ use App\Services\ActiveSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class NotificationController extends Controller
 {
@@ -45,6 +47,51 @@ class NotificationController extends Controller
         ]);
     }
 
+    public function personal(Request $request): Response
+    {
+        $query = Notification::query()
+            ->forUser($request->user()->id)
+            ->where('workspace_id', $this->sessionService->getActiveWorkspaceId())
+            ->with('role.team')
+            ->latest();
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('subject', 'like', "%{$search}%")
+                    ->orWhere('body', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('status')) {
+            match ($request->input('status')) {
+                'unread' => $query->where('is_read', false),
+                'read' => $query->where('is_read', true),
+                default => null,
+            };
+        }
+
+        return Inertia::render('personal/notifications', [
+            'notifications' => $query->paginate(15)->withQueryString(),
+            'filters' => [
+                'search' => $request->input('search'),
+                'status' => $request->input('status'),
+            ],
+            'activeRoleId' => $this->sessionService->getActiveRoleId(),
+        ]);
+    }
+
+    public function markAllRead(Request $request): RedirectResponse
+    {
+        Notification::query()
+            ->forUser($request->user()->id)
+            ->where('workspace_id', $this->sessionService->getActiveWorkspaceId())
+            ->unread()
+            ->update(['is_read' => true]);
+
+        return back();
+    }
+
     public function markAsRead(Request $request, Notification $notification): JsonResponse
     {
         abort_unless($notification->user_id === $request->user()->id, 403);
@@ -54,13 +101,34 @@ class NotificationController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function show(Request $request, Notification $notification): Response
+    {
+        abort_unless($notification->user_id === $request->user()->id, 403);
+        abort_unless($notification->workspace_id === $this->sessionService->getActiveWorkspaceId(), 403);
+
+        // Switch role if notification is from a different role
+        if ($notification->role_id !== $this->sessionService->getActiveRoleId()) {
+            $role = $request->user()->roles()->find($notification->role_id);
+            abort_unless($role, 403);
+            $this->sessionService->switchTo($role, $notification->workspace);
+        }
+
+        $notification->markAsRead();
+        $notification->load('role.team');
+
+        return Inertia::render('personal/notifications/show', [
+            'notification' => $notification,
+        ]);
+    }
+
     public function go(Request $request, Notification $notification): RedirectResponse
     {
         abort_unless($notification->user_id === $request->user()->id, 403);
 
+        $this->sessionService->switchTo($notification->role, $notification->workspace);
         $notification->markAsRead();
 
-        return redirect($notification->link ?? route('dashboard'));
+        return redirect($notification->link ?? route('personal.index'));
     }
 
     public function redirect(Request $request, Notification $notification): RedirectResponse
@@ -73,6 +141,6 @@ class NotificationController extends Controller
         $this->sessionService->switchTo($role, $workspace);
         $notification->markAsRead();
 
-        return redirect($notification->link ?? route('dashboard'));
+        return redirect($notification->link ?? route('personal.index'));
     }
 }

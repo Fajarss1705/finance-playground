@@ -17,6 +17,7 @@ class NotificationMail extends Mailable implements ShouldQueue
     public function __construct(
         public Notification $notification,
         public string $signedUrl,
+        public string $expiresAt,
     ) {
         $this->afterCommit();
     }
@@ -36,6 +37,7 @@ class NotificationMail extends Mailable implements ShouldQueue
                 'body' => $this->notification->body,
                 'signedUrl' => $this->signedUrl,
                 'hasLink' => $this->notification->link !== null,
+                'expiresAt' => $this->expiresAt,
             ],
         );
     }
