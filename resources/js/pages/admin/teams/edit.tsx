@@ -14,7 +14,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { dashboard } from '@/routes';
+import { index as adminIndex } from '@/routes/admin';
 import { index as teamsIndex } from '@/routes/admin/teams';
 import type { BreadcrumbItem } from '@/types';
 
@@ -42,7 +42,7 @@ export default function TeamsEdit({ team, organizations }: Props) {
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Dashboard', href: dashboard() },
+        { title: 'Manajemen', href: adminIndex() },
         { title: 'Tim', href: teamsIndex() },
         { title: 'Edit', href: TeamController.edit(team.id) },
     ];

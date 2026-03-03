@@ -17,7 +17,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import AppLayout from '@/layouts/app-layout';
-import { dashboard } from '@/routes';
+import { index as adminIndex } from '@/routes/admin';
 import { index as organizationsIndex } from '@/routes/admin/organizations';
 import type { BreadcrumbItem } from '@/types';
 
@@ -41,7 +41,7 @@ type Props = {
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Dashboard', href: dashboard() },
+    { title: 'Manajemen', href: adminIndex() },
     { title: 'Organisasi', href: organizationsIndex() },
 ];
 

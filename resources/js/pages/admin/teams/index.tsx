@@ -24,7 +24,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { dashboard } from '@/routes';
+import { index as adminIndex } from '@/routes/admin';
 import { index as teamsIndex } from '@/routes/admin/teams';
 import type { BreadcrumbItem } from '@/types';
 
@@ -58,7 +58,7 @@ type Props = {
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Dashboard', href: dashboard() },
+    { title: 'Manajemen', href: adminIndex() },
     { title: 'Tim', href: teamsIndex() },
 ];
 
