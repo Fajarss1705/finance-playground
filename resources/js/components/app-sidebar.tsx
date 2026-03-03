@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BookOpen, Building2, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
+import { Bell, BookOpen, Building2, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -14,12 +14,13 @@ import {
 } from '@/components/ui/sidebar';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminFilesIndex } from '@/routes/admin/files';
+import { index as adminNotificationsIndex } from '@/routes/admin/notifications';
 import { index as adminOrganizationsIndex } from '@/routes/admin/organizations';
 import { index as adminRolesIndex } from '@/routes/admin/roles';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
 import { index as adminUsersIndex } from '@/routes/admin/users';
 import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
-import { files as personalFiles, index as personalIndex } from '@/routes/personal';
+import { files as personalFiles, index as personalIndex, notifications as personalNotifications } from '@/routes/personal';
 import { index as teamIndex } from '@/routes/team';
 import { index as teamFilesIndex } from '@/routes/team/files';
 import type { Auth, NavItem } from '@/types';
@@ -36,6 +37,12 @@ const personalNavItems: NavItem[] = [
         href: personalFiles(),
         icon: FileText,
         permission: 'personal.files',
+    },
+    {
+        title: 'Notifikasi Saya',
+        href: personalNotifications(),
+        icon: Bell,
+        permission: 'personal.notifications',
     },
 ];
 
@@ -96,6 +103,12 @@ const adminNavItems: NavItem[] = [
         href: adminFilesIndex(),
         icon: Folder,
         permission: 'admin.files.index',
+    },
+    {
+        title: 'Semua Notifikasi',
+        href: adminNotificationsIndex(),
+        icon: Bell,
+        permission: 'admin.notifications.index',
     },
 ];
 
