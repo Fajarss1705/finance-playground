@@ -194,3 +194,107 @@ it('returns 403 without admin.notifications.index permission', function () {
     $this->get(route('admin.notifications.index'))
         ->assertForbidden();
 });
+
+// --- GET /admin/notifications/{notification} ---
+
+it('displays admin notification show page', function () {
+    [$user, $role, $workspace] = setupAdminNotifSession('admin.notifications.show');
+    activateAdminNotifSession($this, $user, $role, $workspace);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+        'subject' => 'Admin Show Test',
+    ]);
+
+    $this->get(route('admin.notifications.show', $notification))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/notifications/show')
+            ->where('notification.subject', 'Admin Show Test')
+            ->has('notification.user')
+            ->has('notification.role.team')
+        );
+});
+
+it('shows other users notification in admin show', function () {
+    [$user, $role, $workspace] = setupAdminNotifSession('admin.notifications.show');
+    activateAdminNotifSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->create();
+    $notification = Notification::factory()->create([
+        'user_id' => $otherUser->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    $this->get(route('admin.notifications.show', $notification))
+        ->assertOk();
+});
+
+it('marks own notification as read in admin show', function () {
+    [$user, $role, $workspace] = setupAdminNotifSession('admin.notifications.show');
+    activateAdminNotifSession($this, $user, $role, $workspace);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    expect($notification->is_read)->toBeFalse();
+
+    $this->get(route('admin.notifications.show', $notification))
+        ->assertOk();
+
+    expect($notification->refresh()->is_read)->toBeTrue();
+});
+
+it('does not mark other users notification as read in admin show', function () {
+    [$user, $role, $workspace] = setupAdminNotifSession('admin.notifications.show');
+    activateAdminNotifSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->create();
+    $notification = Notification::factory()->create([
+        'user_id' => $otherUser->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    $this->get(route('admin.notifications.show', $notification))
+        ->assertOk();
+
+    expect($notification->refresh()->is_read)->toBeFalse();
+});
+
+it('returns 403 for notification in different workspace in admin show', function () {
+    [$user, $role, $workspace] = setupAdminNotifSession('admin.notifications.show');
+    activateAdminNotifSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->withRole()->create();
+    $otherWorkspace = $otherUser->roles->first()->team->organization->workspaces->first();
+
+    $notification = Notification::factory()->create([
+        'user_id' => $otherUser->id,
+        'role_id' => $otherUser->roles->first()->id,
+        'workspace_id' => $otherWorkspace->id,
+    ]);
+
+    $this->get(route('admin.notifications.show', $notification))
+        ->assertForbidden();
+});
+
+it('returns 403 without admin.notifications.show permission', function () {
+    [$user, $role, $workspace] = setupAdminNotifSession();
+    activateAdminNotifSession($this, $user, $role, $workspace);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    $this->get(route('admin.notifications.show', $notification))
+        ->assertForbidden();
+});

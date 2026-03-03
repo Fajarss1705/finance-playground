@@ -239,3 +239,100 @@ it('returns 403 without personal.notifications permission', function () {
     $this->get(route('personal.notifications'))
         ->assertForbidden();
 });
+
+// --- GET /notifications/{notification}/show ---
+
+it('displays personal notification show page', function () {
+    [$user, $role, $workspace] = setupNotificationIndexSession();
+    activateNotificationSession($this, $user, $role, $workspace);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+        'subject' => 'Test Show',
+    ]);
+
+    $this->get(route('notifications.show', $notification))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('personal/notifications/show')
+            ->where('notification.subject', 'Test Show')
+            ->has('notification.role.team')
+        );
+});
+
+it('marks notification as read when viewing show page', function () {
+    [$user, $role, $workspace] = setupNotificationIndexSession();
+    activateNotificationSession($this, $user, $role, $workspace);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    expect($notification->is_read)->toBeFalse();
+
+    $this->get(route('notifications.show', $notification))
+        ->assertOk();
+
+    expect($notification->refresh()->is_read)->toBeTrue();
+});
+
+it('switches role when viewing notification from different role', function () {
+    [$user, $role, $workspace] = setupNotificationIndexSession();
+    activateNotificationSession($this, $user, $role, $workspace);
+
+    // Create another role for the same user in the same workspace
+    $otherRole = \App\Models\Role::factory()->create([
+        'team_id' => \App\Models\Team::factory()->create([
+            'organization_id' => $role->team->organization_id,
+        ])->id,
+    ]);
+    $user->roles()->attach($otherRole);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $otherRole->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    $this->get(route('notifications.show', $notification))
+        ->assertOk();
+
+    expect(session('active_role_id'))->toBe($otherRole->id);
+    expect($notification->refresh()->is_read)->toBeTrue();
+});
+
+it('returns 403 for other users notification on show', function () {
+    [$user, $role, $workspace] = setupNotificationIndexSession();
+    activateNotificationSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->create();
+    $notification = Notification::factory()->create([
+        'user_id' => $otherUser->id,
+        'role_id' => $role->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    $this->get(route('notifications.show', $notification))
+        ->assertForbidden();
+});
+
+it('returns 403 for notification in different workspace on show', function () {
+    [$user, $role, $workspace] = setupNotificationIndexSession();
+    activateNotificationSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->withRole()->create();
+    $otherWorkspace = $otherUser->roles->first()->team->organization->workspaces->first();
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $role->id,
+        'workspace_id' => $otherWorkspace->id,
+    ]);
+
+    $this->get(route('notifications.show', $notification))
+        ->assertForbidden();
+});
