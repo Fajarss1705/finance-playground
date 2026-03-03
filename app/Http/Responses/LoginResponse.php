@@ -18,7 +18,7 @@ class LoginResponse implements LoginResponseContract
         if (! $user->hasRoles()) {
             $url = route('no-access');
         } elseif ($this->sessionService->hasActiveSession()) {
-            $url = route('dashboard');
+            $url = route('personal.index');
         } else {
             $url = route('role-selector.index');
         }

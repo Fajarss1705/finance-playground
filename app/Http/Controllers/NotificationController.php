@@ -60,7 +60,7 @@ class NotificationController extends Controller
 
         $notification->markAsRead();
 
-        return redirect($notification->link ?? route('dashboard'));
+        return redirect($notification->link ?? route('personal.index'));
     }
 
     public function redirect(Request $request, Notification $notification): RedirectResponse
@@ -73,6 +73,6 @@ class NotificationController extends Controller
         $this->sessionService->switchTo($role, $workspace);
         $notification->markAsRead();
 
-        return redirect($notification->link ?? route('dashboard'));
+        return redirect($notification->link ?? route('personal.index'));
     }
 }

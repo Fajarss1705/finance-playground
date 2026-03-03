@@ -34,6 +34,6 @@ class SwitcherController extends Controller
 
         $this->sessionService->switchTo($role, $workspace);
 
-        return to_route('dashboard');
+        return to_route('personal.index');
     }
 }

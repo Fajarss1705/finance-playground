@@ -28,13 +28,14 @@ Route::middleware(['auth'])->group(function () {
 });
 
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
-
-    // Files (Personal scope)
-    Route::prefix('files')->name('files.')->group(function () {
-        Route::get('personal', [FileController::class, 'personal'])->name('personal');
-        Route::get('{file}/download', [FileController::class, 'download'])->name('download');
+    // Personal scope
+    Route::prefix('personal')->name('personal.')->group(function () {
+        Route::inertia('/', 'personal/index')->name('index');
+        Route::get('files', [FileController::class, 'personal'])->name('files');
     });
+
+    // Shared file routes
+    Route::get('files/{file}/download', [FileController::class, 'download'])->name('files.download');
 
     // Team scope
     Route::prefix('team')->name('team.')->group(function () {
