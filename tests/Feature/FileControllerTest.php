@@ -59,7 +59,7 @@ it('only shows own files in personal page', function () {
         'workspace_id' => $workspace->id,
     ]);
 
-    // Another user's file in same workspace
+    // Another user's file in same workspace — not public
     File::factory()->create([
         'workspace_id' => $workspace->id,
     ]);
@@ -68,6 +68,28 @@ it('only shows own files in personal page', function () {
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('files.data', 1)
+        );
+});
+
+it('shows workspace public files in personal page', function () {
+    [$user, $role, $workspace] = setupFileTestUser('files.personal');
+    activateFileSession($this, $user, $role, $workspace);
+
+    File::factory()->create([
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    // Another user's file that is workspace public
+    File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'is_workspace_public' => true,
+    ]);
+
+    $this->get(route('files.personal'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('files.data', 2)
         );
 });
 
@@ -98,66 +120,33 @@ it('displays team files page', function () {
         );
 });
 
+it('shows workspace public files in team page', function () {
+    [$user, $role, $workspace] = setupFileTestUser('files.team');
+    activateFileSession($this, $user, $role, $workspace);
+
+    File::factory()->create([
+        'team_id' => $role->team_id,
+        'workspace_id' => $workspace->id,
+    ]);
+
+    // Different team's file that is workspace public
+    File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'is_workspace_public' => true,
+    ]);
+
+    $this->get(route('files.team'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('files.data', 2)
+        );
+});
+
 it('returns 403 for team without permission', function () {
     [$user, $role, $workspace] = setupFileTestUser('dashboard');
     activateFileSession($this, $user, $role, $workspace);
 
     $this->get(route('files.team'))
-        ->assertForbidden();
-});
-
-// --- Upload ---
-
-it('uploads a file successfully', function () {
-    Storage::fake('local');
-
-    [$user, $role, $workspace] = setupFileTestUser('files.upload');
-    activateFileSession($this, $user, $role, $workspace);
-
-    $file = UploadedFile::fake()->create('document.pdf', 1024, 'application/pdf');
-
-    $this->post(route('files.upload'), [
-        'file' => $file,
-    ])->assertRedirect();
-
-    expect(File::count())->toBe(1);
-
-    $stored = File::first();
-    expect($stored->original_filename)->toBe('document.pdf');
-    expect($stored->user_id)->toBe($user->id);
-    expect($stored->workspace_id)->toBe($workspace->id);
-    expect($stored->role_id)->toBe($role->id);
-    expect($stored->team_id)->toBe($role->team_id);
-
-    Storage::disk('local')->assertExists($stored->path);
-});
-
-it('validates file is required on upload', function () {
-    [$user, $role, $workspace] = setupFileTestUser('files.upload');
-    activateFileSession($this, $user, $role, $workspace);
-
-    $this->post(route('files.upload'), [])
-        ->assertSessionHasErrors('file');
-});
-
-it('validates max file size on upload', function () {
-    Storage::fake('local');
-
-    [$user, $role, $workspace] = setupFileTestUser('files.upload');
-    activateFileSession($this, $user, $role, $workspace);
-
-    $file = UploadedFile::fake()->create('large.pdf', 11000, 'application/pdf');
-
-    $this->post(route('files.upload'), [
-        'file' => $file,
-    ])->assertSessionHasErrors('file');
-});
-
-it('returns 403 for upload without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('dashboard');
-    activateFileSession($this, $user, $role, $workspace);
-
-    $this->post(route('files.upload'), [])
         ->assertForbidden();
 });
 
@@ -196,32 +185,91 @@ it('returns 403 for download without permission', function () {
         ->assertForbidden();
 });
 
-// --- Destroy ---
+// --- Admin: Index ---
 
-it('destroys a file and removes from storage', function () {
-    Storage::fake('local');
-
-    [$user, $role, $workspace] = setupFileTestUser('files.destroy');
+it('displays admin files index', function () {
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.index');
     activateFileSession($this, $user, $role, $workspace);
 
-    $uploadedFile = UploadedFile::fake()->create('delete-me.pdf', 100, 'application/pdf');
-    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'delete-me.pdf');
-
-    $file = File::factory()->create([
-        'user_id' => $user->id,
+    File::factory()->count(3)->create([
         'workspace_id' => $workspace->id,
-        'disk' => 'local',
-        'path' => 'files/test/delete-me.pdf',
     ]);
 
-    $this->delete(route('files.destroy', $file))
+    $this->get(route('admin.files.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/files/index')
+            ->has('files.data', 3)
+        );
+});
+
+// --- Admin: Upload (50MB limit) ---
+
+it('uploads a file via admin route', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.upload');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $file = UploadedFile::fake()->create('admin-doc.pdf', 1024, 'application/pdf');
+
+    $this->post(route('admin.files.upload'), [
+        'file' => $file,
+        'is_workspace_public' => true,
+    ])->assertRedirect();
+
+    $stored = File::first();
+    expect($stored->original_filename)->toBe('admin-doc.pdf');
+    expect($stored->is_workspace_public)->toBeTrue();
+});
+
+it('allows up to 50MB on admin upload', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.upload');
+    activateFileSession($this, $user, $role, $workspace);
+
+    // 30MB — exceeds user limit (25MB) but within admin limit (50MB)
+    $file = UploadedFile::fake()->create('big.pdf', 30000, 'application/pdf');
+
+    $this->post(route('admin.files.upload'), [
+        'file' => $file,
+    ])->assertRedirect();
+
+    expect(File::count())->toBe(1);
+});
+
+it('rejects files over 50MB on admin upload', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.upload');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $file = UploadedFile::fake()->create('huge.pdf', 52000, 'application/pdf');
+
+    $this->post(route('admin.files.upload'), [
+        'file' => $file,
+    ])->assertSessionHasErrors('file');
+});
+
+// --- Admin: Destroy (soft delete) ---
+
+it('soft deletes a file via admin destroy', function () {
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.destroy');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+    ]);
+
+    $this->delete(route('admin.files.destroy', $file))
         ->assertRedirect();
 
     expect(File::count())->toBe(0);
-    Storage::disk('local')->assertMissing('files/test/delete-me.pdf');
+    expect(File::withTrashed()->count())->toBe(1);
 });
 
-it('returns 403 for destroy without permission', function () {
+it('returns 403 for admin destroy without permission', function () {
     [$user, $role, $workspace] = setupFileTestUser('dashboard');
     activateFileSession($this, $user, $role, $workspace);
 
@@ -229,7 +277,57 @@ it('returns 403 for destroy without permission', function () {
         'workspace_id' => $workspace->id,
     ]);
 
-    $this->delete(route('files.destroy', $file))
+    $this->delete(route('admin.files.destroy', $file))
+        ->assertForbidden();
+});
+
+// --- Admin: Trash ---
+
+it('displays admin files trash', function () {
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.trash');
+    activateFileSession($this, $user, $role, $workspace);
+
+    File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'deleted_at' => now(),
+    ]);
+
+    $this->get(route('admin.files.trash'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/files/trash')
+            ->has('files.data', 1)
+        );
+});
+
+// --- Admin: Restore ---
+
+it('restores a soft-deleted file', function () {
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.restore');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'deleted_at' => now(),
+    ]);
+
+    $this->post(route('admin.files.restore', $file))
+        ->assertRedirect();
+
+    expect(File::count())->toBe(1);
+    expect($file->fresh()->deleted_at)->toBeNull();
+});
+
+it('returns 403 for admin restore without permission', function () {
+    [$user, $role, $workspace] = setupFileTestUser('dashboard');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'deleted_at' => now(),
+    ]);
+
+    $this->post(route('admin.files.restore', $file))
         ->assertForbidden();
 });
 
