@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import { BookOpen, Building2, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -21,13 +21,14 @@ import { index as adminTeamsIndex } from '@/routes/admin/teams';
 import { index as adminUsersIndex } from '@/routes/admin/users';
 import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
 import { personal as filesPersonal } from '@/routes/files';
-import { team as filesTeam } from '@/routes/files';
-import type { NavItem } from '@/types';
+import { index as teamIndex } from '@/routes/team';
+import { index as teamFilesIndex } from '@/routes/team/files';
+import type { Auth, NavItem } from '@/types';
 import AppLogo from './app-logo';
 
 const personalNavItems: NavItem[] = [
     {
-        title: 'Dashboard',
+        title: 'Dashboard Personal',
         href: dashboard(),
         icon: LayoutGrid,
     },
@@ -41,10 +42,16 @@ const personalNavItems: NavItem[] = [
 
 const teamNavItems: NavItem[] = [
     {
+        title: 'Dashboard Tim',
+        href: teamIndex(),
+        icon: LayoutGrid,
+        permission: 'team.index',
+    },
+    {
         title: 'File Tim',
-        href: filesTeam(),
+        href: teamFilesIndex(),
         icon: FolderOpen,
-        permission: 'files.team',
+        permission: 'team.files.index',
     },
 ];
 
@@ -107,6 +114,9 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
+    const { auth } = usePage<{ auth: Auth }>().props;
+    const teamLabel = auth.activeRole?.team?.name ? `Tim: ${auth.activeRole.team.name}` : 'Tim';
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -122,9 +132,9 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={personalNavItems} label="Personal" />
-                <NavMain items={teamNavItems} label="Tim" />
-                <NavMain items={adminNavItems} label="Manajemen" />
+                <NavMain items={personalNavItems} label="Personal" iconClassName="text-blue-600 dark:text-blue-400" />
+                <NavMain items={teamNavItems} label={teamLabel} iconClassName="text-emerald-600 dark:text-emerald-400" />
+                <NavMain items={adminNavItems} label="Manajemen" iconClassName="text-amber-600 dark:text-amber-400" />
             </SidebarContent>
 
             <SidebarFooter>

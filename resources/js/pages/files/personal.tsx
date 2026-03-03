@@ -6,6 +6,7 @@ import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
+import { dashboard } from '@/routes';
 import { personal as filesPersonal } from '@/routes/files';
 import type { BreadcrumbItem } from '@/types';
 
@@ -34,6 +35,7 @@ type Props = {
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Personal', href: dashboard() },
     { title: 'File Saya', href: filesPersonal() },
 ];
 

@@ -104,7 +104,7 @@ it('returns 403 for personal without permission', function () {
 // --- Team ---
 
 it('displays team files page', function () {
-    [$user, $role, $workspace] = setupFileTestUser('files.team');
+    [$user, $role, $workspace] = setupFileTestUser('team.files.index');
     activateFileSession($this, $user, $role, $workspace);
 
     File::factory()->create([
@@ -112,16 +112,16 @@ it('displays team files page', function () {
         'workspace_id' => $workspace->id,
     ]);
 
-    $this->get(route('files.team'))
+    $this->get(route('team.files.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('files/team')
+            ->component('team/files')
             ->has('files.data', 1)
         );
 });
 
 it('shows workspace public files in team page', function () {
-    [$user, $role, $workspace] = setupFileTestUser('files.team');
+    [$user, $role, $workspace] = setupFileTestUser('team.files.index');
     activateFileSession($this, $user, $role, $workspace);
 
     File::factory()->create([
@@ -135,7 +135,7 @@ it('shows workspace public files in team page', function () {
         'is_workspace_public' => true,
     ]);
 
-    $this->get(route('files.team'))
+    $this->get(route('team.files.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('files.data', 2)
@@ -146,7 +146,7 @@ it('returns 403 for team without permission', function () {
     [$user, $role, $workspace] = setupFileTestUser('dashboard');
     activateFileSession($this, $user, $role, $workspace);
 
-    $this->get(route('files.team'))
+    $this->get(route('team.files.index'))
         ->assertForbidden();
 });
 

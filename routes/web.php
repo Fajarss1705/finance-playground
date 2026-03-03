@@ -3,6 +3,7 @@
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SwitcherController;
+use App\Http\Controllers\Team\TeamDashboardController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
@@ -29,11 +30,16 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 
-    // Files
+    // Files (Personal scope)
     Route::prefix('files')->name('files.')->group(function () {
         Route::get('personal', [FileController::class, 'personal'])->name('personal');
-        Route::get('team', [FileController::class, 'team'])->name('team');
         Route::get('{file}/download', [FileController::class, 'download'])->name('download');
+    });
+
+    // Team scope
+    Route::prefix('team')->name('team.')->group(function () {
+        Route::get('/', TeamDashboardController::class)->name('index');
+        Route::get('files', [FileController::class, 'team'])->name('files.index');
     });
 
     // Browser test routes — remove after testing
