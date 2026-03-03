@@ -13,9 +13,11 @@ import type { NavItem } from '@/types';
 export function NavMain({
     items = [],
     label = 'Personal',
+    iconClassName,
 }: {
     items: NavItem[];
     label?: string;
+    iconClassName?: string;
 }) {
     const { isCurrentUrl } = useCurrentUrl();
     const { can } = usePermission();
@@ -40,7 +42,7 @@ export function NavMain({
                             tooltip={{ children: item.title }}
                         >
                             <Link href={item.href} prefetch>
-                                {item.icon && <item.icon />}
+                                {item.icon && <item.icon className={iconClassName} />}
                                 <span>{item.title}</span>
                             </Link>
                         </SidebarMenuButton>
