@@ -77,6 +77,7 @@ class NotificationController extends Controller
                 'search' => $request->input('search'),
                 'status' => $request->input('status'),
             ],
+            'activeRoleId' => $this->sessionService->getActiveRoleId(),
         ]);
     }
 

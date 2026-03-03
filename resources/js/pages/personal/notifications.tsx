@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import AppLayout from '@/layouts/app-layout';
 import { index as personalIndex, notifications as personalNotifications } from '@/routes/personal';
 import { markAllRead } from '@/routes/personal/notifications';
-import { go } from '@/routes/notifications';
+import { show } from '@/routes/notifications';
 import type { BreadcrumbItem } from '@/types';
 
 type NotificationRow = {
@@ -37,6 +37,7 @@ type Props = {
         search: string | null;
         status: string | null;
     };
+    activeRoleId: number;
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -54,7 +55,7 @@ function formatDate(dateStr: string): string {
     });
 }
 
-export default function NotificationsPersonal({ notifications, filters }: Props) {
+export default function NotificationsPersonal({ notifications, filters, activeRoleId }: Props) {
     const [search, setSearch] = useState(filters.search ?? '');
     const [status, setStatus] = useState(filters.status ?? 'all');
 
@@ -138,35 +139,38 @@ export default function NotificationsPersonal({ notifications, filters }: Props)
                                     </td>
                                 </tr>
                             ) : (
-                                notifications.data.map((notification) => (
-                                    <tr
-                                        key={notification.id}
-                                        className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                                        onClick={() => router.get(go.url(notification.id))}
-                                    >
-                                        <td className="px-4 py-3 text-center">
-                                            {!notification.is_read && (
-                                                <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className={notification.is_read ? 'text-muted-foreground' : 'font-medium'}>
-                                                {notification.subject}
-                                            </div>
-                                            <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                                                {notification.body}
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <Badge variant="secondary">
-                                                {notification.role.name} &middot; {notification.role.team.name}
-                                            </Badge>
-                                        </td>
-                                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                                            {formatDate(notification.created_at)}
-                                        </td>
-                                    </tr>
-                                ))
+                                notifications.data.map((notification) => {
+                                    const isActiveRole = notification.role.id === activeRoleId;
+                                    return (
+                                        <tr
+                                            key={notification.id}
+                                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/30 ${!isActiveRole ? 'bg-muted/20' : ''}`}
+                                            onClick={() => router.get(show.url(notification.id))}
+                                        >
+                                            <td className="px-4 py-3 text-center">
+                                                {!notification.is_read && (
+                                                    <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className={notification.is_read ? 'text-muted-foreground' : 'font-medium'}>
+                                                    {notification.subject}
+                                                </div>
+                                                <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                                                    {notification.body}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <Badge variant={isActiveRole ? 'secondary' : 'outline'}>
+                                                    {notification.role.name} &middot; {notification.role.team.name}
+                                                </Badge>
+                                            </td>
+                                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                                                {formatDate(notification.created_at)}
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>

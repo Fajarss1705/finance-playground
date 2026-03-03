@@ -9,8 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
 import { index as adminIndex } from '@/routes/admin';
-import { index as adminNotificationsIndex, markAllRead } from '@/routes/admin/notifications';
-import { go } from '@/routes/notifications';
+import { index as adminNotificationsIndex, markAllRead, show } from '@/routes/admin/notifications';
 import type { Auth, BreadcrumbItem } from '@/types';
 
 type AdminNotificationRow = {
@@ -143,13 +142,11 @@ export default function AdminNotificationsIndex({ notifications, filters }: Prop
                                     </td>
                                 </tr>
                             ) : (
-                                notifications.data.map((notification) => {
-                                    const isOwn = notification.user.id === currentUserId;
-                                    return (
+                                notifications.data.map((notification) => (
                                         <tr
                                             key={notification.id}
-                                            className={`border-b last:border-0 ${isOwn ? 'cursor-pointer hover:bg-muted/30' : ''}`}
-                                            onClick={isOwn ? () => router.get(go.url(notification.id)) : undefined}
+                                            className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                                            onClick={() => router.get(show.url(notification.id))}
                                         >
                                             <td className="px-4 py-3 text-center">
                                                 {!notification.is_read && (
@@ -174,8 +171,7 @@ export default function AdminNotificationsIndex({ notifications, filters }: Prop
                                                 {formatDate(notification.created_at)}
                                             </td>
                                         </tr>
-                                    );
-                                })
+                                ))
                             )}
                         </tbody>
                     </table>
