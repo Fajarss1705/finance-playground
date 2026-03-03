@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminDashboardController;
+use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\OrganizationController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\TeamController;
@@ -29,6 +30,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
         Route::get('users/trash', [UserController::class, 'trash'])->name('users.trash');
         Route::post('users/{user}/restore', [UserController::class, 'restore'])->name('users.restore')->withTrashed();
+
+        // Files
+        Route::get('files', [FileController::class, 'index'])->name('files.index');
 
         // Resource routes
         Route::resource('organizations', OrganizationController::class)->except(['show']);
