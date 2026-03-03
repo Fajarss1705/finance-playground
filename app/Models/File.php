@@ -28,9 +28,20 @@ class File extends Model
         'organization_id',
         'workspace_id',
         'source_route',
+        'is_workspace_public',
         'attachable_type',
         'attachable_id',
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'is_workspace_public' => 'boolean',
+        ];
+    }
 
     protected static function booted(): void
     {
