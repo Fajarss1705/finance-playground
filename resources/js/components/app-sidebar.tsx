@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, Building2, Folder, LayoutGrid, Settings, Users } from 'lucide-react';
+import { BookOpen, Building2, Folder, Layers, LayoutGrid, Settings, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -12,12 +12,13 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import type { NavItem } from '@/types';
-import AppLogo from './app-logo';
 import { dashboard } from '@/routes';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminOrganizationsIndex } from '@/routes/admin/organizations';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
+import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
+import type { NavItem } from '@/types';
+import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
     {
@@ -33,6 +34,12 @@ const adminNavItems: NavItem[] = [
         href: adminIndex(),
         icon: Settings,
         permission: 'admin.index',
+    },
+    {
+        title: 'Workspace',
+        href: adminWorkspacesIndex(),
+        icon: Layers,
+        permission: 'admin.workspaces.index',
     },
     {
         title: 'Organisasi',
