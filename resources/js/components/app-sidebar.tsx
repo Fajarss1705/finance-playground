@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, Building2, Folder, LayoutGrid, Users } from 'lucide-react';
+import { BookOpen, Building2, Folder, LayoutGrid, Settings, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -15,6 +15,7 @@ import {
 import type { NavItem } from '@/types';
 import AppLogo from './app-logo';
 import { dashboard } from '@/routes';
+import { index as adminIndex } from '@/routes/admin';
 import { index as adminOrganizationsIndex } from '@/routes/admin/organizations';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
 
@@ -27,6 +28,12 @@ const mainNavItems: NavItem[] = [
 ];
 
 const adminNavItems: NavItem[] = [
+    {
+        title: 'Dashboard Manajemen',
+        href: adminIndex(),
+        icon: Settings,
+        permission: 'admin.index',
+    },
     {
         title: 'Organisasi',
         href: adminOrganizationsIndex(),
