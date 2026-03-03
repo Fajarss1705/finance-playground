@@ -32,7 +32,11 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
         Route::post('users/{user}/restore', [UserController::class, 'restore'])->name('users.restore')->withTrashed();
 
         // Files
+        Route::get('files/trash', [FileController::class, 'trash'])->name('files.trash');
+        Route::post('files/{file}/restore', [FileController::class, 'restore'])->name('files.restore')->withTrashed();
         Route::get('files', [FileController::class, 'index'])->name('files.index');
+        Route::post('files/upload', [FileController::class, 'upload'])->name('files.upload');
+        Route::delete('files/{file}', [FileController::class, 'destroy'])->name('files.destroy');
 
         // Resource routes
         Route::resource('organizations', OrganizationController::class)->except(['show']);

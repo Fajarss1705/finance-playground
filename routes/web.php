@@ -33,9 +33,7 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     Route::prefix('files')->name('files.')->group(function () {
         Route::get('personal', [FileController::class, 'personal'])->name('personal');
         Route::get('team', [FileController::class, 'team'])->name('team');
-        Route::post('upload', [FileController::class, 'upload'])->name('upload');
         Route::get('{file}/download', [FileController::class, 'download'])->name('download');
-        Route::delete('{file}', [FileController::class, 'destroy'])->name('destroy');
     });
 
     // Browser test routes — remove after testing

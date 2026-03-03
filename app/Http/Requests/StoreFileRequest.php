@@ -17,8 +17,14 @@ class StoreFileRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => ['required', 'file', 'max:10240'], // 10MB max
+            'file' => [
+                'required',
+                'file',
+                'max:25600', // 25MB
+                'mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,zip',
+            ],
             'source_route' => ['nullable', 'string', 'max:255'],
+            'is_workspace_public' => ['nullable', 'boolean'],
         ];
     }
 
@@ -30,7 +36,8 @@ class StoreFileRequest extends FormRequest
         return [
             'file.required' => 'File wajib diunggah.',
             'file.file' => 'Data yang diunggah harus berupa file.',
-            'file.max' => 'Ukuran file maksimal 10MB.',
+            'file.max' => 'Ukuran file maksimal 25MB.',
+            'file.mimes' => 'Tipe file harus: PDF, Word, Excel, PowerPoint, JPG, PNG, atau ZIP.',
         ];
     }
 }
