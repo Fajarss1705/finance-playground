@@ -1,5 +1,5 @@
 import { Form, Head, Link, router, usePage } from '@inertiajs/react';
-import { Shield } from 'lucide-react';
+import { Shield, Trash2 } from 'lucide-react';
 import RoleController from '@/actions/App/Http/Controllers/Admin/RoleController';
 import AlertError from '@/components/alert-error';
 import { Can } from '@/components/can';
@@ -78,16 +78,29 @@ export default function RolesIndex({ roles, teams, filters }: Props) {
             <div className="space-y-6 p-6">
                 <div className="flex items-center justify-between">
                     <Heading title="Role" description="Kelola data role" />
-                    <Can permission="admin.roles.create">
-                        <Button asChild>
-                            <Link
-                                href={RoleController.create().url}
-                                prefetch
-                            >
-                                Tambah Role
-                            </Link>
-                        </Button>
-                    </Can>
+                    <div className="flex gap-2">
+                        <Can permission="admin.roles.trash">
+                            <Button variant="outline" asChild>
+                                <Link
+                                    href={RoleController.trash().url}
+                                    prefetch
+                                >
+                                    <Trash2 />
+                                    Sampah
+                                </Link>
+                            </Button>
+                        </Can>
+                        <Can permission="admin.roles.create">
+                            <Button asChild>
+                                <Link
+                                    href={RoleController.create().url}
+                                    prefetch
+                                >
+                                    Tambah Role
+                                </Link>
+                            </Button>
+                        </Can>
+                    </div>
                 </div>
 
                 {errors.delete && (
@@ -226,7 +239,7 @@ function DeleteRoleDialog({ role }: { role: Role }) {
                 <DialogTitle>Hapus Role</DialogTitle>
                 <DialogDescription>
                     Apakah Anda yakin ingin menghapus role &quot;{role.name}
-                    &quot;? Tindakan ini tidak dapat dibatalkan.
+                    &quot;? Data akan dipindahkan ke sampah.
                 </DialogDescription>
                 <Form
                     {...RoleController.destroy.form(role.id)}

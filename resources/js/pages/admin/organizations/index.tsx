@@ -1,5 +1,5 @@
 import { Form, Head, Link, usePage } from '@inertiajs/react';
-import { Building2 } from 'lucide-react';
+import { Building2, Trash2 } from 'lucide-react';
 import OrganizationController from '@/actions/App/Http/Controllers/Admin/OrganizationController';
 import AlertError from '@/components/alert-error';
 import { Can } from '@/components/can';
@@ -59,16 +59,29 @@ export default function OrganizationsIndex({ organizations }: Props) {
                         title="Organisasi"
                         description="Kelola data organisasi"
                     />
-                    <Can permission="admin.organizations.create">
-                        <Button asChild>
-                            <Link
-                                href={OrganizationController.create().url}
-                                prefetch
-                            >
-                                Tambah Organisasi
-                            </Link>
-                        </Button>
-                    </Can>
+                    <div className="flex gap-2">
+                        <Can permission="admin.organizations.trash">
+                            <Button variant="outline" asChild>
+                                <Link
+                                    href={OrganizationController.trash().url}
+                                    prefetch
+                                >
+                                    <Trash2 />
+                                    Sampah
+                                </Link>
+                            </Button>
+                        </Can>
+                        <Can permission="admin.organizations.create">
+                            <Button asChild>
+                                <Link
+                                    href={OrganizationController.create().url}
+                                    prefetch
+                                >
+                                    Tambah Organisasi
+                                </Link>
+                            </Button>
+                        </Can>
+                    </div>
                 </div>
 
                 {errors.delete && (
@@ -183,8 +196,8 @@ function DeleteOrganizationDialog({
                 <DialogTitle>Hapus Organisasi</DialogTitle>
                 <DialogDescription>
                     Apakah Anda yakin ingin menghapus organisasi &quot;
-                    {organization.name}&quot;? Tindakan ini tidak dapat
-                    dibatalkan.
+                    {organization.name}&quot;? Data akan dipindahkan ke
+                    sampah.
                 </DialogDescription>
                 <Form
                     {...OrganizationController.destroy.form(organization.id)}

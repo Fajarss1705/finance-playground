@@ -1,5 +1,5 @@
 import { Form, Head, Link, router, usePage } from '@inertiajs/react';
-import { Users } from 'lucide-react';
+import { Trash2, Users } from 'lucide-react';
 import TeamController from '@/actions/App/Http/Controllers/Admin/TeamController';
 import AlertError from '@/components/alert-error';
 import { Can } from '@/components/can';
@@ -79,16 +79,29 @@ export default function TeamsIndex({ teams, organizations, filters }: Props) {
             <div className="space-y-6 p-6">
                 <div className="flex items-center justify-between">
                     <Heading title="Tim" description="Kelola data tim" />
-                    <Can permission="admin.teams.create">
-                        <Button asChild>
-                            <Link
-                                href={TeamController.create().url}
-                                prefetch
-                            >
-                                Tambah Tim
-                            </Link>
-                        </Button>
-                    </Can>
+                    <div className="flex gap-2">
+                        <Can permission="admin.teams.trash">
+                            <Button variant="outline" asChild>
+                                <Link
+                                    href={TeamController.trash().url}
+                                    prefetch
+                                >
+                                    <Trash2 />
+                                    Sampah
+                                </Link>
+                            </Button>
+                        </Can>
+                        <Can permission="admin.teams.create">
+                            <Button asChild>
+                                <Link
+                                    href={TeamController.create().url}
+                                    prefetch
+                                >
+                                    Tambah Tim
+                                </Link>
+                            </Button>
+                        </Can>
+                    </div>
                 </div>
 
                 {errors.delete && (
@@ -229,7 +242,7 @@ function DeleteTeamDialog({ team }: { team: Team }) {
                 <DialogTitle>Hapus Tim</DialogTitle>
                 <DialogDescription>
                     Apakah Anda yakin ingin menghapus tim &quot;{team.name}
-                    &quot;? Tindakan ini tidak dapat dibatalkan.
+                    &quot;? Data akan dipindahkan ke sampah.
                 </DialogDescription>
                 <Form
                     {...TeamController.destroy.form(team.id)}
