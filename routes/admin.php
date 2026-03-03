@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\FileController;
+use App\Http\Controllers\Admin\NotificationController as AdminNotificationController;
 use App\Http\Controllers\Admin\OrganizationController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\TeamController;
@@ -30,6 +31,10 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
         Route::get('users/trash', [UserController::class, 'trash'])->name('users.trash');
         Route::post('users/{user}/restore', [UserController::class, 'restore'])->name('users.restore')->withTrashed();
+
+        // Notifications
+        Route::get('notifications', [AdminNotificationController::class, 'index'])->name('notifications.index');
+        Route::patch('notifications/mark-all-read', [AdminNotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
 
         // Files
         Route::get('files/trash', [FileController::class, 'trash'])->name('files.trash');
