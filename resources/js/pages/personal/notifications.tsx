@@ -161,7 +161,7 @@ export default function NotificationsPersonal({ notifications, filters, activeRo
                                                 </div>
                                             </td>
                                             <td className="px-4 py-3">
-                                                <Badge variant={isActiveRole ? 'secondary' : 'outline'}>
+                                                <Badge variant={isActiveRole ? 'default' : 'outline'}>
                                                     {notification.role.name} &middot; {notification.role.team.name}
                                                 </Badge>
                                             </td>

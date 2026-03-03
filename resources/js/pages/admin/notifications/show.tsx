@@ -1,8 +1,8 @@
 import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import Heading from '@/components/heading';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import AppLayout from '@/layouts/app-layout';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminNotificationsIndex } from '@/routes/admin/notifications';
@@ -45,42 +45,7 @@ export default function AdminNotificationShow({ notification }: Props) {
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={notification.subject} />
             <div className="mx-auto max-w-3xl space-y-6 p-6">
-                <Heading title={notification.subject} description={`Penerima: ${notification.user.name}`} />
-
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                    <span>{formatDate(notification.created_at)}</span>
-                    <Badge variant={notification.is_read ? 'secondary' : 'default'}>
-                        {notification.is_read ? 'Sudah Dibaca' : 'Belum Dibaca'}
-                    </Badge>
-                    <Badge variant="outline">
-                        {notification.role.name} &middot; {notification.role.team.name}
-                    </Badge>
-                </div>
-
-                <div className="rounded-lg border p-4">
-                    <p className="whitespace-pre-line text-sm">{notification.body}</p>
-                </div>
-
-                {notification.email_html && (
-                    <div className="space-y-2">
-                        <h3 className="text-sm font-medium">Preview Email</h3>
-                        <div className="overflow-hidden rounded-lg border">
-                            <iframe
-                                srcDoc={notification.email_html}
-                                sandbox=""
-                                className="w-full"
-                                style={{ minHeight: '400px' }}
-                                title="Email preview"
-                                onLoad={(e) => {
-                                    const iframe = e.target as HTMLIFrameElement;
-                                    if (iframe.contentDocument) {
-                                        iframe.style.height = iframe.contentDocument.body.scrollHeight + 'px';
-                                    }
-                                }}
-                            />
-                        </div>
-                    </div>
-                )}
+                <Heading title={notification.subject} />
 
                 <div className="flex gap-3">
                     <Button variant="outline" asChild>
@@ -98,6 +63,59 @@ export default function AdminNotificationShow({ notification }: Props) {
                         </Button>
                     )}
                 </div>
+
+                <div className="space-y-1 text-sm">
+                    <p className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Tanggal:</span> {formatDate(notification.created_at)}
+                    </p>
+                    <p className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Status:</span>{' '}
+                        <span className={notification.is_read ? 'font-medium text-green-600 dark:text-green-400' : 'font-medium text-red-600 dark:text-red-400'}>
+                            {notification.is_read ? 'Sudah Dibaca' : 'Belum Dibaca'}
+                        </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Penerima:</span> {notification.user.name}
+                    </p>
+                    <p className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Role:</span> {notification.role.name}
+                    </p>
+                    <p className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Tim:</span> {notification.role.team.name}
+                    </p>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                    <p className="whitespace-pre-line text-sm">{notification.body}</p>
+                </div>
+
+                {notification.email_html && (
+                    <>
+                        <Separator />
+                        <div className="space-y-2">
+                            <div className="flex items-baseline justify-between">
+                                <h3 className="text-sm font-medium">Preview Email</h3>
+                                <p className="text-xs text-muted-foreground">Link di dalam preview tidak aktif</p>
+                            </div>
+                            <div className="overflow-hidden rounded-lg border">
+                                <iframe
+                                    srcDoc={notification.email_html}
+                                    sandbox=""
+                                    className="w-full"
+                                    style={{ minHeight: '80vh' }}
+                                    title="Email preview"
+                                    onLoad={(e) => {
+                                        const iframe = e.target as HTMLIFrameElement;
+                                        if (iframe.contentDocument) {
+                                            const contentHeight = iframe.contentDocument.body.scrollHeight;
+                                            iframe.style.height = Math.max(contentHeight, window.innerHeight * 0.8) + 'px';
+                                        }
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </AppLayout>
     );

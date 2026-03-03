@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             FeatureTestFileManagement20260303Seeder::class,
+            FeatureTestNotificationsIndex20260303Seeder::class,
         ]);
     }
 }
