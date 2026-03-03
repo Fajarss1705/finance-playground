@@ -36,6 +36,12 @@ const adminNavItems: NavItem[] = [
         permission: 'admin.index',
     },
     {
+        title: 'Workspace',
+        href: adminWorkspacesIndex(),
+        icon: Layers,
+        permission: 'admin.workspaces.index',
+    },
+    {
         title: 'Organisasi',
         href: adminOrganizationsIndex(),
         icon: Building2,
@@ -46,12 +52,6 @@ const adminNavItems: NavItem[] = [
         href: adminTeamsIndex(),
         icon: Users,
         permission: 'admin.teams.index',
-    },
-    {
-        title: 'Workspace',
-        href: adminWorkspacesIndex(),
-        icon: Layers,
-        permission: 'admin.workspaces.index',
     },
 ];
 
