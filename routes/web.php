@@ -20,6 +20,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [NotificationController::class, 'index'])->name('index');
         Route::patch('{notification}/read', [NotificationController::class, 'markAsRead'])->name('mark-read');
         Route::get('{notification}/go', [NotificationController::class, 'go'])->name('go');
+        Route::get('{notification}/show', [NotificationController::class, 'show'])->name('show');
     });
 
     Route::get('notifications/{notification}/redirect', [NotificationController::class, 'redirect'])

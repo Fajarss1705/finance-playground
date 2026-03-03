@@ -34,6 +34,7 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
         // Notifications
         Route::get('notifications', [AdminNotificationController::class, 'index'])->name('notifications.index');
+        Route::get('notifications/{notification}', [AdminNotificationController::class, 'show'])->name('notifications.show');
         Route::patch('notifications/mark-all-read', [AdminNotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
 
         // Files

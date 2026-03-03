@@ -100,6 +100,26 @@ class NotificationController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function show(Request $request, Notification $notification): Response
+    {
+        abort_unless($notification->user_id === $request->user()->id, 403);
+        abort_unless($notification->workspace_id === $this->sessionService->getActiveWorkspaceId(), 403);
+
+        // Switch role if notification is from a different role
+        if ($notification->role_id !== $this->sessionService->getActiveRoleId()) {
+            $role = $request->user()->roles()->find($notification->role_id);
+            abort_unless($role, 403);
+            $this->sessionService->switchTo($role, $notification->workspace);
+        }
+
+        $notification->markAsRead();
+        $notification->load('role.team');
+
+        return Inertia::render('personal/notifications/show', [
+            'notification' => $notification,
+        ]);
+    }
+
     public function go(Request $request, Notification $notification): RedirectResponse
     {
         abort_unless($notification->user_id === $request->user()->id, 403);

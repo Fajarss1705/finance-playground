@@ -46,6 +46,24 @@ class NotificationController extends Controller
         ]);
     }
 
+    public function show(Request $request, Notification $notification): Response
+    {
+        abort_unless(
+            $notification->workspace_id === $this->sessionService->getActiveWorkspaceId(),
+            403,
+        );
+
+        if ($notification->user_id === $request->user()->id) {
+            $notification->markAsRead();
+        }
+
+        $notification->load(['user:id,name', 'role.team']);
+
+        return Inertia::render('admin/notifications/show', [
+            'notification' => $notification,
+        ]);
+    }
+
     public function markAllRead(Request $request): RedirectResponse
     {
         Notification::query()
