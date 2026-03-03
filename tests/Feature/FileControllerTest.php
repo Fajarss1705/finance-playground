@@ -185,6 +185,25 @@ it('returns 403 for download without permission', function () {
         ->assertForbidden();
 });
 
+it('returns 403 for download from different workspace', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('files.download');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->withRole()->create();
+    $otherWorkspace = $otherUser->roles->first()->team->organization->workspaces->first();
+
+    $file = File::factory()->create([
+        'workspace_id' => $otherWorkspace->id,
+        'disk' => 'local',
+        'path' => 'files/test/other.pdf',
+    ]);
+
+    $this->get(route('files.download', $file))
+        ->assertForbidden();
+});
+
 // --- Admin: Index ---
 
 it('displays admin files index', function () {
@@ -281,6 +300,23 @@ it('returns 403 for admin destroy without permission', function () {
         ->assertForbidden();
 });
 
+it('returns 403 for admin destroy from different workspace', function () {
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.destroy');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->withRole()->create();
+    $otherWorkspace = $otherUser->roles->first()->team->organization->workspaces->first();
+
+    $file = File::factory()->create([
+        'workspace_id' => $otherWorkspace->id,
+    ]);
+
+    $this->delete(route('admin.files.destroy', $file))
+        ->assertForbidden();
+
+    expect(File::count())->toBe(1);
+});
+
 // --- Admin: Trash ---
 
 it('displays admin files trash', function () {
@@ -329,6 +365,24 @@ it('returns 403 for admin restore without permission', function () {
 
     $this->post(route('admin.files.restore', $file))
         ->assertForbidden();
+});
+
+it('returns 403 for admin restore from different workspace', function () {
+    [$user, $role, $workspace] = setupFileTestUser('admin.files.restore');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $otherUser = User::factory()->withRole()->create();
+    $otherWorkspace = $otherUser->roles->first()->team->organization->workspaces->first();
+
+    $file = File::factory()->create([
+        'workspace_id' => $otherWorkspace->id,
+        'deleted_at' => now(),
+    ]);
+
+    $this->post(route('admin.files.restore', $file))
+        ->assertForbidden();
+
+    expect($file->fresh()->deleted_at)->not->toBeNull();
 });
 
 // --- Guest ---

@@ -50,6 +50,9 @@ class FileController extends Controller
 
     public function download(File $file): StreamedResponse
     {
+        $activeWorkspaceId = app(ActiveSessionService::class)->getActiveWorkspaceId();
+        abort_unless($file->workspace_id === $activeWorkspaceId, 403);
+
         return Storage::disk($file->disk)->download($file->path, $file->original_filename);
     }
 }

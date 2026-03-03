@@ -68,6 +68,9 @@ class FileController extends Controller
 
     public function destroy(File $file): RedirectResponse
     {
+        $activeWorkspaceId = app(ActiveSessionService::class)->getActiveWorkspaceId();
+        abort_unless($file->workspace_id === $activeWorkspaceId, 403);
+
         $file->delete();
 
         return back();
@@ -89,6 +92,9 @@ class FileController extends Controller
 
     public function restore(File $file): RedirectResponse
     {
+        $activeWorkspaceId = app(ActiveSessionService::class)->getActiveWorkspaceId();
+        abort_unless($file->workspace_id === $activeWorkspaceId, 403);
+
         $file->restore();
 
         return back();
