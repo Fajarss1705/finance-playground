@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, Building2, Folder, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
+import { BookOpen, Building2, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -14,19 +14,37 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as adminIndex } from '@/routes/admin';
+import { index as adminFilesIndex } from '@/routes/admin/files';
 import { index as adminOrganizationsIndex } from '@/routes/admin/organizations';
 import { index as adminRolesIndex } from '@/routes/admin/roles';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
 import { index as adminUsersIndex } from '@/routes/admin/users';
 import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
+import { personal as filesPersonal } from '@/routes/files';
+import { team as filesTeam } from '@/routes/files';
 import type { NavItem } from '@/types';
 import AppLogo from './app-logo';
 
-const mainNavItems: NavItem[] = [
+const personalNavItems: NavItem[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
+    },
+    {
+        title: 'File Saya',
+        href: filesPersonal(),
+        icon: FileText,
+        permission: 'files.personal',
+    },
+];
+
+const teamNavItems: NavItem[] = [
+    {
+        title: 'File Tim',
+        href: filesTeam(),
+        icon: FolderOpen,
+        permission: 'files.team',
     },
 ];
 
@@ -67,6 +85,12 @@ const adminNavItems: NavItem[] = [
         icon: UserCog,
         permission: 'admin.users.index',
     },
+    {
+        title: 'Semua File',
+        href: adminFilesIndex(),
+        icon: Folder,
+        permission: 'admin.files.index',
+    },
 ];
 
 const footerNavItems: NavItem[] = [
@@ -98,7 +122,8 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain items={personalNavItems} label="Personal" />
+                <NavMain items={teamNavItems} label="Tim" />
                 <NavMain items={adminNavItems} label="Manajemen" />
             </SidebarContent>
 
