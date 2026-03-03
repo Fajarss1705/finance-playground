@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            FeatureTestNotificationUi20260302Seeder::class,
+            FeatureTestAdminOrgTeam20260303Seeder::class,
         ]);
     }
 }

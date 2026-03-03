@@ -33,4 +33,5 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     Route::get('test/unnamed-route', fn () => 'This should never be visible');
 });
 
+require __DIR__.'/admin.php';
 require __DIR__.'/settings.php';
