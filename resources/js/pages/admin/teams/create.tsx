@@ -1,5 +1,6 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import { useState } from 'react';
+import TeamController from '@/actions/App/Http/Controllers/Admin/TeamController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -13,10 +14,9 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import type { BreadcrumbItem } from '@/types';
-import TeamController from '@/actions/App/Http/Controllers/Admin/TeamController';
-import { index as teamsIndex } from '@/routes/admin/teams';
 import { dashboard } from '@/routes';
+import { index as teamsIndex } from '@/routes/admin/teams';
+import type { BreadcrumbItem } from '@/types';
 
 type Organization = {
     id: number;

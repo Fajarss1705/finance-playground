@@ -1,5 +1,6 @@
 import { Form, Head, Link, usePage } from '@inertiajs/react';
 import { Building2 } from 'lucide-react';
+import OrganizationController from '@/actions/App/Http/Controllers/Admin/OrganizationController';
 import AlertError from '@/components/alert-error';
 import { Can } from '@/components/can';
 import Heading from '@/components/heading';
@@ -16,10 +17,9 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import AppLayout from '@/layouts/app-layout';
-import type { BreadcrumbItem } from '@/types';
-import OrganizationController from '@/actions/App/Http/Controllers/Admin/OrganizationController';
-import { index as organizationsIndex } from '@/routes/admin/organizations';
 import { dashboard } from '@/routes';
+import { index as organizationsIndex } from '@/routes/admin/organizations';
+import type { BreadcrumbItem } from '@/types';
 
 type Organization = {
     id: number;

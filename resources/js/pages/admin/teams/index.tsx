@@ -1,5 +1,6 @@
 import { Form, Head, Link, router, usePage } from '@inertiajs/react';
 import { Users } from 'lucide-react';
+import TeamController from '@/actions/App/Http/Controllers/Admin/TeamController';
 import AlertError from '@/components/alert-error';
 import { Can } from '@/components/can';
 import Heading from '@/components/heading';
@@ -23,10 +24,9 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import type { BreadcrumbItem } from '@/types';
-import TeamController from '@/actions/App/Http/Controllers/Admin/TeamController';
-import { index as teamsIndex } from '@/routes/admin/teams';
 import { dashboard } from '@/routes';
+import { index as teamsIndex } from '@/routes/admin/teams';
+import type { BreadcrumbItem } from '@/types';
 
 type Organization = {
     id: number;

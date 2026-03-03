@@ -1,14 +1,14 @@
 import { Form, Head, Link } from '@inertiajs/react';
+import OrganizationController from '@/actions/App/Http/Controllers/Admin/OrganizationController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
-import type { BreadcrumbItem } from '@/types';
-import OrganizationController from '@/actions/App/Http/Controllers/Admin/OrganizationController';
-import { index as organizationsIndex } from '@/routes/admin/organizations';
 import { dashboard } from '@/routes';
+import { index as organizationsIndex } from '@/routes/admin/organizations';
+import type { BreadcrumbItem } from '@/types';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: dashboard() },
