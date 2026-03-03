@@ -210,6 +210,32 @@ it('redirects to dashboard when notification has no link', function () {
         ->assertRedirect(route('personal.index'));
 });
 
+it('switches role when going to notification from different role', function () {
+    [$user, $role, $workspace] = setupUserWithSession();
+    activateSession($this, $user, $role, $workspace);
+
+    // Create another role for the same user in the same workspace
+    $otherRole = \App\Models\Role::factory()->create([
+        'team_id' => \App\Models\Team::factory()->create([
+            'organization_id' => $role->team->organization_id,
+        ])->id,
+    ]);
+    $user->roles()->attach($otherRole);
+
+    $notification = Notification::factory()->create([
+        'user_id' => $user->id,
+        'role_id' => $otherRole->id,
+        'workspace_id' => $workspace->id,
+        'link' => '/personal',
+    ]);
+
+    $this->get(route('notifications.go', $notification))
+        ->assertRedirect('/personal');
+
+    expect(session('active_role_id'))->toBe($otherRole->id);
+    expect($notification->refresh()->is_read)->toBeTrue();
+});
+
 // --- GET /notifications/{id}/redirect (signed URL) ---
 
 it('switches role and workspace via signed url redirect', function () {

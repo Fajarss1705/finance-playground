@@ -125,6 +125,7 @@ class NotificationController extends Controller
     {
         abort_unless($notification->user_id === $request->user()->id, 403);
 
+        $this->sessionService->switchTo($notification->role, $notification->workspace);
         $notification->markAsRead();
 
         return redirect($notification->link ?? route('personal.index'));
