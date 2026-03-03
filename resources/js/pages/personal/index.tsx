@@ -1,11 +1,11 @@
 import { Head } from '@inertiajs/react';
 import Heading from '@/components/heading';
 import AppLayout from '@/layouts/app-layout';
+import { index as personalIndex } from '@/routes/personal';
 import type { BreadcrumbItem } from '@/types';
-import { dashboard } from '@/routes';
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Personal', href: dashboard() },
+    { title: 'Personal', href: personalIndex() },
 ];
 
 export default function Dashboard() {

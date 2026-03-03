@@ -6,8 +6,7 @@ import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
-import { dashboard } from '@/routes';
-import { personal as filesPersonal } from '@/routes/files';
+import { files as personalFiles, index as personalIndex } from '@/routes/personal';
 import type { BreadcrumbItem } from '@/types';
 
 type FileRow = {
@@ -35,8 +34,8 @@ type Props = {
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Personal', href: dashboard() },
-    { title: 'File Saya', href: filesPersonal() },
+    { title: 'Personal', href: personalIndex() },
+    { title: 'File Saya', href: personalFiles() },
 ];
 
 function formatFileSize(bytes: number): string {

@@ -1,7 +1,7 @@
 import { Head, Link } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
 import AuthLayout from '@/layouts/auth-layout';
-import { dashboard } from '@/routes';
+import { index as personalIndex } from '@/routes/personal';
 
 export default function LinkExpired() {
     return (
@@ -18,7 +18,7 @@ export default function LinkExpired() {
                 </p>
 
                 <Button asChild>
-                    <Link href={dashboard()}>
+                    <Link href={personalIndex()}>
                         Kembali ke Dashboard
                     </Link>
                 </Button>

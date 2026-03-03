@@ -12,7 +12,6 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { dashboard } from '@/routes';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminFilesIndex } from '@/routes/admin/files';
 import { index as adminOrganizationsIndex } from '@/routes/admin/organizations';
@@ -20,7 +19,7 @@ import { index as adminRolesIndex } from '@/routes/admin/roles';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
 import { index as adminUsersIndex } from '@/routes/admin/users';
 import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
-import { personal as filesPersonal } from '@/routes/files';
+import { files as personalFiles, index as personalIndex } from '@/routes/personal';
 import { index as teamIndex } from '@/routes/team';
 import { index as teamFilesIndex } from '@/routes/team/files';
 import type { Auth, NavItem } from '@/types';
@@ -29,14 +28,14 @@ import AppLogo from './app-logo';
 const personalNavItems: NavItem[] = [
     {
         title: 'Dashboard Personal',
-        href: dashboard(),
+        href: personalIndex(),
         icon: LayoutGrid,
     },
     {
         title: 'File Saya',
-        href: filesPersonal(),
+        href: personalFiles(),
         icon: FileText,
-        permission: 'files.personal',
+        permission: 'personal.files',
     },
 ];
 
@@ -123,7 +122,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboard()} prefetch>
+                            <Link href={personalIndex()} prefetch>
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>
