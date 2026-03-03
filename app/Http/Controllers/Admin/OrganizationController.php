@@ -49,6 +49,23 @@ class OrganizationController extends Controller
         return to_route('admin.organizations.index');
     }
 
+    public function trash(): Response
+    {
+        return Inertia::render('admin/organizations/trash', [
+            'organizations' => Organization::onlyTrashed()
+                ->orderByDesc('deleted_at')
+                ->paginate(15)
+                ->withQueryString(),
+        ]);
+    }
+
+    public function restore(Organization $organization): RedirectResponse
+    {
+        $organization->restore();
+
+        return to_route('admin.organizations.trash');
+    }
+
     public function destroy(Organization $organization): RedirectResponse
     {
         if ($organization->teams()->exists()) {
