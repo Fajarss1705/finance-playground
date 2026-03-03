@@ -64,6 +64,24 @@ class TeamController extends Controller
         return to_route('admin.teams.index');
     }
 
+    public function trash(): Response
+    {
+        return Inertia::render('admin/teams/trash', [
+            'teams' => Team::onlyTrashed()
+                ->with(['organization' => fn ($q) => $q->withTrashed()])
+                ->orderByDesc('deleted_at')
+                ->paginate(15)
+                ->withQueryString(),
+        ]);
+    }
+
+    public function restore(Team $team): RedirectResponse
+    {
+        $team->restore();
+
+        return to_route('admin.teams.trash');
+    }
+
     public function destroy(Team $team): RedirectResponse
     {
         if ($team->roles()->exists()) {

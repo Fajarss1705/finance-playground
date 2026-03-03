@@ -83,6 +83,24 @@ class RoleController extends Controller
         return to_route('admin.roles.index');
     }
 
+    public function trash(): Response
+    {
+        return Inertia::render('admin/roles/trash', [
+            'roles' => Role::onlyTrashed()
+                ->with(['team' => fn ($q) => $q->withTrashed()])
+                ->orderByDesc('deleted_at')
+                ->paginate(15)
+                ->withQueryString(),
+        ]);
+    }
+
+    public function restore(Role $role): RedirectResponse
+    {
+        $role->restore();
+
+        return to_route('admin.roles.trash');
+    }
+
     public function destroy(Role $role): RedirectResponse
     {
         if ($role->users()->exists()) {

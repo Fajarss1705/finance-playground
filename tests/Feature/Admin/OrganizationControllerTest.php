@@ -151,6 +151,57 @@ it('prevents deleting an organization with teams', function () {
     expect($org->fresh()->deleted_at)->toBeNull();
 });
 
+// --- Trash ---
+
+it('displays trash page with soft-deleted organizations', function () {
+    [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.trash');
+    activateSession($this, $user, $role, $workspace);
+
+    $org = Organization::factory()->create();
+    $org->delete();
+
+    $this->get(route('admin.organizations.trash'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/organizations/trash')
+            ->has('organizations.data', 1)
+        );
+});
+
+it('returns 403 for trash without permission', function () {
+    [$user, $role, $workspace] = setupUserWithPermissions('dashboard');
+    activateSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.organizations.trash'))
+        ->assertForbidden();
+});
+
+// --- Restore ---
+
+it('restores a soft-deleted organization', function () {
+    [$user, $role, $workspace] = setupUserWithPermissions('admin.organizations.restore');
+    activateSession($this, $user, $role, $workspace);
+
+    $org = Organization::factory()->create();
+    $org->delete();
+
+    $this->post(route('admin.organizations.restore', $org))
+        ->assertRedirect(route('admin.organizations.trash'));
+
+    expect($org->fresh()->deleted_at)->toBeNull();
+});
+
+it('returns 403 for restore without permission', function () {
+    [$user, $role, $workspace] = setupUserWithPermissions('dashboard');
+    activateSession($this, $user, $role, $workspace);
+
+    $org = Organization::factory()->create();
+    $org->delete();
+
+    $this->post(route('admin.organizations.restore', $org))
+        ->assertForbidden();
+});
+
 // --- Guest ---
 
 it('redirects guests to login', function () {

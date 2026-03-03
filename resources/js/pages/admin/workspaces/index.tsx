@@ -1,5 +1,5 @@
 import { Form, Head, Link, usePage } from '@inertiajs/react';
-import { Layers } from 'lucide-react';
+import { Layers, Trash2 } from 'lucide-react';
 import WorkspaceController from '@/actions/App/Http/Controllers/Admin/WorkspaceController';
 import AlertError from '@/components/alert-error';
 import { Can } from '@/components/can';
@@ -59,16 +59,29 @@ export default function WorkspacesIndex({ workspaces }: Props) {
                         title="Workspace"
                         description="Kelola data workspace"
                     />
-                    <Can permission="admin.workspaces.create">
-                        <Button asChild>
-                            <Link
-                                href={WorkspaceController.create().url}
-                                prefetch
-                            >
-                                Tambah Workspace
-                            </Link>
-                        </Button>
-                    </Can>
+                    <div className="flex gap-2">
+                        <Can permission="admin.workspaces.trash">
+                            <Button variant="outline" asChild>
+                                <Link
+                                    href={WorkspaceController.trash().url}
+                                    prefetch
+                                >
+                                    <Trash2 />
+                                    Sampah
+                                </Link>
+                            </Button>
+                        </Can>
+                        <Can permission="admin.workspaces.create">
+                            <Button asChild>
+                                <Link
+                                    href={WorkspaceController.create().url}
+                                    prefetch
+                                >
+                                    Tambah Workspace
+                                </Link>
+                            </Button>
+                        </Can>
+                    </div>
                 </div>
 
                 {errors.delete && (
@@ -179,7 +192,8 @@ function DeleteWorkspaceDialog({ workspace }: { workspace: Workspace }) {
                 <DialogTitle>Hapus Workspace</DialogTitle>
                 <DialogDescription>
                     Apakah Anda yakin ingin menghapus workspace &quot;
-                    {workspace.name}&quot;? Tindakan ini tidak dapat dibatalkan.
+                    {workspace.name}&quot;? Data akan dipindahkan ke
+                    sampah.
                 </DialogDescription>
                 <Form
                     {...WorkspaceController.destroy.form(workspace.id)}

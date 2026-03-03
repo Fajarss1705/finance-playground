@@ -91,6 +91,23 @@ class UserController extends Controller
         return to_route('admin.users.index');
     }
 
+    public function trash(): Response
+    {
+        return Inertia::render('admin/users/trash', [
+            'users' => User::onlyTrashed()
+                ->orderByDesc('deleted_at')
+                ->paginate(15)
+                ->withQueryString(),
+        ]);
+    }
+
+    public function restore(User $user): RedirectResponse
+    {
+        $user->restore();
+
+        return to_route('admin.users.trash');
+    }
+
     public function destroy(User $user): RedirectResponse
     {
         if ($user->id === Auth::id()) {

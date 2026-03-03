@@ -67,6 +67,23 @@ class WorkspaceController extends Controller
         return to_route('admin.workspaces.index');
     }
 
+    public function trash(): Response
+    {
+        return Inertia::render('admin/workspaces/trash', [
+            'workspaces' => Workspace::onlyTrashed()
+                ->orderByDesc('deleted_at')
+                ->paginate(15)
+                ->withQueryString(),
+        ]);
+    }
+
+    public function restore(Workspace $workspace): RedirectResponse
+    {
+        $workspace->restore();
+
+        return to_route('admin.workspaces.trash');
+    }
+
     public function destroy(Workspace $workspace): RedirectResponse
     {
         if ($workspace->organizations()->exists()) {

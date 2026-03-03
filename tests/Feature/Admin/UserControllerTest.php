@@ -353,6 +353,57 @@ it('prevents self-deletion', function () {
     expect($user->fresh()->deleted_at)->toBeNull();
 });
 
+// --- Trash ---
+
+it('displays trash page with soft-deleted users', function () {
+    [$user, $role, $workspace] = setupUserTestUser('admin.users.trash');
+    activateUserSession($this, $user, $role, $workspace);
+
+    $deleteUser = User::factory()->create();
+    $deleteUser->delete();
+
+    $this->get(route('admin.users.trash'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/users/trash')
+            ->has('users.data', 1)
+        );
+});
+
+it('returns 403 for trash without permission', function () {
+    [$user, $role, $workspace] = setupUserTestUser('dashboard');
+    activateUserSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.users.trash'))
+        ->assertForbidden();
+});
+
+// --- Restore ---
+
+it('restores a soft-deleted user', function () {
+    [$user, $role, $workspace] = setupUserTestUser('admin.users.restore');
+    activateUserSession($this, $user, $role, $workspace);
+
+    $deleteUser = User::factory()->create();
+    $deleteUser->delete();
+
+    $this->post(route('admin.users.restore', $deleteUser))
+        ->assertRedirect(route('admin.users.trash'));
+
+    expect($deleteUser->fresh()->deleted_at)->toBeNull();
+});
+
+it('returns 403 for restore without permission', function () {
+    [$user, $role, $workspace] = setupUserTestUser('dashboard');
+    activateUserSession($this, $user, $role, $workspace);
+
+    $deleteUser = User::factory()->create();
+    $deleteUser->delete();
+
+    $this->post(route('admin.users.restore', $deleteUser))
+        ->assertForbidden();
+});
+
 // --- Guest ---
 
 it('redirects guests to login', function () {

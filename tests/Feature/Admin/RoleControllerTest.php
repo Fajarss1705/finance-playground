@@ -251,6 +251,57 @@ it('prevents deleting a role with users', function () {
     expect($deleteRole->fresh()->deleted_at)->toBeNull();
 });
 
+// --- Trash ---
+
+it('displays trash page with soft-deleted roles', function () {
+    [$user, $role, $workspace] = setupRoleTestUser('admin.roles.trash');
+    activateRoleSession($this, $user, $role, $workspace);
+
+    $deleteRole = Role::factory()->create();
+    $deleteRole->delete();
+
+    $this->get(route('admin.roles.trash'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/roles/trash')
+            ->has('roles.data', 1)
+        );
+});
+
+it('returns 403 for trash without permission', function () {
+    [$user, $role, $workspace] = setupRoleTestUser('dashboard');
+    activateRoleSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.roles.trash'))
+        ->assertForbidden();
+});
+
+// --- Restore ---
+
+it('restores a soft-deleted role', function () {
+    [$user, $role, $workspace] = setupRoleTestUser('admin.roles.restore');
+    activateRoleSession($this, $user, $role, $workspace);
+
+    $deleteRole = Role::factory()->create();
+    $deleteRole->delete();
+
+    $this->post(route('admin.roles.restore', $deleteRole))
+        ->assertRedirect(route('admin.roles.trash'));
+
+    expect($deleteRole->fresh()->deleted_at)->toBeNull();
+});
+
+it('returns 403 for restore without permission', function () {
+    [$user, $role, $workspace] = setupRoleTestUser('dashboard');
+    activateRoleSession($this, $user, $role, $workspace);
+
+    $deleteRole = Role::factory()->create();
+    $deleteRole->delete();
+
+    $this->post(route('admin.roles.restore', $deleteRole))
+        ->assertForbidden();
+});
+
 // --- Guest ---
 
 it('redirects guests to login', function () {

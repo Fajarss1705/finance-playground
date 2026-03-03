@@ -1,5 +1,5 @@
 import { Form, Head, Link, router, usePage } from '@inertiajs/react';
-import { UserCog } from 'lucide-react';
+import { Trash2, UserCog } from 'lucide-react';
 import { useState } from 'react';
 import UserController from '@/actions/App/Http/Controllers/Admin/UserController';
 import AlertError from '@/components/alert-error';
@@ -75,16 +75,29 @@ export default function UsersIndex({ users, filters }: Props) {
                         title="Pengguna"
                         description="Kelola data pengguna"
                     />
-                    <Can permission="admin.users.create">
-                        <Button asChild>
-                            <Link
-                                href={UserController.create().url}
-                                prefetch
-                            >
-                                Tambah Pengguna
-                            </Link>
-                        </Button>
-                    </Can>
+                    <div className="flex gap-2">
+                        <Can permission="admin.users.trash">
+                            <Button variant="outline" asChild>
+                                <Link
+                                    href={UserController.trash().url}
+                                    prefetch
+                                >
+                                    <Trash2 />
+                                    Sampah
+                                </Link>
+                            </Button>
+                        </Can>
+                        <Can permission="admin.users.create">
+                            <Button asChild>
+                                <Link
+                                    href={UserController.create().url}
+                                    prefetch
+                                >
+                                    Tambah Pengguna
+                                </Link>
+                            </Button>
+                        </Can>
+                    </div>
                 </div>
 
                 {errors.delete && (
@@ -245,7 +258,7 @@ function DeleteUserDialog({ user }: { user: UserRow }) {
                 <DialogTitle>Hapus Pengguna</DialogTitle>
                 <DialogDescription>
                     Apakah Anda yakin ingin menghapus pengguna &quot;
-                    {user.name}&quot;? Tindakan ini tidak dapat dibatalkan.
+                    {user.name}&quot;? Data akan dipindahkan ke sampah.
                 </DialogDescription>
                 <Form
                     {...UserController.destroy.form(user.id)}
