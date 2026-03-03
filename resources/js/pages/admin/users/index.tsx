@@ -29,6 +29,8 @@ type UserRow = {
     email: string;
     jabatan: string | null;
     roles_count: number;
+    email_verified_at: string | null;
+    created_at: string;
 };
 
 type PaginatedUsers = {
@@ -124,6 +126,12 @@ export default function UsersIndex({ users, filters }: Props) {
                                 <th className="px-4 py-3 text-center font-medium">
                                     Jumlah Role
                                 </th>
+                                <th className="px-4 py-3 text-center font-medium">
+                                    Verifikasi
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium">
+                                    Dibuat
+                                </th>
                                 <th className="px-4 py-3 text-right font-medium">
                                     Aksi
                                 </th>
@@ -133,7 +141,7 @@ export default function UsersIndex({ users, filters }: Props) {
                             {users.data.length === 0 ? (
                                 <tr>
                                     <td
-                                        colSpan={5}
+                                        colSpan={7}
                                         className="px-4 py-8 text-center text-muted-foreground"
                                     >
                                         <UserCog className="mx-auto mb-2 h-8 w-8 opacity-50" />
@@ -159,6 +167,28 @@ export default function UsersIndex({ users, filters }: Props) {
                                             <Badge variant="secondary">
                                                 {user.roles_count}
                                             </Badge>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            <Badge
+                                                variant={
+                                                    user.email_verified_at
+                                                        ? 'default'
+                                                        : 'destructive'
+                                                }
+                                            >
+                                                {user.email_verified_at
+                                                    ? 'Terverifikasi'
+                                                    : 'Belum'}
+                                            </Badge>
+                                        </td>
+                                        <td className="px-4 py-3 text-muted-foreground">
+                                            {new Date(
+                                                user.created_at,
+                                            ).toLocaleDateString('id-ID', {
+                                                day: 'numeric',
+                                                month: 'short',
+                                                year: 'numeric',
+                                            })}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex justify-end gap-2">
