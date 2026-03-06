@@ -44,6 +44,25 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     Route::prefix('team')->name('team.')->group(function () {
         Route::get('/', TeamDashboardController::class)->name('index');
         Route::get('files', [FileController::class, 'team'])->name('files.index');
+
+        // Workflow prototypes — PABD (team scope)
+        Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {
+            Route::inertia('/', 'team/workflows/pabd/index')->name('index');
+            Route::inertia('/pabd-uuid-001', 'team/workflows/pabd/show')->name('show');
+            Route::inertia('/pabd-uuid-001/pabd01', 'team/workflows/pabd/pabd01')->name('pabd01.show');
+            Route::inertia('/pabd-uuid-001/pabd02a', 'team/workflows/pabd/pabd02a')->name('pabd02a.show');
+            Route::inertia('/pabd-uuid-001/pabd04', 'team/workflows/pabd/pabd04')->name('pabd04.show');
+            Route::inertia('/pabd-uuid-001/pabd05', 'team/workflows/pabd/pabd05')->name('pabd05.show');
+        });
+
+        // Workflow prototypes — PRBL (team scope)
+        Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
+            Route::inertia('/', 'team/workflows/prbl/index')->name('index');
+            Route::inertia('/prbl-uuid-001', 'team/workflows/prbl/show')->name('show');
+            Route::inertia('/prbl-uuid-001/prbl01', 'team/workflows/prbl/prbl01')->name('prbl01.show');
+            Route::inertia('/prbl-uuid-001/prbl03', 'team/workflows/prbl/prbl03')->name('prbl03.show');
+            Route::inertia('/prbl-uuid-001/prbl05', 'team/workflows/prbl/prbl05')->name('prbl05.show');
+        });
     });
 
     // Browser test routes — remove after testing

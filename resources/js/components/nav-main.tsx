@@ -43,7 +43,7 @@ export function NavMain({
                         >
                             <Link href={item.href} prefetch>
                                 {item.icon && <item.icon className={iconClassName} />}
-                                <span>{item.title}</span>
+                                <span className={item.emphasis ? 'font-semibold' : ''}>{item.title}</span>
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>

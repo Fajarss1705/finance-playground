@@ -44,6 +44,25 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
         Route::post('files/upload', [FileController::class, 'upload'])->name('files.upload');
         Route::delete('files/{file}', [FileController::class, 'destroy'])->name('files.destroy');
 
+        // Workflow prototypes — PABD (admin scope)
+        Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {
+            Route::inertia('/', 'admin/workflows/pabd/index')->name('index');
+            Route::inertia('/pabd-uuid-001', 'admin/workflows/pabd/show')->name('show');
+            Route::inertia('/pabd-uuid-001/pabd02b', 'admin/workflows/pabd/pabd02b')->name('pabd02b.show');
+            Route::inertia('/pabd-uuid-001/pabd03', 'admin/workflows/pabd/pabd03')->name('pabd03.show');
+            Route::inertia('/pabd-uuid-001/pabd05', 'admin/workflows/pabd/pabd05')->name('pabd05.show');
+        });
+
+        // Workflow prototypes — PRBL (admin scope)
+        Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
+            Route::inertia('/', 'admin/workflows/prbl/index')->name('index');
+            Route::inertia('/prbl-uuid-001', 'admin/workflows/prbl/show')->name('show');
+            Route::inertia('/prbl-uuid-001/prbl02a', 'admin/workflows/prbl/prbl02a')->name('prbl02a.show');
+            Route::inertia('/prbl-uuid-001/prbl02b', 'admin/workflows/prbl/prbl02b')->name('prbl02b.show');
+            Route::inertia('/prbl-uuid-001/prbl04', 'admin/workflows/prbl/prbl04')->name('prbl04.show');
+            Route::inertia('/prbl-uuid-001/prbl05', 'admin/workflows/prbl/prbl05')->name('prbl05.show');
+        });
+
         // Resource routes
         Route::resource('organizations', OrganizationController::class)->except(['show']);
         Route::resource('teams', TeamController::class)->except(['show']);
