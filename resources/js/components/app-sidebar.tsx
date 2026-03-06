@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, BookOpen, Building2, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
+import { Bell, BookOpen, Building2, CalendarDays, ClipboardList, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -59,6 +59,20 @@ const teamNavItems: NavItem[] = [
         icon: FolderOpen,
         permission: 'team.files.index',
     },
+    {
+        title: 'Anggaran Bulanan',
+        href: '/team/workflows/pabd',
+        icon: CalendarDays,
+        permission: 'team.workflows.pabd.index',
+        emphasis: true,
+    },
+    {
+        title: 'Laporan Bulanan',
+        href: '/team/workflows/prbl',
+        icon: ClipboardList,
+        permission: 'team.workflows.prbl.index',
+        emphasis: true,
+    },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -109,6 +123,20 @@ const adminNavItems: NavItem[] = [
         href: adminNotificationsIndex(),
         icon: Bell,
         permission: 'admin.notifications.index',
+    },
+    {
+        title: 'Semua Anggaran Bulanan',
+        href: '/admin/workflows/pabd',
+        icon: CalendarDays,
+        permission: 'admin.workflows.pabd.index',
+        emphasis: true,
+    },
+    {
+        title: 'Semua Laporan Bulanan',
+        href: '/admin/workflows/prbl',
+        icon: ClipboardList,
+        permission: 'admin.workflows.prbl.index',
+        emphasis: true,
     },
 ];
 

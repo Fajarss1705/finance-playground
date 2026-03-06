@@ -12,8 +12,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            FeatureTestFileManagement20260303Seeder::class,
-            FeatureTestNotificationsIndex20260303Seeder::class,
+            DemoWorkflowPrototype20260305Seeder::class,
         ]);
     }
 }
