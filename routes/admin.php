@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\OrganizationController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\Workflows\PpWorkflowController;
 use App\Http\Controllers\Admin\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -43,6 +44,42 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
         Route::get('files', [FileController::class, 'index'])->name('files.index');
         Route::post('files/upload', [FileController::class, 'upload'])->name('files.upload');
         Route::delete('files/{file}', [FileController::class, 'destroy'])->name('files.destroy');
+
+        // PP Workflow (functional prototype)
+        Route::prefix('workflows/pp')->name('workflows.pp.')->group(function () {
+            Route::get('/', [PpWorkflowController::class, 'index'])->name('index');
+            Route::post('/create', [PpWorkflowController::class, 'create'])->name('create');
+            Route::get('/{ppWorkflow}', [PpWorkflowController::class, 'show'])->name('show');
+            Route::post('/{ppWorkflow}/comment', [PpWorkflowController::class, 'comment'])->name('comment');
+            Route::post('/{ppWorkflow}/terminate', [PpWorkflowController::class, 'terminate'])->name('terminate');
+
+            // PP01
+            Route::get('/{ppWorkflow}/pp01/{pp01Data}', [PpWorkflowController::class, 'pp01Show'])->name('pp01.show');
+            Route::post('/{ppWorkflow}/pp01/{pp01Data}/draft', [PpWorkflowController::class, 'pp01Draft'])->name('pp01.draft');
+            Route::post('/{ppWorkflow}/pp01/{pp01Data}/submit', [PpWorkflowController::class, 'pp01Submit'])->name('pp01.submit');
+
+            // PP02
+            Route::get('/{ppWorkflow}/pp02/{pp02Data}', [PpWorkflowController::class, 'pp02Show'])->name('pp02.show');
+            Route::post('/{ppWorkflow}/pp02/{pp02Data}/draft', [PpWorkflowController::class, 'pp02Draft'])->name('pp02.draft');
+            Route::post('/{ppWorkflow}/pp02/{pp02Data}/submit', [PpWorkflowController::class, 'pp02Submit'])->name('pp02.submit');
+
+            // PP03
+            Route::get('/{ppWorkflow}/pp03/{pp03Data}', [PpWorkflowController::class, 'pp03Show'])->name('pp03.show');
+            Route::post('/{ppWorkflow}/pp03/{pp03Data}/draft', [PpWorkflowController::class, 'pp03Draft'])->name('pp03.draft');
+            Route::post('/{ppWorkflow}/pp03/{pp03Data}/submit', [PpWorkflowController::class, 'pp03Submit'])->name('pp03.submit');
+
+            // PP04
+            Route::get('/{ppWorkflow}/pp04/{pp04Data}', [PpWorkflowController::class, 'pp04Show'])->name('pp04.show');
+            Route::post('/{ppWorkflow}/pp04/{pp04Data}/submit', [PpWorkflowController::class, 'pp04Submit'])->name('pp04.submit');
+
+            // PP05
+            Route::get('/{ppWorkflow}/pp05', [PpWorkflowController::class, 'pp05Show'])->name('pp05.show');
+            Route::post('/{ppWorkflow}/pp05/approve', [PpWorkflowController::class, 'pp05Approve'])->name('pp05.approve');
+            Route::post('/{ppWorkflow}/pp05/reject', [PpWorkflowController::class, 'pp05Reject'])->name('pp05.reject');
+
+            // PP06
+            Route::get('/{ppWorkflow}/pp06', [PpWorkflowController::class, 'pp06Show'])->name('pp06.show');
+        });
 
         // Workflow prototypes — PABD (admin scope)
         Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {
