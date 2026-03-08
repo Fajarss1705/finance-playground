@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Workflows;
 
+use App\Contracts\WorkflowDefinition;
 use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
 use App\Models\Pp\Pp01Data;
@@ -25,43 +26,70 @@ class PpWorkflowController extends Controller
         private ActiveSessionService $session,
     ) {}
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $workspaceId = $this->session->getActiveWorkspaceId();
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
-        $workflows = PpWorkflow::query()
-            ->where('workspace_id', $workspaceId)
-            ->orderByDesc('created_at')
-            ->paginate(15)
-            ->withQueryString();
+        $query = PpWorkflow::query()
+            ->where('workspace_id', $workspaceId);
 
-        // Compute status and label for each workflow
-        $workflows->through(function (PpWorkflow $wf) use ($definition) {
-            $statuses = $this->engine->getStepStatuses($definition, $wf->history ?? []);
-            $pp01 = $wf->latestPp01();
-            $pp06 = $wf->latestPp06();
+        // Tong Sampah toggle
+        if ($request->boolean('trash')) {
+            $query->onlyTrashed();
+        }
 
-            return [
-                'id' => $wf->id,
-                'label' => $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru',
-                'tahun' => $pp01?->tahun,
-                'status' => $this->engine->getWorkflowStatus($wf->history ?? []),
-                'step_statuses' => $statuses,
-                'current_steps' => $this->engine->getCurrentSteps($definition, $wf->history ?? []),
-                'pp06' => $pp06 ? [
-                    'revision' => $pp06->revision,
-                    'tahun' => $pp06->tahun,
-                    'tanggal_mulai_pra_raker' => $pp06->tanggal_mulai_pra_raker?->format('Y-m-d'),
-                    'tanggal_penetapan_program' => $pp06->tanggal_penetapan_program?->format('Y-m-d'),
-                ] : null,
-                'created_at' => $wf->created_at->toIso8601String(),
-                'updated_at' => $wf->updated_at->toIso8601String(),
-            ];
-        });
+        // Tahun filter — join via pp01_data
+        if ($request->filled('tahun')) {
+            $query->whereHas('pp01Data', fn ($q) => $q->where('tahun', (int) $request->input('tahun')));
+        }
+
+        $statusFilter = $request->input('status');
+        $userCache = [];
+        $roleCache = [];
+
+        // When status filter is active, we must load all then filter (status is computed from JSON history).
+        // PP workflows per workspace are small (a few per year), so this is fine.
+        if ($statusFilter) {
+            $allWorkflows = $query->orderByDesc('created_at')->get();
+            $transformed = $allWorkflows->map(fn (PpWorkflow $wf) => $this->transformWorkflowForIndex($wf, $definition, $userCache, $roleCache));
+            $filtered = $transformed->filter(fn ($item) => $item['status'] === $statusFilter)->values();
+
+            $page = (int) $request->input('page', 1);
+            $perPage = 15;
+            $workflows = new \Illuminate\Pagination\LengthAwarePaginator(
+                $filtered->forPage($page, $perPage)->values(),
+                $filtered->count(),
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()],
+            );
+        } else {
+            $workflows = $query
+                ->orderByDesc('created_at')
+                ->paginate(15)
+                ->withQueryString();
+
+            $workflows->through(fn (PpWorkflow $wf) => $this->transformWorkflowForIndex($wf, $definition, $userCache, $roleCache));
+        }
+
+        // Available tahun values for filter
+        $availableTahun = Pp01Data::query()
+            ->whereIn('pp_workflow_id', PpWorkflow::where('workspace_id', $workspaceId)->select('id'))
+            ->whereNotNull('tahun')
+            ->distinct()
+            ->orderByDesc('tahun')
+            ->pluck('tahun')
+            ->values();
 
         return Inertia::render('admin/workflows/pp/index', [
             'workflows' => $workflows,
+            'filters' => [
+                'status' => $request->input('status'),
+                'tahun' => $request->input('tahun'),
+                'trash' => $request->boolean('trash'),
+            ],
+            'availableTahun' => $availableTahun,
         ]);
     }
 
@@ -100,17 +128,94 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
         $pp01 = $ppWorkflow->latestPp01();
+        $pp06 = $ppWorkflow->latestPp06();
+        $label = $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru';
+
+        // Detect "Dalam Revisi"
+        if ($workflowStatus === 'completed') {
+            $hasPp07Draft = $ppWorkflow->pp07Data()->whereNull('submitted_at')->exists();
+            if ($hasPp07Draft) {
+                $workflowStatus = 'revising';
+            }
+        }
+
+        // Creator info from first history entry
+        $creatorEntry = $history[0] ?? null;
+        $creatorName = 'System';
+        $creatorRole = null;
+        $creatorDate = $ppWorkflow->created_at->format('d/m/Y');
+        if ($creatorEntry && isset($creatorEntry['by'])) {
+            $creatorName = \App\Models\User::find($creatorEntry['by'])?->name ?? 'Unknown';
+            if (isset($creatorEntry['role'])) {
+                $creatorRole = \App\Models\Role::find($creatorEntry['role'])?->name;
+            }
+        }
+
+        // Step aktif label
+        $stepAktifLabel = null;
+        if ($workflowStatus === 'active' && ! empty($currentSteps)) {
+            $stepNames = [
+                'PP01' => 'Rencana Periode',
+                'PP02' => 'Pertanyaan Kuisioner',
+                'PP03' => 'Plafon Anggaran',
+                'PP04' => 'Dokumen SOP',
+                'PP05' => 'Persetujuan',
+                'PP06' => 'Periode Tahunan',
+                'PP07' => 'Revisi',
+            ];
+            $step = $currentSteps[0];
+            $stepAktifLabel = $step.': '.($stepNames[$step] ?? $step);
+        }
+
+        // Data Terbaru from PP06
+        $dataTerbaru = null;
+        if ($pp06) {
+            $plafon = $pp06->itemPlafonAnggaran()->with('team:id,name')->get();
+            $dataTerbaru = [
+                'tahun' => $pp01?->tahun,
+                'pra_raker' => $pp06->tanggal_mulai_pra_raker?->format('d/m/Y'),
+                'penetapan' => $pp06->tanggal_penetapan_program?->format('d/m/Y'),
+                'revision' => $pp06->revision,
+                'pp06_id' => $pp06->id,
+                'plafon' => $plafon->map(fn ($p) => [
+                    'kode' => $p->kode_team,
+                    'tim' => $p->team?->name ?? 'Unknown',
+                    'plafon_anggaran' => $p->plafon_anggaran,
+                ])->values(),
+                'total_anggaran' => $plafon->sum('plafon_anggaran'),
+                'kuisioner_count' => $pp06->itemKuisioner()->count(),
+                'kode_count' => $pp06->kodeBidangPelayanan()->count()
+                    + $pp06->kodeSubBidangPelayanan()->count()
+                    + $pp06->kodeKategoriPelayanan()->count()
+                    + $pp06->kodeJenisProgram()->count(),
+                'dokumen_count' => $pp06->itemDokumenSop()->count(),
+            ];
+        }
 
         return Inertia::render('admin/workflows/pp/show', [
             'workflow' => [
                 'id' => $ppWorkflow->id,
-                'label' => $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru',
-                'status' => $this->engine->getWorkflowStatus($history),
+                'label' => $label,
+                'status' => $workflowStatus,
                 'history' => $this->formatHistoryForFrontend($history),
                 'step_statuses' => $statuses,
-                'current_steps' => $this->engine->getCurrentSteps($definition, $history),
+                'current_steps' => $currentSteps,
             ],
+            'informasi' => [
+                'tahun' => $pp01?->tahun,
+                'dibuat_oleh' => $creatorName,
+                'dibuat_oleh_role' => $creatorRole,
+                'dibuat_tanggal' => $creatorDate,
+                'status' => $workflowStatus,
+                'step_aktif' => $stepAktifLabel,
+            ],
+            'dataTerbaru' => $dataTerbaru,
+            'canTerminate' => $workflowStatus === 'active',
+            'canRevise' => $workflowStatus === 'completed',
+            'canDelete' => $workflowStatus === 'terminated',
         ]);
     }
 
@@ -1066,6 +1171,19 @@ class PpWorkflowController extends Controller
         return to_route('admin.workflows.pp.index');
     }
 
+    public function destroy(PpWorkflow $ppWorkflow): RedirectResponse
+    {
+        $history = $ppWorkflow->history ?? [];
+
+        if ($this->engine->getWorkflowStatus($history) !== 'terminated') {
+            return back()->withErrors(['delete' => 'Hanya workflow yang sudah dibatalkan yang bisa dihapus.']);
+        }
+
+        $ppWorkflow->delete();
+
+        return to_route('admin.workflows.pp.index');
+    }
+
     // --- Helper Methods ---
 
     /** @return array<string, mixed> */
@@ -1080,7 +1198,7 @@ class PpWorkflowController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function workflowProps(PpWorkflow $ppWorkflow, \App\Contracts\WorkflowDefinition $definition): array
+    private function workflowProps(PpWorkflow $ppWorkflow, WorkflowDefinition $definition): array
     {
         $history = $ppWorkflow->history ?? [];
         $pp01 = $ppWorkflow->latestPp01();
@@ -1173,8 +1291,9 @@ class PpWorkflowController extends Controller
     private function formatHistoryForFrontend(array $history): array
     {
         $userCache = [];
+        $roleCache = [];
 
-        return array_map(function ($entry) use (&$userCache) {
+        return array_map(function ($entry) use (&$userCache, &$roleCache) {
             $userId = $entry['by'] ?? null;
 
             if ($userId && ! isset($userCache[$userId])) {
@@ -1184,7 +1303,113 @@ class PpWorkflowController extends Controller
 
             $entry['by_name'] = $userId ? ($userCache[$userId] ?? 'System') : 'System';
 
+            $roleId = $entry['role'] ?? null;
+            if ($roleId && ! isset($roleCache[$roleId])) {
+                $roleCache[$roleId] = \App\Models\Role::find($roleId)?->name ?? 'Unknown';
+            }
+            $entry['role_name'] = $roleId ? ($roleCache[$roleId] ?? null) : null;
+
             return $entry;
         }, $history);
+    }
+
+    /**
+     * Transform a PpWorkflow model into the index page row data.
+     *
+     * @param  array<int, string>  $userCache
+     * @param  array<int, string|null>  $roleCache
+     * @return array<string, mixed>
+     */
+    private function transformWorkflowForIndex(PpWorkflow $wf, WorkflowDefinition $definition, array &$userCache, array &$roleCache): array
+    {
+        $history = $wf->history ?? [];
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+        $pp01 = $wf->latestPp01();
+        $pp06 = $wf->latestPp06();
+
+        // Detect "Dalam Revisi" — completed workflow with unsubmitted PP07 draft
+        if ($workflowStatus === 'completed') {
+            $hasPp07Draft = $wf->pp07Data()->whereNull('submitted_at')->exists();
+            if ($hasPp07Draft) {
+                $workflowStatus = 'revising';
+            }
+        }
+
+        // Creator from first history entry
+        $creatorEntry = $history[0] ?? null;
+        $creatorUserId = $creatorEntry['by'] ?? null;
+        $creatorName = 'System';
+        if ($creatorUserId) {
+            if (! isset($userCache[$creatorUserId])) {
+                $userCache[$creatorUserId] = \App\Models\User::find($creatorUserId)?->name ?? 'Unknown';
+            }
+            $creatorName = $userCache[$creatorUserId];
+        }
+        $creatorRoleName = null;
+        if ($creatorEntry && isset($creatorEntry['role'])) {
+            $roleId = $creatorEntry['role'];
+            if (! isset($roleCache[$roleId])) {
+                $roleCache[$roleId] = \App\Models\Role::find($roleId)?->name;
+            }
+            $creatorRoleName = $roleCache[$roleId];
+        }
+
+        // "Terakhir" — PP05 approver (rev 0) or PP07 submitter (rev 1+)
+        $lastActorName = null;
+        $lastActorRole = null;
+        if ($pp06) {
+            if ($pp06->revision > 0) {
+                $pp07Entry = collect($history)->last(fn ($e) => ($e['step'] ?? '') === 'PP07' && ($e['action'] ?? '') === 'submitted');
+                if ($pp07Entry && isset($pp07Entry['by'])) {
+                    if (! isset($userCache[$pp07Entry['by']])) {
+                        $userCache[$pp07Entry['by']] = \App\Models\User::find($pp07Entry['by'])?->name ?? 'Unknown';
+                    }
+                    $lastActorName = $userCache[$pp07Entry['by']];
+                    if (isset($pp07Entry['role'])) {
+                        $rId = $pp07Entry['role'];
+                        if (! isset($roleCache[$rId])) {
+                            $roleCache[$rId] = \App\Models\Role::find($rId)?->name;
+                        }
+                        $lastActorRole = $roleCache[$rId];
+                    }
+                }
+            } else {
+                $lastActorName = $pp06->pp05_created_by_user_name;
+                $lastActorRole = $pp06->pp05_created_by_role_name;
+            }
+        }
+
+        // Tim count and total plafon from PP06
+        $timCount = null;
+        $totalAnggaran = null;
+        if ($pp06) {
+            $plafon = $pp06->itemPlafonAnggaran;
+            $timCount = $plafon->count();
+            $totalAnggaran = $plafon->sum('plafon_anggaran');
+        }
+
+        // Step aktif text
+        $stepAktif = null;
+        if ($workflowStatus === 'active' && ! empty($currentSteps)) {
+            $stepAktif = $currentSteps[0];
+        }
+
+        return [
+            'id' => $wf->id,
+            'label' => $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru',
+            'status' => $workflowStatus,
+            'step_aktif' => $stepAktif,
+            'pra_raker' => $pp06?->tanggal_mulai_pra_raker?->format('d/m/Y'),
+            'penetapan' => $pp06?->tanggal_penetapan_program?->format('d/m/Y'),
+            'tim_count' => $timCount,
+            'total_anggaran' => $totalAnggaran,
+            'terakhir_name' => $lastActorName,
+            'terakhir_role' => $lastActorRole,
+            'revision' => $pp06?->revision,
+            'dibuat_oleh_name' => $creatorName,
+            'dibuat_oleh_role' => $creatorRoleName,
+            'tanggal' => $wf->created_at->format('d/m/Y'),
+        ];
     }
 }

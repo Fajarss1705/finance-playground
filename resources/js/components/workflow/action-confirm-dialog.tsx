@@ -19,6 +19,8 @@ type ActionConfirmDialogProps = {
     confirmLabel?: string;
     variant?: 'default' | 'destructive';
     requireNotes?: boolean;
+    processing?: boolean;
+    onConfirm?: (data: { notes: string; files: File[] }) => void;
 };
 
 export default function ActionConfirmDialog({
@@ -28,14 +30,22 @@ export default function ActionConfirmDialog({
     confirmLabel = 'Konfirmasi',
     variant = 'default',
     requireNotes = false,
+    processing = false,
+    onConfirm,
 }: ActionConfirmDialogProps) {
+    const [open, setOpen] = useState(false);
     const [notes, setNotes] = useState('');
     const [files, setFiles] = useState<File[]>([]);
 
     const canConfirm = !requireNotes || notes.trim().length > 0;
 
+    function handleConfirm() {
+        if (!canConfirm) return;
+        onConfirm?.({ notes, files });
+    }
+
     return (
-        <Dialog>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setNotes(''); setFiles([]); } }}>
             <DialogTrigger asChild>{trigger}</DialogTrigger>
             <DialogContent>
                 <DialogTitle>{title}</DialogTitle>
@@ -98,8 +108,12 @@ export default function ActionConfirmDialog({
                     <DialogClose asChild>
                         <Button variant="secondary">Batal</Button>
                     </DialogClose>
-                    <Button variant={variant === 'destructive' ? 'destructive' : 'default'} disabled={!canConfirm}>
-                        {confirmLabel}
+                    <Button
+                        variant={variant === 'destructive' ? 'destructive' : 'default'}
+                        disabled={!canConfirm || processing}
+                        onClick={handleConfirm}
+                    >
+                        {processing ? 'Memproses...' : confirmLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>

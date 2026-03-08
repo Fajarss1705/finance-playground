@@ -52,6 +52,7 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{ppWorkflow}', [PpWorkflowController::class, 'show'])->name('show');
             Route::post('/{ppWorkflow}/comment', [PpWorkflowController::class, 'comment'])->name('comment');
             Route::post('/{ppWorkflow}/terminate', [PpWorkflowController::class, 'terminate'])->name('terminate');
+            Route::delete('/{ppWorkflow}', [PpWorkflowController::class, 'destroy'])->name('destroy');
 
             // PP01
             Route::get('/{ppWorkflow}/pp01/{pp01Data}', [PpWorkflowController::class, 'pp01Show'])->name('pp01.show');

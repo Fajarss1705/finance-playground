@@ -7,7 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import HistoryCommentSection from '@/components/workflow/history-comment-section';
+import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
@@ -29,6 +32,7 @@ type Workflow = {
     id: number;
     label: string;
     status: string;
+    history: HistoryEntry[];
 };
 
 type Props = {
@@ -43,9 +47,6 @@ type Props = {
 
 export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, isRejectionReentry }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
-    const [showTerminate, setShowTerminate] = useState(false);
-    const [terminateNotes, setTerminateNotes] = useState('');
-    const [terminateProcessing, setTerminateProcessing] = useState(false);
 
     const form = useForm({
         tahun: stepData.tahun ?? '',
@@ -78,12 +79,16 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
         form.post(`/admin/workflows/pp/${workflow.id}/pp01/${stepData.id}/submit`);
     }
 
-    function handleTerminate() {
-        if (!terminateNotes.trim()) return;
-        setTerminateProcessing(true);
-        router.post(`/admin/workflows/pp/${workflow.id}/terminate`, { notes: terminateNotes }, {
-            onFinish: () => setTerminateProcessing(false),
-        });
+    function stepUrlResolver(entry: HistoryEntry): string | null {
+        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+        const step = entry.step;
+        if (step === 'PP05' || step === 'PP06') {
+            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
+        }
+        if (entry.id && entry.table) {
+            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
+        }
+        return null;
     }
 
     return (
@@ -92,24 +97,31 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
             <div className="space-y-6 p-6">
                 <div className="flex items-center gap-3">
                     <Heading title="PP01: Rencana Periode" description="Tentukan tahun perencanaan, jadwal, dan kode-kode referensi" />
-                    <Badge variant={mode === 'readonly' ? 'secondary' : mode === 'edit' ? 'default' : 'outline'}>
-                        {mode === 'readonly' ? 'Sudah Disubmit' : mode === 'edit' ? 'Draft' : 'Pengisian Baru'}
-                    </Badge>
+                    <StepStatusBadge mode={mode} />
                 </div>
 
                 {isRejectionReentry && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                        Step ini dikembalikan karena penolakan. Silakan perbaiki data dan submit ulang.
+                        Step ini dikembalikan dari PP05. Data dari pengisian sebelumnya sudah dimuat ulang.
                     </div>
                 )}
 
                 {errors.submit && <AlertError errors={[errors.submit]} title="Gagal submit" />}
                 {errors.tahun && <AlertError errors={[errors.tahun]} title="Validasi gagal" />}
 
+                {/* History & Comment — collapsed by default on step pages */}
+                <HistoryCommentSection
+                    entries={workflow.history}
+                    commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
+                    commentSource="pp01"
+                    stepUrlResolver={stepUrlResolver}
+                    defaultOpen={false}
+                />
+
                 <SectionCard title="Informasi Periode">
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div className="space-y-1.5">
-                            <Label>Tahun *</Label>
+                            <Label>Tahun Periode *</Label>
                             <Input
                                 type="number"
                                 value={form.data.tahun}
@@ -145,6 +157,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 <KodeTable
                     title="Kode Bidang Pelayanan"
+                    addLabel="Tambah Bidang Pelayanan"
                     items={form.data.kode_bidang_pelayanan}
                     onChange={(items) => form.setData('kode_bidang_pelayanan', items)}
                     disabled={isReadonly}
@@ -152,6 +165,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 <KodeTable
                     title="Kode Sub Bidang Pelayanan"
+                    addLabel="Tambah Sub Bidang Pelayanan"
                     items={form.data.kode_sub_bidang_pelayanan}
                     onChange={(items) => form.setData('kode_sub_bidang_pelayanan', items)}
                     disabled={isReadonly}
@@ -159,6 +173,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 <KodeTable
                     title="Kode Kategori Pelayanan"
+                    addLabel="Tambah Kategori Pelayanan"
                     items={form.data.kode_kategori_pelayanan}
                     onChange={(items) => form.setData('kode_kategori_pelayanan', items)}
                     disabled={isReadonly}
@@ -166,6 +181,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 <KodeTable
                     title="Kode Jenis Program"
+                    addLabel="Tambah Jenis Program"
                     items={form.data.kode_jenis_program}
                     onChange={(items) => form.setData('kode_jenis_program', items)}
                     disabled={isReadonly}
@@ -175,56 +191,70 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <div className="flex gap-2">
                         {canDraft && (
                             <Button variant="outline" onClick={handleDraft} disabled={form.processing}>
-                                Simpan Draft
+                                {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
                             </Button>
                         )}
                         {canSubmit && (
                             <Button onClick={handleSubmit} disabled={form.processing}>
-                                Submit PP01
+                                {form.processing ? 'Mengirim...' : 'Submit'}
                             </Button>
                         )}
-                        {canTerminate && !showTerminate && (
-                            <Button variant="destructive" className="ml-auto" onClick={() => setShowTerminate(true)}>
-                                Batalkan Workflow
-                            </Button>
+                        {canTerminate && (
+                            <TerminateButton workflowId={workflow.id} />
                         )}
                     </div>
-                )}
-
-                {showTerminate && (
-                    <SectionCard title="Batalkan Workflow">
-                        <div className="space-y-3">
-                            <p className="text-sm text-muted-foreground">Workflow yang dibatalkan tidak dapat dilanjutkan. Tuliskan alasan pembatalan.</p>
-                            <textarea
-                                value={terminateNotes}
-                                onChange={(e) => setTerminateNotes(e.target.value)}
-                                placeholder="Alasan pembatalan (wajib)..."
-                                rows={3}
-                                className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                            />
-                            <div className="flex gap-2">
-                                <Button variant="destructive" onClick={handleTerminate} disabled={terminateProcessing || !terminateNotes.trim()}>
-                                    Konfirmasi Batalkan
-                                </Button>
-                                <Button variant="outline" onClick={() => setShowTerminate(false)}>
-                                    Batal
-                                </Button>
-                            </div>
-                        </div>
-                    </SectionCard>
                 )}
             </div>
         </AppLayout>
     );
 }
 
+function StepStatusBadge({ mode }: { mode: string }) {
+    const config: Record<string, { label: string; className: string }> = {
+        readonly: { label: 'Sudah Disubmit', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
+        edit: { label: 'Draft', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
+        create: { label: 'Menunggu Diisi', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+    };
+
+    const c = config[mode] ?? config.create;
+    return <Badge className={c.className}>{c.label}</Badge>;
+}
+
+function TerminateButton({ workflowId }: { workflowId: number }) {
+    const [processing, setProcessing] = useState(false);
+
+    return (
+        <ActionConfirmDialog
+            trigger={
+                <Button variant="outline" className="ml-auto text-destructive border-destructive hover:bg-destructive/10">
+                    Batalkan Workflow
+                </Button>
+            }
+            title="Batalkan Workflow"
+            description="Workflow yang dibatalkan tidak bisa dilanjutkan. Tulis alasan pembatalan."
+            confirmLabel="Batalkan Workflow"
+            variant="destructive"
+            requireNotes
+            processing={processing}
+            onConfirm={({ notes }) => {
+                setProcessing(true);
+                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes }, {
+                    onFinish: () => setProcessing(false),
+                });
+            }}
+        />
+    );
+}
+
 function KodeTable({
     title,
+    addLabel,
     items,
     onChange,
     disabled,
 }: {
     title: string;
+    addLabel: string;
     items: KodeItem[];
     onChange: (items: KodeItem[]) => void;
     disabled: boolean;
@@ -245,13 +275,13 @@ function KodeTable({
     return (
         <SectionCard title={title}>
             <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="min-w-150 w-full text-sm">
                     <thead>
                         <tr className="border-b bg-muted/50">
                             <th className="px-3 py-2 text-left font-medium w-24">Kode</th>
+                            {!disabled && <th className="px-3 py-2 w-12" />}
                             <th className="px-3 py-2 text-left font-medium">Nama</th>
                             <th className="px-3 py-2 text-left font-medium w-48">Catatan</th>
-                            {!disabled && <th className="px-3 py-2 w-12" />}
                         </tr>
                     </thead>
                     <tbody>
@@ -266,6 +296,13 @@ function KodeTable({
                                         maxLength={10}
                                     />
                                 </td>
+                                {!disabled && (
+                                    <td className="px-3 py-1.5">
+                                        <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
+                                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                        </Button>
+                                    </td>
+                                )}
                                 <td className="px-3 py-1.5">
                                     <Input
                                         value={item.nama}
@@ -282,13 +319,6 @@ function KodeTable({
                                         className="h-8"
                                     />
                                 </td>
-                                {!disabled && (
-                                    <td className="px-3 py-1.5">
-                                        <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
-                                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                        </Button>
-                                    </td>
-                                )}
                             </tr>
                         ))}
                     </tbody>
@@ -297,7 +327,7 @@ function KodeTable({
             {!disabled && (
                 <Button variant="outline" size="sm" onClick={addRow} className="mt-2">
                     <Plus className="mr-1 h-3.5 w-3.5" />
-                    Tambah Baris
+                    {addLabel}
                 </Button>
             )}
         </SectionCard>
