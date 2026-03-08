@@ -79,6 +79,12 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
             // PP06
             Route::get('/{ppWorkflow}/pp06', [PpWorkflowController::class, 'pp06Show'])->name('pp06.show');
+
+            // PP07
+            Route::post('/{ppWorkflow}/pp07/create', [PpWorkflowController::class, 'pp07Create'])->name('pp07.create');
+            Route::get('/{ppWorkflow}/pp07/{pp07Data}', [PpWorkflowController::class, 'pp07Show'])->name('pp07.show');
+            Route::post('/{ppWorkflow}/pp07/{pp07Data}/draft', [PpWorkflowController::class, 'pp07Draft'])->name('pp07.draft');
+            Route::post('/{ppWorkflow}/pp07/{pp07Data}/submit', [PpWorkflowController::class, 'pp07Submit'])->name('pp07.submit');
         });
 
         // Workflow prototypes — PABD (admin scope)

@@ -1,6 +1,7 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
@@ -43,6 +44,8 @@ type Props = {
     workflow: Workflow;
     pp06: Pp06 | null;
     allRevisions: Revision[];
+    canRevise: boolean;
+    activeDraftId: number | null;
 };
 
 function formatRupiah(value: number): string {
@@ -53,7 +56,7 @@ function formatDate(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-export default function Pp06({ workflow, pp06, allRevisions }: Props) {
+export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDraftId }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
@@ -79,6 +82,17 @@ export default function Pp06({ workflow, pp06, allRevisions }: Props) {
                 <div className="flex items-center gap-3">
                     <Heading title="PP06: Periode Tahunan" description="Data final yang sudah di-compile" />
                     <Badge>Revisi {pp06.revision}</Badge>
+                    {canRevise && (
+                        activeDraftId ? (
+                            <Button variant="outline" className="ml-auto" onClick={() => router.visit(`/admin/workflows/pp/${workflow.id}/pp07/${activeDraftId}`)}>
+                                Lanjutkan Revisi
+                            </Button>
+                        ) : (
+                            <Button variant="outline" className="ml-auto" onClick={() => router.post(`/admin/workflows/pp/${workflow.id}/pp07/create`)}>
+                                Revisi
+                            </Button>
+                        )
+                    )}
                 </div>
 
                 {allRevisions.length > 1 && (

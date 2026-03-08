@@ -1,4 +1,5 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
+import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
@@ -37,10 +38,14 @@ type Props = {
     canDraft: boolean;
     canSubmit: boolean;
     canTerminate: boolean;
+    isRejectionReentry: boolean;
 };
 
-export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit }: Props) {
+export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, isRejectionReentry }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [showTerminate, setShowTerminate] = useState(false);
+    const [terminateNotes, setTerminateNotes] = useState('');
+    const [terminateProcessing, setTerminateProcessing] = useState(false);
 
     const form = useForm({
         tahun: stepData.tahun ?? '',
@@ -73,6 +78,14 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit }: 
         form.post(`/admin/workflows/pp/${workflow.id}/pp01/${stepData.id}/submit`);
     }
 
+    function handleTerminate() {
+        if (!terminateNotes.trim()) return;
+        setTerminateProcessing(true);
+        router.post(`/admin/workflows/pp/${workflow.id}/terminate`, { notes: terminateNotes }, {
+            onFinish: () => setTerminateProcessing(false),
+        });
+    }
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`PP01: Rencana Periode — ${workflow.label}`} />
@@ -83,6 +96,12 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit }: 
                         {mode === 'readonly' ? 'Sudah Disubmit' : mode === 'edit' ? 'Draft' : 'Pengisian Baru'}
                     </Badge>
                 </div>
+
+                {isRejectionReentry && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                        Step ini dikembalikan karena penolakan. Silakan perbaiki data dan submit ulang.
+                    </div>
+                )}
 
                 {errors.submit && <AlertError errors={[errors.submit]} title="Gagal submit" />}
                 {errors.tahun && <AlertError errors={[errors.tahun]} title="Validasi gagal" />}
@@ -164,7 +183,35 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit }: 
                                 Submit PP01
                             </Button>
                         )}
+                        {canTerminate && !showTerminate && (
+                            <Button variant="destructive" className="ml-auto" onClick={() => setShowTerminate(true)}>
+                                Batalkan Workflow
+                            </Button>
+                        )}
                     </div>
+                )}
+
+                {showTerminate && (
+                    <SectionCard title="Batalkan Workflow">
+                        <div className="space-y-3">
+                            <p className="text-sm text-muted-foreground">Workflow yang dibatalkan tidak dapat dilanjutkan. Tuliskan alasan pembatalan.</p>
+                            <textarea
+                                value={terminateNotes}
+                                onChange={(e) => setTerminateNotes(e.target.value)}
+                                placeholder="Alasan pembatalan (wajib)..."
+                                rows={3}
+                                className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                            <div className="flex gap-2">
+                                <Button variant="destructive" onClick={handleTerminate} disabled={terminateProcessing || !terminateNotes.trim()}>
+                                    Konfirmasi Batalkan
+                                </Button>
+                                <Button variant="outline" onClick={() => setShowTerminate(false)}>
+                                    Batal
+                                </Button>
+                            </div>
+                        </div>
+                    </SectionCard>
                 )}
             </div>
         </AppLayout>

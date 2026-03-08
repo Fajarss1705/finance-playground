@@ -1,4 +1,5 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
+import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { useState } from 'react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -34,14 +35,18 @@ type Props = {
     reviewData: ReviewData;
     canApprove: boolean;
     canReject: boolean;
+    canTerminate: boolean;
 };
 
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp05({ workflow, reviewData, canApprove, canReject }: Props) {
+export default function Pp05({ workflow, reviewData, canApprove, canReject, canTerminate }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [showTerminate, setShowTerminate] = useState(false);
+    const [terminateNotes, setTerminateNotes] = useState('');
+    const [terminateProcessing, setTerminateProcessing] = useState(false);
 
     const approveForm = useForm({ notes: '' });
     const rejectForm = useForm({ notes: '' });
@@ -60,6 +65,14 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject }: Pr
     function handleReject() {
         if (!rejectForm.data.notes.trim()) return;
         rejectForm.post(`/admin/workflows/pp/${workflow.id}/pp05/reject`);
+    }
+
+    function handleTerminate() {
+        if (!terminateNotes.trim()) return;
+        setTerminateProcessing(true);
+        router.post(`/admin/workflows/pp/${workflow.id}/terminate`, { notes: terminateNotes }, {
+            onFinish: () => setTerminateProcessing(false),
+        });
     }
 
     return (
@@ -125,6 +138,7 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject }: Pr
                                     <th className="px-3 py-2 text-left font-medium">Kode</th>
                                     <th className="px-3 py-2 text-right font-medium">Plafon</th>
                                     <th className="px-3 py-2 text-left font-medium">Bank</th>
+                                    <th className="px-3 py-2 text-left font-medium">Nama Rekening</th>
                                     <th className="px-3 py-2 text-left font-medium">No. Rekening</th>
                                 </tr>
                             </thead>
@@ -135,10 +149,20 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject }: Pr
                                         <td className="px-3 py-2">{item.kode_team}</td>
                                         <td className="px-3 py-2 text-right">{formatRupiah(item.plafon_anggaran)}</td>
                                         <td className="px-3 py-2">{item.nama_bank}</td>
+                                        <td className="px-3 py-2">{item.nama_rekening}</td>
                                         <td className="px-3 py-2">{item.nomor_rekening}</td>
                                     </tr>
                                 ))}
                             </tbody>
+                            <tfoot>
+                                <tr className="border-t bg-muted/50 font-medium">
+                                    <td className="px-3 py-2" colSpan={2}>Total Plafon</td>
+                                    <td className="px-3 py-2 text-right">
+                                        {formatRupiah(reviewData.pp03.item_plafon_anggaran.reduce((sum, item) => sum + item.plafon_anggaran, 0))}
+                                    </td>
+                                    <td colSpan={3} />
+                                </tr>
+                            </tfoot>
                         </table>
                     </SectionCard>
                 )}
@@ -165,6 +189,18 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject }: Pr
                 {(canApprove || canReject) && (
                     <SectionCard title="Keputusan">
                         <div className="space-y-4">
+                            {canApprove && (
+                                <div className="space-y-2">
+                                    <Label>Catatan Persetujuan (opsional)</Label>
+                                    <textarea
+                                        value={approveForm.data.notes}
+                                        onChange={(e) => approveForm.setData('notes', e.target.value)}
+                                        placeholder="Tulis catatan persetujuan..."
+                                        rows={2}
+                                        className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    />
+                                </div>
+                            )}
                             {canReject && (
                                 <div className="space-y-2">
                                     <Label>Alasan Penolakan (wajib untuk tolak)</Label>
@@ -192,6 +228,28 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject }: Pr
                                         Tolak
                                     </Button>
                                 )}
+                                {canTerminate && !showTerminate && (
+                                    <Button variant="destructive" className="ml-auto" onClick={() => setShowTerminate(true)}>Batalkan Workflow</Button>
+                                )}
+                            </div>
+                        </div>
+                    </SectionCard>
+                )}
+
+                {showTerminate && (
+                    <SectionCard title="Batalkan Workflow">
+                        <div className="space-y-3">
+                            <p className="text-sm text-muted-foreground">Workflow yang dibatalkan tidak dapat dilanjutkan. Tuliskan alasan pembatalan.</p>
+                            <textarea
+                                value={terminateNotes}
+                                onChange={(e) => setTerminateNotes(e.target.value)}
+                                placeholder="Alasan pembatalan (wajib)..."
+                                rows={3}
+                                className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                            <div className="flex gap-2">
+                                <Button variant="destructive" onClick={handleTerminate} disabled={terminateProcessing || !terminateNotes.trim()}>Konfirmasi Batalkan</Button>
+                                <Button variant="outline" onClick={() => setShowTerminate(false)}>Batal</Button>
                             </div>
                         </div>
                     </SectionCard>

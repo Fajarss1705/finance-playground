@@ -79,6 +79,75 @@ class PpCompileService
     }
 
     /**
+     * Compile PP06 from PP07 draft_data JSON (revision+1).
+     *
+     * @param  array<string, mixed>  $draftData
+     * @param  array<string, mixed>  $authorOverrides
+     */
+    public function compileFromDraft(PpWorkflow $workflow, array $draftData, int $revision, array $authorOverrides): Pp06PeriodeTahunan
+    {
+        return DB::transaction(function () use ($workflow, $draftData, $revision, $authorOverrides) {
+            $pp06 = Pp06PeriodeTahunan::create(array_merge([
+                'pp_workflow_id' => $workflow->id,
+                'revision' => $revision,
+                'tahun' => $draftData['tahun'],
+                'tanggal_mulai_pra_raker' => $draftData['tanggal_mulai_pra_raker'],
+                'tanggal_penetapan_program' => $draftData['tanggal_penetapan_program'],
+            ], $authorOverrides));
+
+            $kodeTypes = [
+                'kode_bidang_pelayanan' => Pp06KodeBidangPelayanan::class,
+                'kode_sub_bidang_pelayanan' => Pp06KodeSubBidangPelayanan::class,
+                'kode_kategori_pelayanan' => Pp06KodeKategoriPelayanan::class,
+                'kode_jenis_program' => Pp06KodeJenisProgram::class,
+            ];
+
+            foreach ($kodeTypes as $key => $modelClass) {
+                foreach ($draftData[$key] ?? [] as $item) {
+                    $modelClass::create([
+                        'pp06_periode_tahunan_id' => $pp06->id,
+                        'kode' => $item['kode'],
+                        'nama' => $item['nama'],
+                        'catatan' => $item['catatan'] ?? null,
+                    ]);
+                }
+            }
+
+            foreach ($draftData['item_kuisioner'] ?? [] as $item) {
+                Pp06ItemKuisioner::create([
+                    'pp06_periode_tahunan_id' => $pp06->id,
+                    'kode' => $item['kode'] ?? '',
+                    'pertanyaan' => $item['pertanyaan'],
+                    'tipe' => $item['tipe'],
+                    'satuan' => $item['satuan'] ?? null,
+                ]);
+            }
+
+            foreach ($draftData['item_plafon_anggaran'] ?? [] as $item) {
+                Pp06ItemPlafonAnggaran::create([
+                    'pp06_periode_tahunan_id' => $pp06->id,
+                    'team_id' => $item['team_id'],
+                    'kode_team' => $item['kode_team'],
+                    'plafon_anggaran' => $item['plafon_anggaran'],
+                    'nama_bank' => $item['nama_bank'],
+                    'nama_rekening' => $item['nama_rekening'],
+                    'nomor_rekening' => $item['nomor_rekening'],
+                    'catatan' => $item['catatan'] ?? null,
+                ]);
+            }
+
+            foreach ($draftData['item_dokumen_sop'] ?? [] as $item) {
+                Pp06ItemDokumenSop::create([
+                    'pp06_periode_tahunan_id' => $pp06->id,
+                    'file_id' => $item['file_id'],
+                ]);
+            }
+
+            return $pp06;
+        });
+    }
+
+    /**
      * Resolve author snapshots from history entries.
      *
      * @return array<string, mixed>

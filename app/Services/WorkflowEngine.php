@@ -13,6 +13,9 @@ class WorkflowEngine
     /** Actions that complete a step (advance workflow forward). */
     private const COMPLETING_ACTIONS = ['submitted', 'approved', 'skipped', 'completed'];
 
+    /** @var list<string> Step order for the current definition context. */
+    private array $stepOrder = [];
+
     public function resolveDefinition(WorkflowType $type): WorkflowDefinition
     {
         return match ($type) {
@@ -80,6 +83,7 @@ class WorkflowEngine
      */
     public function getStepStatuses(WorkflowDefinition $definition, array $history): array
     {
+        $this->stepOrder = $definition->steps();
         $steps = $definition->steps();
         $result = [];
         $rejections = $this->extractRejections($definition, $history);
@@ -192,9 +196,6 @@ class WorkflowEngine
 
             return $this->arePrerequisitesMet($definition, $prereqs, $history, $rejections) ? 'active' : 'pending';
         }
-
-        // Check if this step has been invalidated by a rejection targeting it or an earlier step
-        $lastRejectionTime = $this->getLastRejectionTimeAffecting($code, $definition, $rejections);
 
         // Has a valid completing action after last relevant rejection?
         if ($this->hasValidCompletingAction($code, $history, $rejections)) {
@@ -311,8 +312,15 @@ class WorkflowEngine
      */
     private function isStepInRejectionRange(string $code, string $targetStep, string $rejectingStep): bool
     {
-        // Simple numeric comparison for PP01-PP07 style codes
-        return $code >= $targetStep && $code < $rejectingStep;
+        $codeIndex = array_search($code, $this->stepOrder);
+        $targetIndex = array_search($targetStep, $this->stepOrder);
+        $rejectingIndex = array_search($rejectingStep, $this->stepOrder);
+
+        if ($codeIndex === false || $targetIndex === false || $rejectingIndex === false) {
+            return false;
+        }
+
+        return $codeIndex >= $targetIndex && $codeIndex < $rejectingIndex;
     }
 
     /**
@@ -387,24 +395,5 @@ class WorkflowEngine
         }
 
         return false;
-    }
-
-    /**
-     * Find the last action of specific types in history.
-     *
-     * @param  list<array<string, mixed>>  $history
-     * @param  list<string>  $actions
-     */
-    private function findLastActionOfType(array $history, array $actions): ?string
-    {
-        foreach (array_reverse($history) as $entry) {
-            $action = $entry['action'] ?? '';
-
-            if (in_array($action, $actions, true)) {
-                return $action;
-            }
-        }
-
-        return null;
     }
 }
