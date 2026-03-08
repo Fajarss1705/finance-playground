@@ -236,9 +236,10 @@ function TerminateButton({ workflowId }: { workflowId: number }) {
             variant="destructive"
             requireNotes
             processing={processing}
-            onConfirm={({ notes }) => {
+            onConfirm={({ notes, files }) => {
                 setProcessing(true);
-                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes }, {
+                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes, ...(files.length > 0 ? { files } : {}) }, {
+                    forceFormData: files.length > 0,
                     onFinish: () => setProcessing(false),
                 });
             }}

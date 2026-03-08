@@ -223,9 +223,10 @@ function ApproveButton({ workflowId }: { workflowId: number }) {
             description="Data PP01-PP04 akan dikompilasi ke Periode Tahunan (PP06)."
             confirmLabel="Setujui"
             processing={processing}
-            onConfirm={({ notes }) => {
+            onConfirm={({ notes, files }) => {
                 setProcessing(true);
-                router.post(`/admin/workflows/pp/${workflowId}/pp05/approve`, { notes }, {
+                router.post(`/admin/workflows/pp/${workflowId}/pp05/approve`, { notes, ...(files.length > 0 ? { files } : {}) }, {
+                    forceFormData: files.length > 0,
                     onFinish: () => setProcessing(false),
                 });
             }}
@@ -246,9 +247,10 @@ function RejectButton({ workflowId }: { workflowId: number }) {
             variant="destructive"
             requireNotes
             processing={processing}
-            onConfirm={({ notes }) => {
+            onConfirm={({ notes, files }) => {
                 setProcessing(true);
-                router.post(`/admin/workflows/pp/${workflowId}/pp05/reject`, { notes }, {
+                router.post(`/admin/workflows/pp/${workflowId}/pp05/reject`, { notes, ...(files.length > 0 ? { files } : {}) }, {
+                    forceFormData: files.length > 0,
                     onFinish: () => setProcessing(false),
                 });
             }}
@@ -271,9 +273,10 @@ function TerminateButton({ workflowId }: { workflowId: number }) {
             variant="destructive"
             requireNotes
             processing={processing}
-            onConfirm={({ notes }) => {
+            onConfirm={({ notes, files }) => {
                 setProcessing(true);
-                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes }, {
+                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes, ...(files.length > 0 ? { files } : {}) }, {
+                    forceFormData: files.length > 0,
                     onFinish: () => setProcessing(false),
                 });
             }}

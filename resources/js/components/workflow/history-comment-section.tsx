@@ -1,6 +1,14 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import { useState } from 'react';
+import { FileText, Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+
+type FileRef = {
+    id: number;
+    uuid: string;
+    original_filename: string;
+    size: number;
+};
 
 export type HistoryEntry = {
     step: string;
@@ -14,6 +22,7 @@ export type HistoryEntry = {
     table?: string;
     id?: number;
     source?: string;
+    files?: FileRef[];
 };
 
 type Props = {
@@ -62,6 +71,12 @@ function formatDate(dateStr: string): string {
     });
 }
 
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function HistoryCommentSection({
     entries,
     commentUrl,
@@ -70,15 +85,32 @@ export default function HistoryCommentSection({
     defaultOpen = true,
 }: Props) {
     const [isOpen, setIsOpen] = useState(defaultOpen);
-    const commentForm = useForm({ notes: '', source: commentSource });
+    const [notes, setNotes] = useState('');
+    const [files, setFiles] = useState<File[]>([]);
+    const [processing, setProcessing] = useState(false);
 
     const commentCount = entries.filter((e) => e.action === 'commented').length;
 
     function handleComment() {
-        if (!commentForm.data.notes.trim()) return;
-        commentForm.post(commentUrl, {
+        if (!notes.trim()) return;
+
+        const data: Record<string, unknown> = {
+            notes,
+            source: commentSource,
+        };
+        if (files.length > 0) {
+            data.files = files;
+        }
+
+        setProcessing(true);
+        router.post(commentUrl, data, {
             preserveScroll: true,
-            onSuccess: () => commentForm.reset('notes'),
+            forceFormData: files.length > 0,
+            onSuccess: () => {
+                setNotes('');
+                setFiles([]);
+            },
+            onFinish: () => setProcessing(false),
         });
     }
 
@@ -140,6 +172,21 @@ export default function HistoryCommentSection({
                                                     {entry.notes}
                                                 </div>
                                             )}
+                                            {entry.files && entry.files.length > 0 && (
+                                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                    {entry.files.map((f) => (
+                                                        <a
+                                                            key={f.id}
+                                                            href={`/files/${f.uuid}/download`}
+                                                            className="inline-flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs text-primary hover:bg-muted/50 hover:underline"
+                                                        >
+                                                            <Paperclip className="h-3 w-3" />
+                                                            <span className="max-w-40 truncate">{f.original_filename}</span>
+                                                            <span className="text-muted-foreground">({formatFileSize(f.size)})</span>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -152,19 +199,56 @@ export default function HistoryCommentSection({
                         <p className="mb-2 text-xs font-medium text-muted-foreground">Tambah Komentar</p>
                         <div className="space-y-2">
                             <textarea
-                                value={commentForm.data.notes}
-                                onChange={(e) => commentForm.setData('notes', e.target.value)}
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
                                 placeholder="Tulis komentar..."
                                 rows={2}
                                 className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             />
+
+                            {/* File Attachment */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <label
+                                    htmlFor={`comment-file-${commentSource}`}
+                                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs shadow-xs hover:bg-accent hover:text-accent-foreground"
+                                >
+                                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span className="text-muted-foreground">Lampiran...</span>
+                                </label>
+                                <input
+                                    id={`comment-file-${commentSource}`}
+                                    type="file"
+                                    className="sr-only"
+                                    multiple
+                                    onChange={(e) => {
+                                        if (e.target.files) {
+                                            setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+                                            e.target.value = '';
+                                        }
+                                    }}
+                                />
+                                {files.map((f, i) => (
+                                    <span key={i} className="inline-flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs">
+                                        <Paperclip className="h-3 w-3 text-muted-foreground" />
+                                        <span className="max-w-32 truncate">{f.name}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFiles((prev) => prev.filter((_, fi) => fi !== i))}
+                                            className="ml-0.5 text-muted-foreground hover:text-destructive"
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+
                             <div className="flex justify-end">
                                 <Button
                                     size="sm"
-                                    disabled={!commentForm.data.notes.trim() || commentForm.processing}
+                                    disabled={!notes.trim() || processing}
                                     onClick={handleComment}
                                 >
-                                    {commentForm.processing ? 'Mengirim...' : 'Kirim Komentar'}
+                                    {processing ? 'Mengirim...' : 'Kirim Komentar'}
                                 </Button>
                             </div>
                         </div>
