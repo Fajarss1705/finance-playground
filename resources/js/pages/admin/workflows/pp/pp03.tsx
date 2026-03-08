@@ -6,7 +6,10 @@ import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import HistoryCommentSection from '@/components/workflow/history-comment-section';
+import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
@@ -18,7 +21,6 @@ type PlafonItem = {
     nama_rekening: string;
     nomor_rekening: string;
     catatan: string | null;
-    team?: { id: number; name: string };
 };
 
 type Team = { id: number; name: string };
@@ -29,7 +31,7 @@ type StepData = {
     updated_at: string;
 };
 
-type Workflow = { id: number; label: string };
+type Workflow = { id: number; label: string; history: HistoryEntry[] };
 
 type Props = {
     workflow: Workflow;
@@ -49,9 +51,6 @@ function formatRupiah(value: number): string {
 export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, isRejectionReentry, teams }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const isReadonly = mode === 'readonly';
-    const [showTerminate, setShowTerminate] = useState(false);
-    const [terminateNotes, setTerminateNotes] = useState('');
-    const [terminateProcessing, setTerminateProcessing] = useState(false);
 
     const form = useForm({
         item_plafon_anggaran: stepData.item_plafon_anggaran.length > 0
@@ -103,12 +102,12 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
         form.post(`/admin/workflows/pp/${workflow.id}/pp03/${stepData.id}/submit`);
     }
 
-    function handleTerminate() {
-        if (!terminateNotes.trim()) return;
-        setTerminateProcessing(true);
-        router.post(`/admin/workflows/pp/${workflow.id}/terminate`, { notes: terminateNotes }, {
-            onFinish: () => setTerminateProcessing(false),
-        });
+    function stepUrlResolver(entry: HistoryEntry): string | null {
+        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+        const step = entry.step;
+        if (step === 'PP05' || step === 'PP06') return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
+        if (entry.id && entry.table) return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
+        return null;
     }
 
     return (
@@ -117,37 +116,53 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
             <div className="space-y-6 p-6">
                 <div className="flex items-center gap-3">
                     <Heading title="PP03: Plafon Anggaran" description="Tentukan plafon anggaran dan rekening per tim" />
-                    <Badge variant={isReadonly ? 'secondary' : 'default'}>
-                        {isReadonly ? 'Sudah Disubmit' : mode === 'edit' ? 'Draft' : 'Pengisian Baru'}
-                    </Badge>
+                    <StepStatusBadge mode={mode} />
                 </div>
 
                 {isRejectionReentry && (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
                         Step ini dikembalikan dari PP05. Data dari pengisian sebelumnya sudah dimuat ulang.
                     </div>
                 )}
 
                 {errors.submit && <AlertError errors={[errors.submit]} title="Gagal submit" />}
 
-                <SectionCard title="Daftar Plafon Anggaran">
+                <HistoryCommentSection
+                    entries={workflow.history}
+                    commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
+                    commentSource="pp03"
+                    stepUrlResolver={stepUrlResolver}
+                    defaultOpen={false}
+                />
+
+                <SectionCard title="Plafon Anggaran Per Tim">
                     <div className="overflow-x-auto">
-                        <table className="min-w-[900px] w-full text-sm">
+                        <table className="min-w-300 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-44">Tim</th>
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
-                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon</th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
-                                    <th className="px-3 py-2 text-left font-medium w-32">Nama Rekening</th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">No. Rekening</th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">Catatan</th>
+                                    <th className="px-3 py-2 text-left font-medium w-20">Kode Tim</th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
+                                    <th className="px-3 py-2 text-left font-medium w-44">Tim</th>
+                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon Rp</th>
+                                    <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
+                                    <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
+                                    <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
+                                    <th className="px-3 py-2 text-left font-medium">Catatan</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {form.data.item_plafon_anggaran.map((item, i) => (
                                     <tr key={i} className="border-b last:border-0">
+                                        <td className="px-3 py-1.5">
+                                            <Input value={item.kode_team} onChange={(e) => updateRow(i, 'kode_team', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
+                                        </td>
+                                        {!isReadonly && (
+                                            <td className="px-3 py-1.5">
+                                                <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
+                                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                </Button>
+                                            </td>
+                                        )}
                                         <td className="px-3 py-1.5">
                                             <select
                                                 value={item.team_id}
@@ -160,9 +175,6 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                     <option key={t.id} value={t.id}>{t.name}</option>
                                                 ))}
                                             </select>
-                                        </td>
-                                        <td className="px-3 py-1.5">
-                                            <Input value={item.kode_team} onChange={(e) => updateRow(i, 'kode_team', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input type="number" value={item.plafon_anggaran} onChange={(e) => updateRow(i, 'plafon_anggaran', parseFloat(e.target.value) || 0)} disabled={isReadonly} className="h-8 text-right" min={0} />
@@ -179,21 +191,14 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         <td className="px-3 py-1.5">
                                             <Input value={item.catatan ?? ''} onChange={(e) => updateRow(i, 'catatan', e.target.value)} disabled={isReadonly} className="h-8" />
                                         </td>
-                                        {!isReadonly && (
-                                            <td className="px-3 py-1.5">
-                                                <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                                </Button>
-                                            </td>
-                                        )}
                                     </tr>
                                 ))}
                             </tbody>
                             <tfoot>
                                 <tr className="border-t bg-muted/30">
-                                    <td className="px-3 py-2 font-medium" colSpan={2}>Total Plafon</td>
+                                    <td className="px-3 py-2 font-medium" colSpan={isReadonly ? 3 : 4}>Total Plafon</td>
                                     <td className="px-3 py-2 text-right font-medium">{formatRupiah(totalPlafon)}</td>
-                                    <td colSpan={isReadonly ? 4 : 5} />
+                                    <td colSpan={4} />
                                 </tr>
                             </tfoot>
                         </table>
@@ -208,33 +213,57 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 {!isReadonly && (
                     <div className="flex gap-2">
-                        {canDraft && <Button variant="outline" onClick={handleDraft} disabled={form.processing}>Simpan Draft</Button>}
-                        {canSubmit && <Button onClick={handleSubmit} disabled={form.processing}>Submit PP03</Button>}
-                        {canTerminate && !showTerminate && (
-                            <Button variant="destructive" className="ml-auto" onClick={() => setShowTerminate(true)}>Batalkan Workflow</Button>
+                        {canDraft && (
+                            <Button variant="outline" onClick={handleDraft} disabled={form.processing}>
+                                {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
+                            </Button>
+                        )}
+                        {canSubmit && (
+                            <Button onClick={handleSubmit} disabled={form.processing}>
+                                {form.processing ? 'Mengirim...' : 'Submit'}
+                            </Button>
+                        )}
+                        {canTerminate && (
+                            <TerminateButton workflowId={workflow.id} />
                         )}
                     </div>
                 )}
-
-                {showTerminate && (
-                    <SectionCard title="Batalkan Workflow">
-                        <div className="space-y-3">
-                            <p className="text-sm text-muted-foreground">Workflow yang dibatalkan tidak dapat dilanjutkan. Tuliskan alasan pembatalan.</p>
-                            <textarea
-                                value={terminateNotes}
-                                onChange={(e) => setTerminateNotes(e.target.value)}
-                                placeholder="Alasan pembatalan (wajib)..."
-                                rows={3}
-                                className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                            />
-                            <div className="flex gap-2">
-                                <Button variant="destructive" onClick={handleTerminate} disabled={terminateProcessing || !terminateNotes.trim()}>Konfirmasi Batalkan</Button>
-                                <Button variant="outline" onClick={() => setShowTerminate(false)}>Batal</Button>
-                            </div>
-                        </div>
-                    </SectionCard>
-                )}
             </div>
         </AppLayout>
+    );
+}
+
+function StepStatusBadge({ mode }: { mode: string }) {
+    const config: Record<string, { label: string; className: string }> = {
+        readonly: { label: 'Sudah Disubmit', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
+        edit: { label: 'Draft', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
+        create: { label: 'Menunggu Diisi', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+    };
+    const c = config[mode] ?? config.create;
+    return <Badge className={c.className}>{c.label}</Badge>;
+}
+
+function TerminateButton({ workflowId }: { workflowId: number }) {
+    const [processing, setProcessing] = useState(false);
+    return (
+        <ActionConfirmDialog
+            trigger={
+                <Button variant="outline" className="ml-auto text-destructive border-destructive hover:bg-destructive/10">
+                    Batalkan Workflow
+                </Button>
+            }
+            title="Batalkan Workflow"
+            description="Workflow yang dibatalkan tidak bisa dilanjutkan. Tulis alasan pembatalan."
+            confirmLabel="Batalkan Workflow"
+            variant="destructive"
+            requireNotes
+            processing={processing}
+            onConfirm={({ notes }) => {
+                setProcessing(true);
+                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes }, {
+                    onFinish: () => setProcessing(false),
+                });
+            }}
+        />
     );
 }
