@@ -1,11 +1,13 @@
-import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import HistoryCommentSection from '@/components/workflow/history-comment-section';
+import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
@@ -28,7 +30,7 @@ type ReviewData = {
     pp04: { item_dokumen: { file: { original_filename: string } }[] } | null;
 };
 
-type Workflow = { id: number; label: string };
+type Workflow = { id: number; label: string; history: HistoryEntry[] };
 
 type Props = {
     workflow: Workflow;
@@ -44,12 +46,7 @@ function formatRupiah(value: number): string {
 
 export default function Pp05({ workflow, reviewData, canApprove, canReject, canTerminate }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
-    const [showTerminate, setShowTerminate] = useState(false);
-    const [terminateNotes, setTerminateNotes] = useState('');
-    const [terminateProcessing, setTerminateProcessing] = useState(false);
-
-    const approveForm = useForm({ notes: '' });
-    const rejectForm = useForm({ notes: '' });
+    const isActive = canApprove || canReject;
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
@@ -58,32 +55,34 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
         { title: 'PP05: Persetujuan', href: '#' },
     ];
 
-    function handleApprove() {
-        approveForm.post(`/admin/workflows/pp/${workflow.id}/pp05/approve`);
-    }
-
-    function handleReject() {
-        if (!rejectForm.data.notes.trim()) return;
-        rejectForm.post(`/admin/workflows/pp/${workflow.id}/pp05/reject`);
-    }
-
-    function handleTerminate() {
-        if (!terminateNotes.trim()) return;
-        setTerminateProcessing(true);
-        router.post(`/admin/workflows/pp/${workflow.id}/terminate`, { notes: terminateNotes }, {
-            onFinish: () => setTerminateProcessing(false),
-        });
+    function stepUrlResolver(entry: HistoryEntry): string | null {
+        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+        const step = entry.step;
+        if (step === 'PP05' || step === 'PP06') return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
+        if (entry.id && entry.table) return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
+        return null;
     }
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`PP05: Persetujuan — ${workflow.label}`} />
             <div className="space-y-6 p-6">
-                <Heading title="PP05: Persetujuan" description="Review dan setujui / tolak perencanaan periode" />
+                <div className="flex items-center gap-3">
+                    <Heading title="PP05: Persetujuan" description="Review dan setujui / tolak perencanaan periode" />
+                    <ApprovalStatusBadge isActive={isActive} />
+                </div>
 
                 {(errors.approve || errors.reject) && (
                     <AlertError errors={[errors.approve || errors.reject]} title="Gagal" />
                 )}
+
+                <HistoryCommentSection
+                    entries={workflow.history}
+                    commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
+                    commentSource="pp05"
+                    stepUrlResolver={stepUrlResolver}
+                    defaultOpen={false}
+                />
 
                 {/* PP01 Review */}
                 {reviewData.pp01 && (
@@ -105,65 +104,69 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                 {/* PP02 Review */}
                 {reviewData.pp02 && (
                     <SectionCard title="PP02 — Pertanyaan Kuisioner">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium">Kode</th>
-                                    <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
-                                    <th className="px-3 py-2 text-left font-medium">Tipe</th>
-                                    <th className="px-3 py-2 text-left font-medium">Satuan</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {reviewData.pp02.item_kuisioner.map((item, i) => (
-                                    <tr key={i} className="border-b last:border-0">
-                                        <td className="px-3 py-2">{item.kode}</td>
-                                        <td className="px-3 py-2">{item.pertanyaan}</td>
-                                        <td className="px-3 py-2">{item.tipe}</td>
-                                        <td className="px-3 py-2">{item.satuan || '—'}</td>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-150 w-full text-sm">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
+                                        <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
+                                        <th className="px-3 py-2 text-left font-medium w-28">Tipe</th>
+                                        <th className="px-3 py-2 text-left font-medium w-24">Satuan</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {reviewData.pp02.item_kuisioner.map((item, i) => (
+                                        <tr key={i} className="border-b last:border-0">
+                                            <td className="px-3 py-2 font-mono text-xs">{item.kode}</td>
+                                            <td className="px-3 py-2">{item.pertanyaan}</td>
+                                            <td className="px-3 py-2">{item.tipe}</td>
+                                            <td className="px-3 py-2 text-muted-foreground">{item.satuan || '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </SectionCard>
                 )}
 
                 {/* PP03 Review */}
                 {reviewData.pp03 && (
                     <SectionCard title="PP03 — Plafon Anggaran">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium">Tim</th>
-                                    <th className="px-3 py-2 text-left font-medium">Kode</th>
-                                    <th className="px-3 py-2 text-right font-medium">Plafon</th>
-                                    <th className="px-3 py-2 text-left font-medium">Bank</th>
-                                    <th className="px-3 py-2 text-left font-medium">Nama Rekening</th>
-                                    <th className="px-3 py-2 text-left font-medium">No. Rekening</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {reviewData.pp03.item_plafon_anggaran.map((item, i) => (
-                                    <tr key={i} className="border-b last:border-0">
-                                        <td className="px-3 py-2">{item.team?.name ?? `Tim #${item.team_id}`}</td>
-                                        <td className="px-3 py-2">{item.kode_team}</td>
-                                        <td className="px-3 py-2 text-right">{formatRupiah(item.plafon_anggaran)}</td>
-                                        <td className="px-3 py-2">{item.nama_bank}</td>
-                                        <td className="px-3 py-2">{item.nama_rekening}</td>
-                                        <td className="px-3 py-2">{item.nomor_rekening}</td>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-200 w-full text-sm">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
+                                        <th className="px-3 py-2 text-left font-medium">Tim</th>
+                                        <th className="px-3 py-2 text-right font-medium w-36">Plafon</th>
+                                        <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
+                                        <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
+                                        <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                            <tfoot>
-                                <tr className="border-t bg-muted/50 font-medium">
-                                    <td className="px-3 py-2" colSpan={2}>Total Plafon</td>
-                                    <td className="px-3 py-2 text-right">
-                                        {formatRupiah(reviewData.pp03.item_plafon_anggaran.reduce((sum, item) => sum + item.plafon_anggaran, 0))}
-                                    </td>
-                                    <td colSpan={3} />
-                                </tr>
-                            </tfoot>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {reviewData.pp03.item_plafon_anggaran.map((item, i) => (
+                                        <tr key={i} className="border-b last:border-0">
+                                            <td className="px-3 py-2 font-mono text-xs">{item.kode_team}</td>
+                                            <td className="px-3 py-2">{item.team?.name ?? `Tim #${item.team_id}`}</td>
+                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(item.plafon_anggaran)}</td>
+                                            <td className="px-3 py-2">{item.nama_bank}</td>
+                                            <td className="px-3 py-2">{item.nama_rekening}</td>
+                                            <td className="px-3 py-2">{item.nomor_rekening}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr className="border-t bg-muted/30 font-medium">
+                                        <td className="px-3 py-2" colSpan={2}>Total Plafon</td>
+                                        <td className="px-3 py-2 text-right tabular-nums">
+                                            {formatRupiah(reviewData.pp03.item_plafon_anggaran.reduce((sum, item) => sum + item.plafon_anggaran, 0))}
+                                        </td>
+                                        <td colSpan={3} />
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
                     </SectionCard>
                 )}
 
@@ -176,7 +179,7 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                             <ul className="space-y-1 text-sm">
                                 {reviewData.pp04.item_dokumen.map((dok, i) => (
                                     <li key={i} className="flex items-center gap-2">
-                                        <Badge variant="outline">File</Badge>
+                                        <Badge variant="outline" className="text-xs">File</Badge>
                                         {dok.file.original_filename}
                                     </li>
                                 ))}
@@ -186,76 +189,95 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                 )}
 
                 {/* Action Buttons */}
-                {(canApprove || canReject) && (
-                    <SectionCard title="Keputusan">
-                        <div className="space-y-4">
-                            {canApprove && (
-                                <div className="space-y-2">
-                                    <Label>Catatan Persetujuan (opsional)</Label>
-                                    <textarea
-                                        value={approveForm.data.notes}
-                                        onChange={(e) => approveForm.setData('notes', e.target.value)}
-                                        placeholder="Tulis catatan persetujuan..."
-                                        rows={2}
-                                        className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                    />
-                                </div>
-                            )}
-                            {canReject && (
-                                <div className="space-y-2">
-                                    <Label>Alasan Penolakan (wajib untuk tolak)</Label>
-                                    <textarea
-                                        value={rejectForm.data.notes}
-                                        onChange={(e) => rejectForm.setData('notes', e.target.value)}
-                                        placeholder="Tulis alasan penolakan..."
-                                        rows={3}
-                                        className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                    />
-                                </div>
-                            )}
-                            <div className="flex gap-2">
-                                {canApprove && (
-                                    <Button onClick={handleApprove} disabled={approveForm.processing}>
-                                        Setujui
-                                    </Button>
-                                )}
-                                {canReject && (
-                                    <Button
-                                        variant="destructive"
-                                        onClick={handleReject}
-                                        disabled={rejectForm.processing || !rejectForm.data.notes.trim()}
-                                    >
-                                        Tolak
-                                    </Button>
-                                )}
-                                {canTerminate && !showTerminate && (
-                                    <Button variant="destructive" className="ml-auto" onClick={() => setShowTerminate(true)}>Batalkan Workflow</Button>
-                                )}
-                            </div>
-                        </div>
-                    </SectionCard>
-                )}
-
-                {showTerminate && (
-                    <SectionCard title="Batalkan Workflow">
-                        <div className="space-y-3">
-                            <p className="text-sm text-muted-foreground">Workflow yang dibatalkan tidak dapat dilanjutkan. Tuliskan alasan pembatalan.</p>
-                            <textarea
-                                value={terminateNotes}
-                                onChange={(e) => setTerminateNotes(e.target.value)}
-                                placeholder="Alasan pembatalan (wajib)..."
-                                rows={3}
-                                className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                            />
-                            <div className="flex gap-2">
-                                <Button variant="destructive" onClick={handleTerminate} disabled={terminateProcessing || !terminateNotes.trim()}>Konfirmasi Batalkan</Button>
-                                <Button variant="outline" onClick={() => setShowTerminate(false)}>Batal</Button>
-                            </div>
-                        </div>
-                    </SectionCard>
+                {(isActive || canTerminate) && (
+                    <div className="flex gap-2">
+                        {canApprove && (
+                            <ApproveButton workflowId={workflow.id} />
+                        )}
+                        {canReject && (
+                            <RejectButton workflowId={workflow.id} />
+                        )}
+                        {canTerminate && (
+                            <TerminateButton workflowId={workflow.id} />
+                        )}
+                    </div>
                 )}
             </div>
         </AppLayout>
+    );
+}
+
+function ApprovalStatusBadge({ isActive }: { isActive: boolean }) {
+    if (isActive) {
+        return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">Menunggu Keputusan</Badge>;
+    }
+    return <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Sudah Diputuskan</Badge>;
+}
+
+function ApproveButton({ workflowId }: { workflowId: number }) {
+    const [processing, setProcessing] = useState(false);
+    return (
+        <ActionConfirmDialog
+            trigger={<Button>Setujui</Button>}
+            title="Setujui Perencanaan Periode"
+            description="Data PP01-PP04 akan dikompilasi ke Periode Tahunan (PP06)."
+            confirmLabel="Setujui"
+            processing={processing}
+            onConfirm={({ notes }) => {
+                setProcessing(true);
+                router.post(`/admin/workflows/pp/${workflowId}/pp05/approve`, { notes }, {
+                    onFinish: () => setProcessing(false),
+                });
+            }}
+        />
+    );
+}
+
+function RejectButton({ workflowId }: { workflowId: number }) {
+    const [processing, setProcessing] = useState(false);
+    return (
+        <ActionConfirmDialog
+            trigger={
+                <Button variant="destructive">Tolak</Button>
+            }
+            title="Tolak Perencanaan Periode"
+            description="Flow akan kembali ke PP01. Semua step PP01-PP04 perlu diisi ulang."
+            confirmLabel="Tolak"
+            variant="destructive"
+            requireNotes
+            processing={processing}
+            onConfirm={({ notes }) => {
+                setProcessing(true);
+                router.post(`/admin/workflows/pp/${workflowId}/pp05/reject`, { notes }, {
+                    onFinish: () => setProcessing(false),
+                });
+            }}
+        />
+    );
+}
+
+function TerminateButton({ workflowId }: { workflowId: number }) {
+    const [processing, setProcessing] = useState(false);
+    return (
+        <ActionConfirmDialog
+            trigger={
+                <Button variant="outline" className="ml-auto text-destructive border-destructive hover:bg-destructive/10">
+                    Batalkan Workflow
+                </Button>
+            }
+            title="Batalkan Workflow"
+            description="Workflow yang dibatalkan tidak bisa dilanjutkan. Tulis alasan pembatalan."
+            confirmLabel="Batalkan Workflow"
+            variant="destructive"
+            requireNotes
+            processing={processing}
+            onConfirm={({ notes }) => {
+                setProcessing(true);
+                router.post(`/admin/workflows/pp/${workflowId}/terminate`, { notes }, {
+                    onFinish: () => setProcessing(false),
+                });
+            }}
+        />
     );
 }
 
