@@ -2,9 +2,11 @@
 
 namespace App\Models\Pp;
 
+use App\Models\File;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Pp03Data extends Model
 {
@@ -13,6 +15,11 @@ class Pp03Data extends Model
     protected $fillable = [
         'pp_workflow_id',
     ];
+
+    public function files(): MorphMany
+    {
+        return $this->morphMany(File::class, 'attachable');
+    }
 
     public function ppWorkflow(): BelongsTo
     {

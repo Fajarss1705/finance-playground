@@ -2,11 +2,13 @@
 
 namespace App\Models\Pp;
 
+use App\Models\File;
 use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PpWorkflow extends Model
@@ -30,6 +32,11 @@ class PpWorkflow extends Model
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
+    }
+
+    public function files(): MorphMany
+    {
+        return $this->morphMany(File::class, 'attachable');
     }
 
     public function pp01Data(): HasMany

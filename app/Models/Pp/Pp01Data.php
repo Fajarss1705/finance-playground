@@ -2,9 +2,11 @@
 
 namespace App\Models\Pp;
 
+use App\Models\File;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Pp01Data extends Model
 {
@@ -24,6 +26,11 @@ class Pp01Data extends Model
             'tanggal_mulai_pra_raker' => 'date',
             'tanggal_penetapan_program' => 'date',
         ];
+    }
+
+    public function files(): MorphMany
+    {
+        return $this->morphMany(File::class, 'attachable');
     }
 
     public function ppWorkflow(): BelongsTo

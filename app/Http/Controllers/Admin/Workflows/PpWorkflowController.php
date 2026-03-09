@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin\Workflows;
 use App\Contracts\WorkflowDefinition;
 use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
-use App\Models\File;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
 use App\Models\Pp\Pp03Data;
@@ -13,14 +12,12 @@ use App\Models\Pp\Pp04Data;
 use App\Models\Pp\Pp07Data;
 use App\Models\Pp\PpWorkflow;
 use App\Services\ActiveSessionService;
+use App\Services\CommentService;
+use App\Services\HistoryFormatter;
 use App\Services\PpCompileService;
 use App\Services\WorkflowEngine;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -29,6 +26,8 @@ class PpWorkflowController extends Controller
     public function __construct(
         private WorkflowEngine $engine,
         private ActiveSessionService $session,
+        private HistoryFormatter $historyFormatter,
+        private CommentService $commentService,
     ) {}
 
     public function index(Request $request): Response
@@ -205,7 +204,7 @@ class PpWorkflowController extends Controller
                 'id' => $ppWorkflow->id,
                 'label' => $label,
                 'status' => $workflowStatus,
-                'history' => $this->formatHistoryForFrontend($history),
+                'history' => $this->historyFormatter->format($history),
                 'step_statuses' => $statuses,
                 'current_steps' => $currentSteps,
             ],
@@ -1137,25 +1136,14 @@ class PpWorkflowController extends Controller
             'files.*' => ['file', 'max:51200'],
         ]);
 
-        $fileIds = $this->storeUploadedFiles(
-            $request->file('files', []),
-            $ppWorkflow,
-            "pp.{$validated['source']}.comment",
-        );
-
-        $extra = ['source' => $validated['source']];
-        if (! empty($fileIds)) {
-            $extra['files'] = $fileIds;
-        }
-
-        $this->engine->recordAction(
+        $this->commentService->store(
             workflow: $ppWorkflow,
-            step: $validated['source'],
-            action: 'commented',
+            source: $validated['source'],
+            notes: $validated['notes'],
+            uploadedFiles: $request->file('files', []),
             userId: $request->user()->id,
             sessionContext: $this->getSessionContext(),
-            notes: $validated['notes'],
-            extra: $extra,
+            workflowPrefix: 'pp',
         );
 
         return back();
@@ -1179,10 +1167,12 @@ class PpWorkflowController extends Controller
         $currentSteps = $this->engine->getCurrentSteps($definition, $history);
         $activeStep = $currentSteps[0] ?? 'PP01';
 
-        $fileIds = $this->storeUploadedFiles(
+        $fileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $ppWorkflow,
             "pp.{$activeStep}.terminate",
+            $request->user()->id,
+            $this->getSessionContext(),
         );
 
         $this->engine->recordAction(
@@ -1224,55 +1214,6 @@ class PpWorkflowController extends Controller
         ];
     }
 
-    /**
-     * Store uploaded files and attach them polymorphically to the given model.
-     *
-     * @param  array<int, UploadedFile>  $uploadedFiles
-     * @return array<int, int> File IDs
-     */
-    private function storeUploadedFiles(array $uploadedFiles, Model $attachable, string $sourceRoute): array
-    {
-        $fileIds = [];
-        $workspaceId = $this->session->getActiveWorkspaceId();
-        $role = \App\Models\Role::with('team')->find($this->session->getActiveRoleId());
-
-        foreach ($uploadedFiles as $uploadedFile) {
-            $uuid = (string) Str::uuid();
-            $ext = $uploadedFile->getClientOriginalExtension();
-            $filename = "{$uuid}.{$ext}";
-            $path = "files/{$workspaceId}/".now()->format('Y/m')."/{$filename}";
-
-            Storage::disk('local')->putFileAs(
-                dirname($path),
-                $uploadedFile,
-                basename($path),
-            );
-
-            $file = File::create([
-                'uuid' => $uuid,
-                'original_filename' => $uploadedFile->getClientOriginalName(),
-                'filename' => $filename,
-                'mime_type' => $uploadedFile->getClientMimeType(),
-                'size' => $uploadedFile->getSize(),
-                'disk' => 'local',
-                'path' => $path,
-                'user_id' => auth()->id(),
-                'role_id' => $role?->id,
-                'team_id' => $role?->team_id,
-                'organization_id' => $role?->team?->organization_id,
-                'workspace_id' => $workspaceId,
-                'source_route' => $sourceRoute,
-                'is_workspace_public' => false,
-                'attachable_type' => $attachable->getMorphClass(),
-                'attachable_id' => $attachable->getKey(),
-            ]);
-
-            $fileIds[] = $file->id;
-        }
-
-        return $fileIds;
-    }
-
     /** @return array<string, mixed> */
     private function workflowProps(PpWorkflow $ppWorkflow, WorkflowDefinition $definition): array
     {
@@ -1283,7 +1224,7 @@ class PpWorkflowController extends Controller
             'id' => $ppWorkflow->id,
             'label' => $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru',
             'status' => $this->engine->getWorkflowStatus($history),
-            'history' => $this->formatHistoryForFrontend($history),
+            'history' => $this->historyFormatter->format($history),
             'step_statuses' => $this->engine->getStepStatuses($definition, $history),
             'current_steps' => $this->engine->getCurrentSteps($definition, $history),
         ];
@@ -1361,54 +1302,6 @@ class PpWorkflowController extends Controller
             ->orderBy('name')
             ->get(['id', 'name'])
             ->toArray();
-    }
-
-    /** @return list<array<string, mixed>> */
-    private function formatHistoryForFrontend(array $history): array
-    {
-        $userCache = [];
-        $roleCache = [];
-
-        // Collect all file IDs from history entries to batch-load
-        $allFileIds = [];
-        foreach ($history as $entry) {
-            if (! empty($entry['files'])) {
-                $allFileIds = array_merge($allFileIds, (array) $entry['files']);
-            }
-        }
-        $fileCache = [];
-        if (! empty($allFileIds)) {
-            $fileCache = File::whereIn('id', array_unique($allFileIds))
-                ->get(['id', 'uuid', 'original_filename', 'size'])
-                ->keyBy('id')
-                ->toArray();
-        }
-
-        return array_map(function ($entry) use (&$userCache, &$roleCache, $fileCache) {
-            $userId = $entry['by'] ?? null;
-
-            if ($userId && ! isset($userCache[$userId])) {
-                $user = \App\Models\User::find($userId);
-                $userCache[$userId] = $user?->name ?? 'Unknown';
-            }
-
-            $entry['by_name'] = $userId ? ($userCache[$userId] ?? 'System') : 'System';
-
-            $roleId = $entry['role'] ?? null;
-            if ($roleId && ! isset($roleCache[$roleId])) {
-                $roleCache[$roleId] = \App\Models\Role::find($roleId)?->name ?? 'Unknown';
-            }
-            $entry['role_name'] = $roleId ? ($roleCache[$roleId] ?? null) : null;
-
-            // Resolve file IDs to file objects
-            if (! empty($entry['files'])) {
-                $entry['files'] = array_values(array_filter(
-                    array_map(fn ($id) => $fileCache[$id] ?? null, (array) $entry['files'])
-                ));
-            }
-
-            return $entry;
-        }, $history);
     }
 
     /**
