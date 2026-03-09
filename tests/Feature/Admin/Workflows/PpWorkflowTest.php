@@ -1107,6 +1107,86 @@ function runFullPpFlowToCompletion(object $test, $user, $role, $workspace): arra
     return [$workflow->fresh(), $team];
 }
 
+// --- PP06 Show ---
+
+it('shows PP06 with compiled data and canComment false when lacking comment permission', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp06.show',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp06.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp06')
+            ->has('pp06')
+            ->where('pp06.tahun', 2027)
+            ->where('pp06.revision', 0)
+            ->has('pp06.kode_bidang_pelayanan', 1)
+            ->has('pp06.item_kuisioner', 1)
+            ->has('pp06.item_plafon_anggaran', 1)
+            ->has('allRevisions', 1)
+            ->where('canRevise', true)
+            ->where('canComment', false)
+        );
+});
+
+it('shows PP06 with canComment true when user has comment permission', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp06.show',
+        'admin.workflows.pp.comment',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp06.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp06')
+            ->has('pp06')
+            ->where('canComment', true)
+        );
+});
+
+it('shows PP06 with empty state when not yet compiled', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp06.show',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.create'));
+    $workflow = PpWorkflow::first();
+
+    $this->get(route('admin.workflows.pp.pp06.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp06')
+            ->where('pp06', null)
+            ->has('allRevisions', 0)
+            ->where('canRevise', false)
+            ->where('canComment', false)
+        );
+});
+
+// --- PP07 ---
+
 it('creates PP07 draft from PP06 data', function () {
     [$user, $role, $workspace] = setupPpUser(
         'admin.workflows.pp.create',

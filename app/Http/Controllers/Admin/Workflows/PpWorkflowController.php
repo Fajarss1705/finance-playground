@@ -968,6 +968,7 @@ class PpWorkflowController extends Controller
 
         $activeDraft = $ppWorkflow->pp07Data()->whereNull('submitted_at')->first();
         $workflowStatus = $this->engine->getWorkflowStatus($ppWorkflow->history ?? []);
+        $permissions = $this->session->getActivePermissions();
 
         return Inertia::render('admin/workflows/pp/pp06', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
@@ -977,6 +978,7 @@ class PpWorkflowController extends Controller
                 ->get(['id', 'revision', 'tahun', 'created_at']),
             'canRevise' => $pp06 !== null && $workflowStatus === 'completed',
             'activeDraftId' => $activeDraft?->id,
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
         ]);
     }
 

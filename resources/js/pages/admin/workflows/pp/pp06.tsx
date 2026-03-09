@@ -2,6 +2,8 @@ import { Head, router } from '@inertiajs/react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import HistoryCommentSection from '@/components/workflow/history-comment-section';
+import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
@@ -43,7 +45,7 @@ type Pp06 = {
 
 type Revision = { id: number; revision: number; tahun: number; created_at: string };
 
-type Workflow = { id: number; label: string };
+type Workflow = { id: number; label: string; status: string; history: HistoryEntry[] };
 
 type Props = {
     workflow: Workflow;
@@ -51,6 +53,7 @@ type Props = {
     allRevisions: Revision[];
     canRevise: boolean;
     activeDraftId: number | null;
+    canComment: boolean;
 };
 
 function formatRupiah(value: number): string {
@@ -69,13 +72,25 @@ function AuthorLine({ name, role, date }: { name: string; role: string; date: st
     );
 }
 
-export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDraftId }: Props) {
+export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDraftId, canComment }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
         { title: workflow.label, href: `/admin/workflows/pp/${workflow.id}` },
         { title: 'PP06: Periode Tahunan', href: '#' },
     ];
+
+    function stepUrlResolver(entry: HistoryEntry): string | null {
+        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+        const step = entry.step;
+        if (step === 'PP05' || step === 'PP06') {
+            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
+        }
+        if (entry.id && entry.table) {
+            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
+        }
+        return null;
+    }
 
     if (!pp06) {
         return (
@@ -98,6 +113,15 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                     <Heading title="PP06: Periode Tahunan" description="Data final yang sudah di-compile" />
                     <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Revisi {pp06.revision}</Badge>
                 </div>
+
+                <HistoryCommentSection
+                    entries={workflow.history}
+                    commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
+                    commentSource="pp06"
+                    canComment={canComment}
+                    stepUrlResolver={stepUrlResolver}
+                    defaultOpen={false}
+                />
 
                 {/* Riwayat Revisi */}
                 {allRevisions.length > 1 && (
