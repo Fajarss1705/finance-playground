@@ -1,4 +1,4 @@
-import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
@@ -30,22 +30,22 @@ type Props = {
     canDraft: boolean;
     canSubmit: boolean;
     canTerminate: boolean;
+    canComment: boolean;
     isRejectionReentry: boolean;
 };
 
 const tipePresets = ['Kualitatif', 'Kuantitatif'];
 
-export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, isRejectionReentry }: Props) {
+export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly';
 
-    const form = useForm({
-        item_kuisioner: stepData.item_kuisioner.length > 0
+    const [items, setItems] = useState<KuisionerItem[]>(
+        stepData.item_kuisioner.length > 0
             ? stepData.item_kuisioner
             : [{ kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
-        expected_updated_at: stepData.updated_at,
-        notes: '',
-    });
+    );
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
@@ -55,11 +55,11 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
     ];
 
     function addRow() {
-        form.setData('item_kuisioner', [...form.data.item_kuisioner, { kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
+        setItems([...items, { kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
     }
 
     function removeRow(index: number) {
-        form.setData('item_kuisioner', form.data.item_kuisioner.filter((_, i) => i !== index));
+        setItems(items.filter((_, i) => i !== index));
     }
 
     function updateRow(index: number, field: keyof KuisionerItem, value: string) {
@@ -67,8 +67,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
         if (field === 'tipe' && value === 'Kualitatif') {
             updates.satuan = '';
         }
-        const items = form.data.item_kuisioner.map((item, i) => (i === index ? { ...item, ...updates } : item));
-        form.setData('item_kuisioner', items);
+        setItems(items.map((item, i) => (i === index ? { ...item, ...updates } : item)));
     }
 
     function isCustomTipe(tipe: string): boolean {
@@ -83,12 +82,19 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
         }
     }
 
-    function handleDraft() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp02/${stepData.id}/draft`, { preserveScroll: true });
-    }
-
-    function handleSubmit() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp02/${stepData.id}/submit`);
+    function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
+        setProcessing(true);
+        const url = `/admin/workflows/pp/${workflow.id}/pp02/${stepData.id}/${action}`;
+        router.post(url, {
+            item_kuisioner: items,
+            expected_updated_at: stepData.updated_at,
+            notes: notes || undefined,
+            ...(files.length > 0 ? { files } : {}),
+        }, {
+            forceFormData: files.length > 0,
+            preserveScroll: action === 'draft',
+            onFinish: () => setProcessing(false),
+        });
     }
 
     function stepUrlResolver(entry: HistoryEntry): string | null {
@@ -120,11 +126,13 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp02"
+                    canComment={canComment}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
 
                 <SectionCard title="Daftar Pertanyaan Kuisioner">
+                    {errors.item_kuisioner && <p className="mb-2 text-xs text-destructive">{errors.item_kuisioner}</p>}
                     <div className="overflow-x-auto">
                         <table className="min-w-200 w-full text-sm">
                             <thead>
@@ -137,10 +145,11 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 </tr>
                             </thead>
                             <tbody>
-                                {form.data.item_kuisioner.map((item, i) => (
+                                {items.map((item, i) => (
                                     <tr key={i} className="border-b last:border-0">
                                         <td className="px-3 py-1.5">
                                             <Input value={item.kode} onChange={(e) => updateRow(i, 'kode', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
+                                            {errors[`item_kuisioner.${i}.kode`] && <p className="text-xs text-destructive">{errors[`item_kuisioner.${i}.kode`]}</p>}
                                         </td>
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
@@ -151,6 +160,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         )}
                                         <td className="px-3 py-1.5">
                                             <Input value={item.pertanyaan} onChange={(e) => updateRow(i, 'pertanyaan', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            {errors[`item_kuisioner.${i}.pertanyaan`] && <p className="text-xs text-destructive">{errors[`item_kuisioner.${i}.pertanyaan`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             {isCustomTipe(item.tipe) ? (
@@ -171,6 +181,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                     <option value="Lainnya">Lainnya...</option>
                                                 </select>
                                             )}
+                                            {errors[`item_kuisioner.${i}.tipe`] && <p className="text-xs text-destructive">{errors[`item_kuisioner.${i}.tipe`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input
@@ -180,6 +191,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                 className="h-8"
                                                 placeholder={item.tipe === 'Kualitatif' ? '—' : item.tipe === 'Kuantitatif' ? 'wajib' : 'opsional'}
                                             />
+                                            {errors[`item_kuisioner.${i}.satuan`] && <p className="text-xs text-destructive">{errors[`item_kuisioner.${i}.satuan`]}</p>}
                                         </td>
                                     </tr>
                                 ))}
@@ -194,17 +206,35 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                     )}
                 </SectionCard>
 
-                {!isReadonly && (
+                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
                     <div className="flex gap-2">
                         {canDraft && (
-                            <Button variant="outline" onClick={handleDraft} disabled={form.processing}>
-                                {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button variant="outline" disabled={processing}>
+                                        {processing ? 'Menyimpan...' : 'Simpan Draft'}
+                                    </Button>
+                                }
+                                title="Simpan Draft"
+                                description="Simpan data sebagai draft. Data belum divalidasi dan bisa diubah kembali."
+                                confirmLabel="Simpan Draft"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
+                            />
                         )}
                         {canSubmit && (
-                            <Button onClick={handleSubmit} disabled={form.processing}>
-                                {form.processing ? 'Mengirim...' : 'Submit'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button disabled={processing}>
+                                        {processing ? 'Mengirim...' : 'Submit'}
+                                    </Button>
+                                }
+                                title="Submit PP02"
+                                description="Data akan divalidasi dan dikunci. Step selanjutnya (PP03) akan diaktifkan."
+                                confirmLabel="Submit"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('submit', notes, files)}
+                            />
                         )}
                         {canTerminate && (
                             <TerminateButton workflowId={workflow.id} />

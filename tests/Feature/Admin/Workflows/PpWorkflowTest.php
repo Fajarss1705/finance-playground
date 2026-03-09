@@ -2,6 +2,7 @@
 
 use App\Models\Permission;
 use App\Models\Pp\Pp01Data;
+use App\Models\Pp\Pp02Data;
 use App\Models\Pp\Pp07Data;
 use App\Models\Pp\PpWorkflow;
 use App\Models\Team;
@@ -303,6 +304,119 @@ it('drafts PP01 with notes and records them in history', function () {
     $lastEntry = collect($workflow->history)->last();
     expect($lastEntry['action'])->toBe('drafted')
         ->and($lastEntry['notes'])->toBe('Baru isi tahun dulu');
+});
+
+// --- PP02 Validation ---
+
+function setupPp02Workflow($user, $role, $workspace): array
+{
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ['step' => 'PP01', 'action' => 'submitted', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ['step' => 'PP02', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp02_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id, 'tahun' => 2027]);
+    $pp02 = Pp02Data::create(['pp_workflow_id' => $workflow->id]);
+
+    // Fix history IDs
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $history[1]['id'] = $pp01->id;
+    $history[2]['id'] = $pp02->id;
+    $workflow->update(['history' => $history]);
+
+    return [$workflow, $pp02];
+}
+
+it('rejects PP02 submit with empty items', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp02.show', 'admin.workflows.pp.pp02.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp02] = setupPp02Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp02.submit', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]), [
+        'expected_updated_at' => $pp02->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['item_kuisioner']);
+
+    // History should NOT have a submit entry
+    $workflow->refresh();
+    expect(collect($workflow->history)->where('action', 'submitted')->where('step', 'PP02'))->toBeEmpty();
+});
+
+it('rejects PP02 submit when Kuantitatif has no satuan', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp02.show', 'admin.workflows.pp.pp02.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp02] = setupPp02Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp02.submit', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]), [
+        'item_kuisioner' => [
+            ['kode' => 'Q1', 'pertanyaan' => 'Jumlah anggota?', 'tipe' => 'Kuantitatif', 'satuan' => null],
+        ],
+        'expected_updated_at' => $pp02->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['item_kuisioner.0.satuan']);
+});
+
+it('renders PP02 in readonly mode for user without draft/submit permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp02.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp02] = setupPp02Workflow($user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp02.show', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp02')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+            ->where('canTerminate', false)
+            ->where('canComment', false)
+        );
+});
+
+it('returns 409 when expected_updated_at is stale on PP02 draft', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp02.show', 'admin.workflows.pp.pp02.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp02] = setupPp02Workflow($user, $role, $workspace);
+
+    $staleTimestamp = $pp02->updated_at->toIso8601String();
+
+    // Simulate another user updating the record
+    $this->travel(2)->seconds();
+    $pp02->touch();
+
+    $this->post(route('admin.workflows.pp.pp02.draft', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]), [
+        'item_kuisioner' => [
+            ['kode' => 'Q1', 'pertanyaan' => 'Test?', 'tipe' => 'Kualitatif', 'satuan' => null],
+        ],
+        'expected_updated_at' => $staleTimestamp,
+    ])->assertStatus(409);
+});
+
+it('drafts PP02 with notes and records them in history', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp02.show', 'admin.workflows.pp.pp02.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp02] = setupPp02Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp02.draft', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]), [
+        'item_kuisioner' => [
+            ['kode' => 'Q1', 'pertanyaan' => 'Berapa jumlah anggota?', 'tipe' => 'Kuantitatif', 'satuan' => 'orang'],
+        ],
+        'expected_updated_at' => $pp02->updated_at->toIso8601String(),
+        'notes' => 'Baru isi satu pertanyaan',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $lastEntry = collect($workflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['step'])->toBe('PP02')
+        ->and($lastEntry['notes'])->toBe('Baru isi satu pertanyaan');
+
+    // Verify item was saved
+    $pp02->refresh();
+    expect($pp02->itemKuisioner)->toHaveCount(1);
 });
 
 // --- Full Flow ---

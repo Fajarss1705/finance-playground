@@ -7,6 +7,8 @@ use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Workflows\Pp01DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp01SubmitRequest;
+use App\Http\Requests\Admin\Workflows\Pp02DraftRequest;
+use App\Http\Requests\Admin\Workflows\Pp02SubmitRequest;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
 use App\Models\Pp\Pp03Data;
@@ -383,7 +385,11 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
+
         $mode = $this->resolveMode($statuses, 'PP02');
+        $permissions = $this->session->getActivePermissions();
+        $isEditable = $mode === 'edit' || $mode === 'create';
+        $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
 
         return Inertia::render('admin/workflows/pp/pp02', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
@@ -393,25 +399,19 @@ class PpWorkflowController extends Controller
                 'updated_at' => $pp02Data->updated_at->toIso8601String(),
             ],
             'mode' => $mode,
-            'canDraft' => $mode !== 'readonly',
-            'canSubmit' => $mode !== 'readonly',
-            'canTerminate' => $this->engine->getWorkflowStatus($history) === 'active',
+            'canDraft' => $isEditable && in_array('admin.workflows.pp.pp02.draft', $permissions),
+            'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp02.submit', $permissions),
+            'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP02']['cycle'] > 1 && $statuses['PP02']['status'] === 'active',
         ]);
     }
 
-    public function pp02Draft(Request $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
+    public function pp02Draft(Pp02DraftRequest $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP02');
 
-        $validated = $request->validate([
-            'item_kuisioner' => ['nullable', 'array'],
-            'item_kuisioner.*.kode' => ['required', 'string', 'max:10'],
-            'item_kuisioner.*.pertanyaan' => ['required', 'string', 'max:255'],
-            'item_kuisioner.*.tipe' => ['required', 'string', 'max:50'],
-            'item_kuisioner.*.satuan' => ['nullable', 'string', 'max:100'],
-            'expected_updated_at' => ['required', 'string'],
-        ]);
+        $validated = $request->validated();
 
         $this->checkOptimisticLock($pp02Data, $validated['expected_updated_at']);
 
@@ -423,30 +423,33 @@ class PpWorkflowController extends Controller
 
         $pp02Data->touch();
 
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp02Data,
+            'pp.pp02.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP02',
             action: 'drafted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp02_data',
             dataId: $pp02Data->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         return back();
     }
 
-    public function pp02Submit(Request $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
+    public function pp02Submit(Pp02SubmitRequest $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
     {
-        $validated = $request->validate([
-            'item_kuisioner' => ['required', 'array', 'min:1'],
-            'item_kuisioner.*.kode' => ['required', 'string', 'max:10'],
-            'item_kuisioner.*.pertanyaan' => ['required', 'string', 'max:255'],
-            'item_kuisioner.*.tipe' => ['required', 'string', 'max:50'],
-            'item_kuisioner.*.satuan' => ['required_unless:item_kuisioner.*.tipe,Kualitatif', 'nullable', 'string', 'max:100'],
-            'expected_updated_at' => ['required', 'string'],
-            'notes' => ['nullable', 'string'],
-        ]);
+        $validated = $request->validated();
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
@@ -464,15 +467,25 @@ class PpWorkflowController extends Controller
 
         $pp02Data->touch();
 
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp02Data,
+            'pp.pp02.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
+
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP02',
             action: 'submitted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp02_data',
             dataId: $pp02Data->id,
             notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         // Auto-create PP03
@@ -483,7 +496,7 @@ class PpWorkflowController extends Controller
             step: 'PP03',
             action: 'created',
             userId: null,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp03_data',
             dataId: $pp03->id,
         );
