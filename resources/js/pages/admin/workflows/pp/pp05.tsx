@@ -38,13 +38,14 @@ type Props = {
     canApprove: boolean;
     canReject: boolean;
     canTerminate: boolean;
+    canComment: boolean;
 };
 
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp05({ workflow, reviewData, canApprove, canReject, canTerminate }: Props) {
+export default function Pp05({ workflow, reviewData, canApprove, canReject, canTerminate, canComment }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const isActive = canApprove || canReject;
 
@@ -80,6 +81,7 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp05"
+                    canComment={canComment}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />

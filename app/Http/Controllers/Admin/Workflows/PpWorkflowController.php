@@ -13,6 +13,8 @@ use App\Http\Requests\Admin\Workflows\Pp03DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp03SubmitRequest;
 use App\Http\Requests\Admin\Workflows\Pp04DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp04SubmitRequest;
+use App\Http\Requests\Admin\Workflows\Pp05ApproveRequest;
+use App\Http\Requests\Admin\Workflows\Pp05RejectRequest;
 use App\Models\File;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
@@ -774,6 +776,7 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
+        $permissions = $this->session->getActivePermissions();
 
         // Load all step data for review
         $pp01 = $ppWorkflow->pp01Data()->latest('id')->first();
@@ -787,6 +790,7 @@ class PpWorkflowController extends Controller
         $pp04?->load('itemDokumen.file');
 
         $isActive = $statuses['PP05']['status'] === 'active';
+        $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
 
         return Inertia::render('admin/workflows/pp/pp05', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
@@ -796,23 +800,22 @@ class PpWorkflowController extends Controller
                 'pp03' => $pp03,
                 'pp04' => $pp04,
             ],
-            'canApprove' => $isActive,
-            'canReject' => $isActive,
-            'canTerminate' => $this->engine->getWorkflowStatus($history) === 'active',
+            'canApprove' => $isActive && in_array('admin.workflows.pp.pp05.approve', $permissions),
+            'canReject' => $isActive && in_array('admin.workflows.pp.pp05.reject', $permissions),
+            'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
         ]);
     }
 
-    public function pp05Approve(Request $request, PpWorkflow $ppWorkflow): RedirectResponse
+    public function pp05Approve(Pp05ApproveRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
-        $request->validate([
-            'notes' => ['nullable', 'string'],
-        ]);
-
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
         if (! in_array('PP05', $this->engine->getCurrentSteps($definition, $ppWorkflow->history ?? []))) {
             return back()->withErrors(['approve' => 'Step ini sudah tidak aktif.']);
         }
+
+        $validated = $request->validated();
 
         $pp01 = $ppWorkflow->pp01Data()->latest('id')->first();
         $pp02 = $ppWorkflow->pp02Data()->latest('id')->first();
@@ -826,14 +829,24 @@ class PpWorkflowController extends Controller
             'pp04_data_id' => $pp04?->id,
         ];
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $reviewed) {
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $ppWorkflow,
+            'pp.pp05.approve',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $reviewed, $validated, $sessionContext, $fileIds) {
             $this->engine->recordAction(
                 workflow: $ppWorkflow,
                 step: 'PP05',
                 action: 'approved',
                 userId: $request->user()->id,
-                sessionContext: $this->getSessionContext(),
-                notes: $request->input('notes'),
+                sessionContext: $sessionContext,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
                 extra: ['reviewed' => $reviewed],
             );
 
@@ -846,7 +859,7 @@ class PpWorkflowController extends Controller
                 step: 'PP06',
                 action: 'completed',
                 userId: null,
-                sessionContext: $this->getSessionContext(),
+                sessionContext: $sessionContext,
                 table: 'pp06_periode_tahunan',
                 dataId: $pp06->id,
             );
@@ -855,30 +868,38 @@ class PpWorkflowController extends Controller
         return to_route('admin.workflows.pp.show', $ppWorkflow);
     }
 
-    public function pp05Reject(Request $request, PpWorkflow $ppWorkflow): RedirectResponse
+    public function pp05Reject(Pp05RejectRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
-        $request->validate([
-            'notes' => ['required', 'string'],
-        ]);
-
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
         if (! in_array('PP05', $this->engine->getCurrentSteps($definition, $ppWorkflow->history ?? []))) {
             return back()->withErrors(['reject' => 'Step ini sudah tidak aktif.']);
         }
 
+        $validated = $request->validated();
+
         $pp01 = $ppWorkflow->pp01Data()->latest('id')->first();
         $pp02 = $ppWorkflow->pp02Data()->latest('id')->first();
         $pp03 = $ppWorkflow->pp03Data()->latest('id')->first();
         $pp04 = $ppWorkflow->pp04Data()->latest('id')->first();
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $ppWorkflow,
+            'pp.pp05.reject',
+            $request->user()->id,
+            $sessionContext,
+        );
 
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP05',
             action: 'rejected',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
-            notes: $request->input('notes'),
+            sessionContext: $sessionContext,
+            notes: $validated['notes'],
+            files: ! empty($fileIds) ? $fileIds : null,
             extra: [
                 'reviewed' => [
                     'pp01_data_id' => $pp01?->id,
@@ -923,7 +944,7 @@ class PpWorkflowController extends Controller
             step: 'PP01',
             action: 'created',
             userId: null,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp01_data',
             dataId: $newPp01->id,
         );

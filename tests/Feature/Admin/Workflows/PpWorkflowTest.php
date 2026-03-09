@@ -871,6 +871,190 @@ it('handles PP05 rejection and re-entry', function () {
         ->and($newPp01->kodeBidangPelayanan)->toHaveCount(1);
 });
 
+// --- PP05 Approval Step ---
+
+function runFlowToPp05(object $test, $user, $role, $workspace): PpWorkflow
+{
+    $team = Team::factory()->for($role->team->organization)->create();
+
+    $test->post(route('admin.workflows.pp.create'));
+    $workflow = PpWorkflow::first();
+    $pp01 = Pp01Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $test->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'tahun' => 2027,
+        'tanggal_mulai_pra_raker' => '2027-01-15',
+        'tanggal_penetapan_program' => '2027-03-01',
+        'kode_bidang_pelayanan' => [['kode' => '01', 'nama' => 'Kegiatan', 'catatan' => null]],
+        'kode_sub_bidang_pelayanan' => [['kode' => '01A', 'nama' => 'Sub', 'catatan' => null]],
+        'kode_kategori_pelayanan' => [['kode' => 'K1', 'nama' => 'Kat', 'catatan' => null]],
+        'kode_jenis_program' => [['kode' => 'R', 'nama' => 'Rutin', 'catatan' => null]],
+        'expected_updated_at' => $pp01->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $workflow->refresh();
+    $pp02 = $workflow->pp02Data()->latest()->first();
+    $test->post(route('admin.workflows.pp.pp02.submit', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]), [
+        'item_kuisioner' => [['kode' => 'Q1', 'pertanyaan' => 'Test?', 'tipe' => 'Kualitatif', 'satuan' => null]],
+        'expected_updated_at' => $pp02->updated_at->toIso8601String(),
+    ]);
+
+    $workflow->refresh();
+    $pp03 = $workflow->pp03Data()->latest()->first();
+    $test->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
+        ]],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ]);
+
+    $workflow->refresh();
+    $pp04 = $workflow->pp04Data()->latest()->first();
+    $test->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'expected_updated_at' => $pp04->updated_at->toIso8601String(),
+    ]);
+
+    return $workflow->fresh();
+}
+
+it('shows PP05 as readonly when user lacks approve/reject permissions', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.show',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = runFlowToPp05($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp05.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp05')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+            ->where('canTerminate', false)
+            ->where('canComment', false)
+        );
+});
+
+it('shows PP05 with approve/reject permissions for authorized user', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.show',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp05.reject',
+        'admin.workflows.pp.terminate',
+        'admin.workflows.pp.comment',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = runFlowToPp05($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp05.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp05')
+            ->where('canApprove', true)
+            ->where('canReject', true)
+            ->where('canTerminate', true)
+            ->where('canComment', true)
+            ->has('reviewData.pp01')
+            ->has('reviewData.pp02')
+            ->has('reviewData.pp03')
+            ->has('reviewData.pp04')
+        );
+});
+
+it('records PP05 approve with notes in history', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.show',
+        'admin.workflows.pp.pp05.approve',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = runFlowToPp05($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp05.approve', $workflow), [
+        'notes' => 'Semua data lengkap',
+    ])->assertRedirect(route('admin.workflows.pp.show', $workflow));
+
+    $workflow->refresh();
+    $approveEntry = collect($workflow->history)
+        ->where('step', 'PP05')
+        ->where('action', 'approved')
+        ->first();
+
+    expect($approveEntry)->not->toBeNull()
+        ->and($approveEntry['notes'])->toBe('Semua data lengkap')
+        ->and($approveEntry['reviewed'])->toHaveKeys(['pp01_data_id', 'pp02_data_id', 'pp03_data_id', 'pp04_data_id']);
+});
+
+it('rejects PP05 reject without notes', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.show',
+        'admin.workflows.pp.pp05.reject',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = runFlowToPp05($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp05.reject', $workflow), [])
+        ->assertSessionHasErrors('notes');
+
+    // History should NOT have a rejected entry
+    $workflow->refresh();
+    $rejectEntry = collect($workflow->history)
+        ->where('step', 'PP05')
+        ->where('action', 'rejected')
+        ->first();
+
+    expect($rejectEntry)->toBeNull();
+});
+
+it('prevents PP05 approve when step is no longer active', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.show',
+        'admin.workflows.pp.pp05.approve',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = runFlowToPp05($this, $user, $role, $workspace);
+
+    // Approve first time
+    $this->post(route('admin.workflows.pp.pp05.approve', $workflow), [
+        'notes' => 'Approved',
+    ])->assertRedirect();
+
+    // Try approve again — step no longer active
+    $this->post(route('admin.workflows.pp.pp05.approve', $workflow), [
+        'notes' => 'Double approve',
+    ])->assertSessionHasErrors('approve');
+});
+
 // --- PP07 Revision ---
 
 function runFullPpFlowToCompletion(object $test, $user, $role, $workspace): array
