@@ -1,4 +1,4 @@
-import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
@@ -40,6 +40,7 @@ type Props = {
     canDraft: boolean;
     canSubmit: boolean;
     canTerminate: boolean;
+    canComment: boolean;
     isRejectionReentry: boolean;
     teams: Team[];
 };
@@ -48,12 +49,13 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, isRejectionReentry, teams }: Props) {
+export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, teams }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly';
 
-    const form = useForm({
-        item_plafon_anggaran: stepData.item_plafon_anggaran.length > 0
+    const [items, setItems] = useState<PlafonItem[]>(
+        stepData.item_plafon_anggaran.length > 0
             ? stepData.item_plafon_anggaran.map((item) => ({
                 team_id: item.team_id,
                 kode_team: item.kode_team,
@@ -64,12 +66,10 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                 catatan: item.catatan ?? '',
             }))
             : [],
-        expected_updated_at: stepData.updated_at,
-        notes: '',
-    });
+    );
 
-    const usedTeamIds = form.data.item_plafon_anggaran.map((item) => item.team_id);
-    const totalPlafon = form.data.item_plafon_anggaran.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
+    const usedTeamIds = items.map((item) => item.team_id);
+    const totalPlafon = items.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
@@ -79,27 +79,30 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
     ];
 
     function addRow() {
-        form.setData('item_plafon_anggaran', [
-            ...form.data.item_plafon_anggaran,
-            { team_id: 0, kode_team: '', plafon_anggaran: 0, nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' },
-        ]);
+        setItems([...items, { team_id: 0, kode_team: '', plafon_anggaran: 0, nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' }]);
     }
 
     function removeRow(index: number) {
-        form.setData('item_plafon_anggaran', form.data.item_plafon_anggaran.filter((_, i) => i !== index));
+        setItems(items.filter((_, i) => i !== index));
     }
 
-    function updateRow(index: number, field: string, value: string | number) {
-        const items = form.data.item_plafon_anggaran.map((item, i) => (i === index ? { ...item, [field]: value } : item));
-        form.setData('item_plafon_anggaran', items);
+    function updateRow(index: number, field: keyof PlafonItem, value: string | number) {
+        setItems(items.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
-    function handleDraft() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp03/${stepData.id}/draft`, { preserveScroll: true });
-    }
-
-    function handleSubmit() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp03/${stepData.id}/submit`);
+    function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
+        setProcessing(true);
+        const url = `/admin/workflows/pp/${workflow.id}/pp03/${stepData.id}/${action}`;
+        router.post(url, {
+            item_plafon_anggaran: items,
+            expected_updated_at: stepData.updated_at,
+            notes: notes || undefined,
+            ...(files.length > 0 ? { files } : {}),
+        }, {
+            forceFormData: files.length > 0,
+            preserveScroll: action === 'draft',
+            onFinish: () => setProcessing(false),
+        });
     }
 
     function stepUrlResolver(entry: HistoryEntry): string | null {
@@ -131,11 +134,13 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp03"
+                    canComment={canComment}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
 
                 <SectionCard title="Plafon Anggaran Per Tim">
+                    {errors.item_plafon_anggaran && <p className="mb-2 text-xs text-destructive">{errors.item_plafon_anggaran}</p>}
                     <div className="overflow-x-auto">
                         <table className="min-w-300 w-full text-sm">
                             <thead>
@@ -151,10 +156,11 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 </tr>
                             </thead>
                             <tbody>
-                                {form.data.item_plafon_anggaran.map((item, i) => (
+                                {items.map((item, i) => (
                                     <tr key={i} className="border-b last:border-0">
                                         <td className="px-3 py-1.5">
                                             <Input value={item.kode_team} onChange={(e) => updateRow(i, 'kode_team', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
+                                            {errors[`item_plafon_anggaran.${i}.kode_team`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.kode_team`]}</p>}
                                         </td>
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
@@ -175,18 +181,23 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                     <option key={t.id} value={t.id}>{t.name}</option>
                                                 ))}
                                             </select>
+                                            {errors[`item_plafon_anggaran.${i}.team_id`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.team_id`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input type="number" value={item.plafon_anggaran} onChange={(e) => updateRow(i, 'plafon_anggaran', parseFloat(e.target.value) || 0)} disabled={isReadonly} className="h-8 text-right" min={0} />
+                                            {errors[`item_plafon_anggaran.${i}.plafon_anggaran`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.plafon_anggaran`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input value={item.nama_bank} onChange={(e) => updateRow(i, 'nama_bank', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            {errors[`item_plafon_anggaran.${i}.nama_bank`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nama_bank`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input value={item.nama_rekening} onChange={(e) => updateRow(i, 'nama_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            {errors[`item_plafon_anggaran.${i}.nama_rekening`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nama_rekening`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input value={item.nomor_rekening} onChange={(e) => updateRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            {errors[`item_plafon_anggaran.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nomor_rekening`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input value={item.catatan ?? ''} onChange={(e) => updateRow(i, 'catatan', e.target.value)} disabled={isReadonly} className="h-8" />
@@ -211,17 +222,35 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                     )}
                 </SectionCard>
 
-                {!isReadonly && (
+                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
                     <div className="flex gap-2">
                         {canDraft && (
-                            <Button variant="outline" onClick={handleDraft} disabled={form.processing}>
-                                {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button variant="outline" disabled={processing}>
+                                        {processing ? 'Menyimpan...' : 'Simpan Draft'}
+                                    </Button>
+                                }
+                                title="Simpan Draft"
+                                description="Simpan data sebagai draft. Data belum divalidasi dan bisa diubah kembali."
+                                confirmLabel="Simpan Draft"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
+                            />
                         )}
                         {canSubmit && (
-                            <Button onClick={handleSubmit} disabled={form.processing}>
-                                {form.processing ? 'Mengirim...' : 'Submit'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button disabled={processing}>
+                                        {processing ? 'Mengirim...' : 'Submit'}
+                                    </Button>
+                                }
+                                title="Submit PP03"
+                                description="Data akan divalidasi dan dikunci. Step selanjutnya (PP04) akan diaktifkan."
+                                confirmLabel="Submit"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('submit', notes, files)}
+                            />
                         )}
                         {canTerminate && (
                             <TerminateButton workflowId={workflow.id} />

@@ -71,6 +71,7 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
             // PP04
             Route::get('/{ppWorkflow}/pp04/{pp04Data}', [PpWorkflowController::class, 'pp04Show'])->name('pp04.show');
+            Route::post('/{ppWorkflow}/pp04/{pp04Data}/draft', [PpWorkflowController::class, 'pp04Draft'])->name('pp04.draft');
             Route::post('/{ppWorkflow}/pp04/{pp04Data}/submit', [PpWorkflowController::class, 'pp04Submit'])->name('pp04.submit');
 
             // PP05

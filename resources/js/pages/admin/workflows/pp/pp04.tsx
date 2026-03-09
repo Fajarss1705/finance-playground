@@ -1,6 +1,6 @@
-import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Paperclip, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -12,10 +12,17 @@ import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
+type WorkspaceFile = {
+    id: number;
+    original_filename: string;
+    mime_type: string;
+    size: number;
+};
+
 type DokumenItem = {
     id: number;
     file_id: number;
-    file: { id: number; original_filename: string; mime_type: string; size: number };
+    file: WorkspaceFile;
 };
 
 type StepData = {
@@ -33,7 +40,9 @@ type Props = {
     canDraft: boolean;
     canSubmit: boolean;
     canTerminate: boolean;
+    canComment: boolean;
     isRejectionReentry: boolean;
+    workspaceFiles: WorkspaceFile[];
 };
 
 function formatFileSize(bytes: number): string {
@@ -42,14 +51,18 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate, isRejectionReentry }: Props) {
+export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, workspaceFiles }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly';
 
-    const form = useForm({
-        expected_updated_at: stepData.updated_at,
-        notes: '',
-    });
+    // Track attached files locally — start from server state
+    const [attachedFiles, setAttachedFiles] = useState<WorkspaceFile[]>(
+        stepData.item_dokumen.map((dok) => dok.file),
+    );
+
+    const attachedIds = attachedFiles.map((f) => f.id);
+    const availableFiles = (workspaceFiles ?? []).filter((f) => !attachedIds.includes(f.id));
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
@@ -58,8 +71,27 @@ export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate
         { title: 'PP04: Dokumen SOP', href: '#' },
     ];
 
-    function handleSubmit() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp04/${stepData.id}/submit`);
+    function attachFile(file: WorkspaceFile) {
+        setAttachedFiles([...attachedFiles, file]);
+    }
+
+    function detachFile(fileId: number) {
+        setAttachedFiles(attachedFiles.filter((f) => f.id !== fileId));
+    }
+
+    function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
+        setProcessing(true);
+        const url = `/admin/workflows/pp/${workflow.id}/pp04/${stepData.id}/${action}`;
+        router.post(url, {
+            attach_file_ids: attachedFiles.map((f) => f.id),
+            expected_updated_at: stepData.updated_at,
+            notes: notes || undefined,
+            ...(files.length > 0 ? { files } : {}),
+        }, {
+            forceFormData: files.length > 0,
+            preserveScroll: action === 'draft',
+            onFinish: () => setProcessing(false),
+        });
     }
 
     function stepUrlResolver(entry: HistoryEntry): string | null {
@@ -91,6 +123,7 @@ export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp04"
+                    canComment={canComment}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
@@ -100,7 +133,7 @@ export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate
                         Contoh dokumen: SOP Pengisian Aplikasi untuk Tim, Standar harga konsumsi per orang, honor pembicara, dll.
                     </p>
 
-                    {stepData.item_dokumen.length === 0 ? (
+                    {attachedFiles.length === 0 ? (
                         <p className="py-4 text-center text-sm text-muted-foreground">Belum ada dokumen dilampirkan.</p>
                     ) : (
                         <div className="overflow-x-auto">
@@ -114,22 +147,22 @@ export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {stepData.item_dokumen.map((dok, i) => (
-                                        <tr key={dok.id} className="border-b last:border-0">
+                                    {attachedFiles.map((file, i) => (
+                                        <tr key={file.id} className="border-b last:border-0">
                                             <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                                             <td className="px-3 py-2">
                                                 {isReadonly ? (
-                                                    <a href={`/files/${dok.file.id}/download`} className="text-primary hover:underline">
-                                                        {dok.file.original_filename}
+                                                    <a href={`/files/${file.id}/download`} className="text-primary hover:underline">
+                                                        {file.original_filename}
                                                     </a>
                                                 ) : (
-                                                    dok.file.original_filename
+                                                    file.original_filename
                                                 )}
                                             </td>
-                                            <td className="px-3 py-2 text-right text-muted-foreground">{formatFileSize(dok.file.size)}</td>
+                                            <td className="px-3 py-2 text-right text-muted-foreground">{formatFileSize(file.size)}</td>
                                             {!isReadonly && (
                                                 <td className="px-3 py-2">
-                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => detachFile(file.id)}>
                                                         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                                                     </Button>
                                                 </td>
@@ -141,19 +174,51 @@ export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate
                         </div>
                     )}
 
-                    {!isReadonly && (
+                    {!isReadonly && availableFiles.length > 0 && (
+                        <div className="mt-3">
+                            <label className="mb-1 block text-xs font-medium text-muted-foreground">Lampirkan file dari workspace:</label>
+                            <div className="flex gap-2">
+                                <FilePickerSelect files={availableFiles} onSelect={attachFile} />
+                            </div>
+                        </div>
+                    )}
+
+                    {!isReadonly && availableFiles.length === 0 && attachedFiles.length === 0 && (
                         <p className="mt-2 text-xs text-muted-foreground">
-                            Upload file melalui menu File terlebih dahulu, lalu lampirkan di sini. (Prototype: file upload dilewati)
+                            Upload file melalui menu File terlebih dahulu, lalu lampirkan di sini.
                         </p>
                     )}
                 </SectionCard>
 
-                {!isReadonly && (
+                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
                     <div className="flex gap-2">
+                        {canDraft && (
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button variant="outline" disabled={processing}>
+                                        {processing ? 'Menyimpan...' : 'Simpan Draft'}
+                                    </Button>
+                                }
+                                title="Simpan Draft"
+                                description="Simpan lampiran dokumen sebagai draft. File bisa ditambah/dihapus kembali."
+                                confirmLabel="Simpan Draft"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
+                            />
+                        )}
                         {canSubmit && (
-                            <Button onClick={handleSubmit} disabled={form.processing}>
-                                {form.processing ? 'Mengirim...' : 'Submit'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button disabled={processing}>
+                                        {processing ? 'Mengirim...' : 'Submit'}
+                                    </Button>
+                                }
+                                title="Submit PP04"
+                                description="Dokumen akan dikunci dan dibuat publik di workspace. Step selanjutnya (PP05) akan diaktifkan."
+                                confirmLabel="Submit"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('submit', notes, files)}
+                            />
                         )}
                         {canTerminate && (
                             <TerminateButton workflowId={workflow.id} />
@@ -162,6 +227,39 @@ export default function Pp04({ workflow, stepData, mode, canSubmit, canTerminate
                 )}
             </div>
         </AppLayout>
+    );
+}
+
+function FilePickerSelect({ files, onSelect }: { files: WorkspaceFile[]; onSelect: (file: WorkspaceFile) => void }) {
+    const [selectedId, setSelectedId] = useState<string>('');
+
+    function handleAttach() {
+        const file = files.find((f) => f.id === Number(selectedId));
+        if (file) {
+            onSelect(file);
+            setSelectedId('');
+        }
+    }
+
+    return (
+        <>
+            <select
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="h-8 flex-1 rounded-md border bg-background px-2 text-sm"
+            >
+                <option value="">Pilih file...</option>
+                {files.map((f) => (
+                    <option key={f.id} value={f.id}>
+                        {f.original_filename} ({formatFileSize(f.size)})
+                    </option>
+                ))}
+            </select>
+            <Button variant="outline" size="sm" onClick={handleAttach} disabled={!selectedId} className="h-8">
+                <Paperclip className="mr-1 h-3.5 w-3.5" />
+                Lampirkan
+            </Button>
+        </>
     );
 }
 

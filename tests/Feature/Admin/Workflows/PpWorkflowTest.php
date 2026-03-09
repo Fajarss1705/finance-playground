@@ -1,8 +1,11 @@
 <?php
 
+use App\Models\File;
 use App\Models\Permission;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
+use App\Models\Pp\Pp03Data;
+use App\Models\Pp\Pp04Data;
 use App\Models\Pp\Pp07Data;
 use App\Models\Pp\PpWorkflow;
 use App\Models\Team;
@@ -417,6 +420,278 @@ it('drafts PP02 with notes and records them in history', function () {
     // Verify item was saved
     $pp02->refresh();
     expect($pp02->itemKuisioner)->toHaveCount(1);
+});
+
+// --- PP03 Validation ---
+
+function setupPp03Workflow($user, $role, $workspace): array
+{
+    $team = Team::factory()->for($role->team->organization)->create(['name' => 'Divisi Pendidikan']);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ['step' => 'PP01', 'action' => 'submitted', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ['step' => 'PP02', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp02_data', 'id' => 1],
+        ['step' => 'PP02', 'action' => 'submitted', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp02_data', 'id' => 1],
+        ['step' => 'PP03', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp03_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id, 'tahun' => 2027]);
+    $pp02 = Pp02Data::create(['pp_workflow_id' => $workflow->id]);
+    $pp03 = Pp03Data::create(['pp_workflow_id' => $workflow->id]);
+
+    // Fix history IDs
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $history[1]['id'] = $pp01->id;
+    $history[2]['id'] = $pp02->id;
+    $history[3]['id'] = $pp02->id;
+    $history[4]['id'] = $pp03->id;
+    $workflow->update(['history' => $history]);
+
+    return [$workflow, $pp03, $team];
+}
+
+it('rejects PP03 submit with empty items', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['item_plafon_anggaran']);
+
+    // History should NOT have a submit entry
+    $workflow->refresh();
+    expect(collect($workflow->history)->where('action', 'submitted')->where('step', 'PP03'))->toBeEmpty();
+});
+
+it('rejects PP03 submit with negative plafon_anggaran', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => -100000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
+        ]],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['item_plafon_anggaran.0.plafon_anggaran']);
+});
+
+it('renders PP03 in readonly mode for user without draft/submit permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp03.show', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp03')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+            ->where('canTerminate', false)
+            ->where('canComment', false)
+        );
+});
+
+it('returns 409 when expected_updated_at is stale on PP03 draft', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    $staleTimestamp = $pp03->updated_at->toIso8601String();
+
+    // Simulate another user updating the record
+    $this->travel(2)->seconds();
+    $pp03->touch();
+
+    $this->post(route('admin.workflows.pp.pp03.draft', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => 50000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
+        ]],
+        'expected_updated_at' => $staleTimestamp,
+    ])->assertStatus(409);
+});
+
+it('drafts PP03 with notes and records them in history', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp03.draft', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => 73000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Divisi Pendidikan Demo', 'nomor_rekening' => '1234567890', 'catatan' => null,
+        ]],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+        'notes' => 'Baru isi satu tim',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $lastEntry = collect($workflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['step'])->toBe('PP03')
+        ->and($lastEntry['notes'])->toBe('Baru isi satu tim');
+
+    // Verify item was saved
+    $pp03->refresh();
+    expect($pp03->itemPlafonAnggaran)->toHaveCount(1);
+});
+
+// --- PP04 Validation ---
+
+function setupPp04Workflow($user, $role, $workspace): array
+{
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ['step' => 'PP01', 'action' => 'submitted', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ['step' => 'PP02', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp02_data', 'id' => 1],
+        ['step' => 'PP02', 'action' => 'submitted', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp02_data', 'id' => 1],
+        ['step' => 'PP03', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp03_data', 'id' => 1],
+        ['step' => 'PP03', 'action' => 'submitted', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp03_data', 'id' => 1],
+        ['step' => 'PP04', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp04_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id, 'tahun' => 2027]);
+    $pp02 = Pp02Data::create(['pp_workflow_id' => $workflow->id]);
+    $pp03 = Pp03Data::create(['pp_workflow_id' => $workflow->id]);
+    $pp04 = Pp04Data::create(['pp_workflow_id' => $workflow->id]);
+
+    // Fix history IDs
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $history[1]['id'] = $pp01->id;
+    $history[2]['id'] = $pp02->id;
+    $history[3]['id'] = $pp02->id;
+    $history[4]['id'] = $pp03->id;
+    $history[5]['id'] = $pp03->id;
+    $history[6]['id'] = $pp04->id;
+    $workflow->update(['history' => $history]);
+
+    return [$workflow, $pp04];
+}
+
+it('renders PP04 in readonly mode for user without draft/submit permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp04.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.pp04.show', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp04')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+            ->where('canTerminate', false)
+            ->where('canComment', false)
+        );
+});
+
+it('returns 409 when expected_updated_at is stale on PP04 draft', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp04.show', 'admin.workflows.pp.pp04.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
+
+    $staleTimestamp = $pp04->updated_at->toIso8601String();
+
+    $this->travel(2)->seconds();
+    $pp04->touch();
+
+    $this->post(route('admin.workflows.pp.pp04.draft', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'attach_file_ids' => [],
+        'expected_updated_at' => $staleTimestamp,
+    ])->assertStatus(409);
+});
+
+it('submits PP04 with notes and records them in history', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp04.show', 'admin.workflows.pp.pp04.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'attach_file_ids' => [],
+        'expected_updated_at' => $pp04->updated_at->toIso8601String(),
+        'notes' => 'Tidak ada dokumen SOP',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $lastEntry = collect($workflow->history)->last();
+    expect($lastEntry['action'])->toBe('submitted')
+        ->and($lastEntry['step'])->toBe('PP04')
+        ->and($lastEntry['notes'])->toBe('Tidak ada dokumen SOP');
+});
+
+it('submits PP04 with 0 files successfully', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp04.show', 'admin.workflows.pp.pp04.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'attach_file_ids' => [],
+        'expected_updated_at' => $pp04->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    expect($pp04->fresh()->itemDokumen)->toHaveCount(0);
+});
+
+it('sets is_workspace_public on attached files when PP04 is submitted', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp04.show', 'admin.workflows.pp.pp04.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
+
+    $file = File::factory()->create([
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'is_workspace_public' => false,
+    ]);
+
+    $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'attach_file_ids' => [$file->id],
+        'expected_updated_at' => $pp04->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    expect($file->fresh()->is_workspace_public)->toBeTrue();
+    expect($pp04->fresh()->itemDokumen)->toHaveCount(1);
+});
+
+it('drafts PP04 with file attachments and records history', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp04.show', 'admin.workflows.pp.pp04.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
+
+    $file = File::factory()->create([
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'is_workspace_public' => false,
+    ]);
+
+    $this->post(route('admin.workflows.pp.pp04.draft', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'attach_file_ids' => [$file->id],
+        'expected_updated_at' => $pp04->updated_at->toIso8601String(),
+        'notes' => 'Draft awal',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $lastEntry = collect($workflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['step'])->toBe('PP04')
+        ->and($lastEntry['notes'])->toBe('Draft awal');
+
+    // File attached but NOT marked public (only on submit)
+    expect($file->fresh()->is_workspace_public)->toBeFalse();
+    expect($pp04->fresh()->itemDokumen)->toHaveCount(1);
 });
 
 // --- Full Flow ---

@@ -9,6 +9,11 @@ use App\Http\Requests\Admin\Workflows\Pp01DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp01SubmitRequest;
 use App\Http\Requests\Admin\Workflows\Pp02DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp02SubmitRequest;
+use App\Http\Requests\Admin\Workflows\Pp03DraftRequest;
+use App\Http\Requests\Admin\Workflows\Pp03SubmitRequest;
+use App\Http\Requests\Admin\Workflows\Pp04DraftRequest;
+use App\Http\Requests\Admin\Workflows\Pp04SubmitRequest;
+use App\Models\File;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
 use App\Models\Pp\Pp03Data;
@@ -509,7 +514,11 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
+
         $mode = $this->resolveMode($statuses, 'PP03');
+        $permissions = $this->session->getActivePermissions();
+        $isEditable = $mode === 'edit' || $mode === 'create';
+        $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
 
         $pp03Data->load('itemPlafonAnggaran.team');
 
@@ -521,29 +530,20 @@ class PpWorkflowController extends Controller
                 'updated_at' => $pp03Data->updated_at->toIso8601String(),
             ],
             'mode' => $mode,
-            'canDraft' => $mode !== 'readonly',
-            'canSubmit' => $mode !== 'readonly',
-            'canTerminate' => $this->engine->getWorkflowStatus($history) === 'active',
+            'canDraft' => $isEditable && in_array('admin.workflows.pp.pp03.draft', $permissions),
+            'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp03.submit', $permissions),
+            'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP03']['cycle'] > 1 && $statuses['PP03']['status'] === 'active',
             'teams' => $this->getWorkspaceTeams($ppWorkflow->workspace_id),
         ]);
     }
 
-    public function pp03Draft(Request $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
+    public function pp03Draft(Pp03DraftRequest $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP03');
 
-        $validated = $request->validate([
-            'item_plafon_anggaran' => ['nullable', 'array'],
-            'item_plafon_anggaran.*.team_id' => ['required', 'integer', 'exists:teams,id'],
-            'item_plafon_anggaran.*.kode_team' => ['required', 'string', 'max:10'],
-            'item_plafon_anggaran.*.plafon_anggaran' => ['required', 'numeric', 'min:0'],
-            'item_plafon_anggaran.*.nama_bank' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nama_rekening' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nomor_rekening' => ['required', 'string', 'max:50'],
-            'item_plafon_anggaran.*.catatan' => ['nullable', 'string'],
-            'expected_updated_at' => ['required', 'string'],
-        ]);
+        $validated = $request->validated();
 
         $this->checkOptimisticLock($pp03Data, $validated['expected_updated_at']);
 
@@ -555,33 +555,33 @@ class PpWorkflowController extends Controller
 
         $pp03Data->touch();
 
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp03Data,
+            'pp.pp03.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP03',
             action: 'drafted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp03_data',
             dataId: $pp03Data->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         return back();
     }
 
-    public function pp03Submit(Request $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
+    public function pp03Submit(Pp03SubmitRequest $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
     {
-        $validated = $request->validate([
-            'item_plafon_anggaran' => ['required', 'array', 'min:1'],
-            'item_plafon_anggaran.*.team_id' => ['required', 'integer', 'exists:teams,id'],
-            'item_plafon_anggaran.*.kode_team' => ['required', 'string', 'max:10'],
-            'item_plafon_anggaran.*.plafon_anggaran' => ['required', 'numeric', 'min:0'],
-            'item_plafon_anggaran.*.nama_bank' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nama_rekening' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nomor_rekening' => ['required', 'string', 'max:50'],
-            'item_plafon_anggaran.*.catatan' => ['nullable', 'string'],
-            'expected_updated_at' => ['required', 'string'],
-            'notes' => ['nullable', 'string'],
-        ]);
+        $validated = $request->validated();
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
@@ -599,15 +599,25 @@ class PpWorkflowController extends Controller
 
         $pp03Data->touch();
 
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp03Data,
+            'pp.pp03.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
+
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP03',
             action: 'submitted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp03_data',
             dataId: $pp03Data->id,
             notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         // Auto-create PP04
@@ -618,7 +628,7 @@ class PpWorkflowController extends Controller
             step: 'PP04',
             action: 'created',
             userId: null,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp04_data',
             dataId: $pp04->id,
         );
@@ -631,29 +641,86 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
+
         $mode = $this->resolveMode($statuses, 'PP04');
+        $permissions = $this->session->getActivePermissions();
+        $isEditable = $mode === 'edit' || $mode === 'create';
+        $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
+
+        $pp04Data->load('itemDokumen.file');
+
+        // Get workspace files for the file picker (only user's files not yet attached)
+        $attachedFileIds = $pp04Data->itemDokumen->pluck('file_id')->toArray();
+        $workspaceFiles = $isEditable ? File::query()
+            ->where('workspace_id', $ppWorkflow->workspace_id)
+            ->whereNotIn('id', $attachedFileIds)
+            ->whereNull('deleted_at')
+            ->orderByDesc('created_at')
+            ->get(['id', 'original_filename', 'mime_type', 'size'])
+            ->toArray() : [];
 
         return Inertia::render('admin/workflows/pp/pp04', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'stepData' => [
                 'id' => $pp04Data->id,
-                'item_dokumen' => $pp04Data->itemDokumen()->with('file')->get(),
+                'item_dokumen' => $pp04Data->itemDokumen,
                 'updated_at' => $pp04Data->updated_at->toIso8601String(),
             ],
             'mode' => $mode,
-            'canDraft' => $mode !== 'readonly',
-            'canSubmit' => $mode !== 'readonly',
-            'canTerminate' => $this->engine->getWorkflowStatus($history) === 'active',
+            'canDraft' => $isEditable && in_array('admin.workflows.pp.pp04.draft', $permissions),
+            'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp04.submit', $permissions),
+            'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP04']['cycle'] > 1 && $statuses['PP04']['status'] === 'active',
+            'workspaceFiles' => $workspaceFiles,
         ]);
     }
 
-    public function pp04Submit(Request $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
+    public function pp04Draft(Pp04DraftRequest $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
     {
-        $request->validate([
-            'expected_updated_at' => ['required', 'string'],
-            'notes' => ['nullable', 'string'],
-        ]);
+        $this->ensureStepActive($ppWorkflow, 'PP04');
+
+        $validated = $request->validated();
+
+        $this->checkOptimisticLock($pp04Data, $validated['expected_updated_at']);
+
+        // Sync attached files
+        $attachFileIds = $validated['attach_file_ids'] ?? [];
+        $pp04Data->itemDokumen()->delete();
+
+        foreach ($attachFileIds as $fileId) {
+            $pp04Data->itemDokumen()->create(['file_id' => $fileId]);
+        }
+
+        $pp04Data->touch();
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp04Data,
+            'pp.pp04.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        $this->engine->recordAction(
+            workflow: $ppWorkflow,
+            step: 'PP04',
+            action: 'drafted',
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            table: 'pp04_data',
+            dataId: $pp04Data->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
+        );
+
+        return back();
+    }
+
+    public function pp04Submit(Pp04SubmitRequest $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
+    {
+        $validated = $request->validated();
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
@@ -661,17 +728,42 @@ class PpWorkflowController extends Controller
             return back()->withErrors(['submit' => 'Step ini sudah tidak aktif.']);
         }
 
-        $this->checkOptimisticLock($pp04Data, $request->input('expected_updated_at'));
+        $this->checkOptimisticLock($pp04Data, $validated['expected_updated_at']);
+
+        // Sync attached files
+        $attachFileIds = $validated['attach_file_ids'] ?? [];
+        $pp04Data->itemDokumen()->delete();
+
+        foreach ($attachFileIds as $fileId) {
+            $pp04Data->itemDokumen()->create(['file_id' => $fileId]);
+        }
+
+        // Set is_workspace_public = true on all attached files
+        if (! empty($attachFileIds)) {
+            File::whereIn('id', $attachFileIds)->update(['is_workspace_public' => true]);
+        }
+
+        $pp04Data->touch();
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp04Data,
+            'pp.pp04.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
 
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP04',
             action: 'submitted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp04_data',
             dataId: $pp04Data->id,
-            notes: $request->input('notes'),
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         return to_route('admin.workflows.pp.show', $ppWorkflow);
