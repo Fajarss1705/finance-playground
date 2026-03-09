@@ -1385,3 +1385,168 @@ it('prevents PP07 submit on already submitted draft', function () {
         'expected_updated_at' => $pp07->fresh()->updated_at->toIso8601String(),
     ])->assertStatus(409);
 });
+
+it('shows PP07 with canComment false when lacking comment permission', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp07.create',
+        'admin.workflows.pp.pp07.show',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp07.create', ['ppWorkflow' => $workflow]));
+    $pp07 = Pp07Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $this->get(route('admin.workflows.pp.pp07.show', ['ppWorkflow' => $workflow, 'pp07Data' => $pp07]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp07')
+            ->where('canComment', false)
+            ->where('mode', 'edit')
+        );
+});
+
+it('shows PP07 with canComment true when user has comment permission', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp07.create',
+        'admin.workflows.pp.pp07.show',
+        'admin.workflows.pp.comment',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp07.create', ['ppWorkflow' => $workflow]));
+    $pp07 = Pp07Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $this->get(route('admin.workflows.pp.pp07.show', ['ppWorkflow' => $workflow, 'pp07Data' => $pp07]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp07')
+            ->where('canComment', true)
+        );
+});
+
+it('records notes in PP07 draft history', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp07.create',
+        'admin.workflows.pp.pp07.show',
+        'admin.workflows.pp.pp07.draft',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp07.create', ['ppWorkflow' => $workflow]));
+    $pp07 = Pp07Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $this->post(route('admin.workflows.pp.pp07.draft', ['ppWorkflow' => $workflow, 'pp07Data' => $pp07]), [
+        'draft_data' => $pp07->draft_data,
+        'expected_updated_at' => $pp07->updated_at->toIso8601String(),
+        'notes' => 'Revisi plafon Divisi Pendidikan',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $lastEntry = collect($workflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['step'])->toBe('PP07')
+        ->and($lastEntry['notes'])->toBe('Revisi plafon Divisi Pendidikan');
+});
+
+it('records notes in PP07 submit history', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp07.create',
+        'admin.workflows.pp.pp07.show',
+        'admin.workflows.pp.pp07.submit',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp07.create', ['ppWorkflow' => $workflow]));
+    $pp07 = Pp07Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $this->post(route('admin.workflows.pp.pp07.submit', ['ppWorkflow' => $workflow, 'pp07Data' => $pp07]), [
+        'draft_data' => $pp07->draft_data,
+        'expected_updated_at' => $pp07->fresh()->updated_at->toIso8601String(),
+        'notes' => 'Revisi plafon dan tambah kuisioner',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $pp07Entry = collect($workflow->history)->where('step', 'PP07')->where('action', 'submitted')->first();
+    expect($pp07Entry)->not->toBeNull()
+        ->and($pp07Entry['notes'])->toBe('Revisi plafon dan tambah kuisioner');
+});
+
+it('validates PP07 submit rejects empty draft data', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp07.create',
+        'admin.workflows.pp.pp07.submit',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp07.create', ['ppWorkflow' => $workflow]));
+    $pp07 = Pp07Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $this->post(route('admin.workflows.pp.pp07.submit', ['ppWorkflow' => $workflow, 'pp07Data' => $pp07]), [
+        'draft_data' => [
+            'tahun' => null,
+            'tanggal_mulai_pra_raker' => null,
+            'tanggal_penetapan_program' => null,
+            'kode_bidang_pelayanan' => [],
+            'kode_sub_bidang_pelayanan' => [],
+            'kode_kategori_pelayanan' => [],
+            'kode_jenis_program' => [],
+            'item_kuisioner' => [],
+            'item_plafon_anggaran' => [],
+        ],
+        'expected_updated_at' => $pp07->fresh()->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors([
+        'draft_data.tahun',
+        'draft_data.tanggal_mulai_pra_raker',
+        'draft_data.tanggal_penetapan_program',
+        'draft_data.kode_bidang_pelayanan',
+        'draft_data.kode_sub_bidang_pelayanan',
+        'draft_data.kode_kategori_pelayanan',
+        'draft_data.kode_jenis_program',
+        'draft_data.item_kuisioner',
+        'draft_data.item_plafon_anggaran',
+    ]);
+
+    // PP07 should remain un-submitted
+    $pp07->refresh();
+    expect($pp07->submitted_at)->toBeNull();
+});

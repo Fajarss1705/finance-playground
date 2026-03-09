@@ -1,10 +1,12 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -53,6 +55,7 @@ type Props = {
     mode: 'edit' | 'readonly';
     canDraft: boolean;
     canSubmit: boolean;
+    canComment: boolean;
     teams: Team[];
 };
 
@@ -62,29 +65,25 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, teams }: Props) {
+export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly';
     const d = stepData.draft_data;
 
-    const form = useForm({
-        draft_data: {
-            tahun: d.tahun ?? '',
-            tanggal_mulai_pra_raker: d.tanggal_mulai_pra_raker ?? '',
-            tanggal_penetapan_program: d.tanggal_penetapan_program ?? '',
-            kode_bidang_pelayanan: d.kode_bidang_pelayanan?.length > 0 ? d.kode_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-            kode_sub_bidang_pelayanan: d.kode_sub_bidang_pelayanan?.length > 0 ? d.kode_sub_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-            kode_kategori_pelayanan: d.kode_kategori_pelayanan?.length > 0 ? d.kode_kategori_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-            kode_jenis_program: d.kode_jenis_program?.length > 0 ? d.kode_jenis_program : [{ kode: '', nama: '', catatan: '' }],
-            item_kuisioner: d.item_kuisioner?.length > 0 ? d.item_kuisioner : [{ kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
-            item_plafon_anggaran: d.item_plafon_anggaran?.length > 0 ? d.item_plafon_anggaran.map((item) => ({ ...item, catatan: item.catatan ?? '' })) : [],
-            item_dokumen_sop: d.item_dokumen_sop ?? [],
-        } as DraftData,
-        expected_updated_at: stepData.updated_at,
-        notes: '',
+    const [draft, setDraftState] = useState<DraftData>({
+        tahun: d.tahun ?? null,
+        tanggal_mulai_pra_raker: d.tanggal_mulai_pra_raker ?? null,
+        tanggal_penetapan_program: d.tanggal_penetapan_program ?? null,
+        kode_bidang_pelayanan: d.kode_bidang_pelayanan?.length > 0 ? d.kode_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
+        kode_sub_bidang_pelayanan: d.kode_sub_bidang_pelayanan?.length > 0 ? d.kode_sub_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
+        kode_kategori_pelayanan: d.kode_kategori_pelayanan?.length > 0 ? d.kode_kategori_pelayanan : [{ kode: '', nama: '', catatan: '' }],
+        kode_jenis_program: d.kode_jenis_program?.length > 0 ? d.kode_jenis_program : [{ kode: '', nama: '', catatan: '' }],
+        item_kuisioner: d.item_kuisioner?.length > 0 ? d.item_kuisioner : [{ kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
+        item_plafon_anggaran: d.item_plafon_anggaran?.length > 0 ? d.item_plafon_anggaran.map((item) => ({ ...item, catatan: item.catatan ?? '' })) : [],
+        item_dokumen_sop: d.item_dokumen_sop ?? [],
     });
 
-    const draft = form.data.draft_data;
     const usedTeamIds = draft.item_plafon_anggaran.map((item) => item.team_id);
     const totalPlafon = draft.item_plafon_anggaran.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
 
@@ -96,7 +95,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
     ];
 
     function setDraft<K extends keyof DraftData>(field: K, value: DraftData[K]) {
-        form.setData('draft_data', { ...draft, [field]: value });
+        setDraftState((prev) => ({ ...prev, [field]: value }));
     }
 
     // Kode table helpers
@@ -159,12 +158,23 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
         setDraft('item_plafon_anggaran', draft.item_plafon_anggaran.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
-    function handleDraft() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp07/${stepData.id}/draft`, { preserveScroll: true });
+    function buildFormData(notes: string, files: File[]) {
+        return {
+            draft_data: draft,
+            expected_updated_at: stepData.updated_at,
+            notes: notes || undefined,
+            ...(files.length > 0 ? { files } : {}),
+        };
     }
 
-    function handleSubmit() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp07/${stepData.id}/submit`);
+    function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
+        setProcessing(true);
+        const url = `/admin/workflows/pp/${workflow.id}/pp07/${stepData.id}/${action}`;
+        router.post(url, buildFormData(notes, files), {
+            forceFormData: files.length > 0,
+            preserveScroll: action === 'draft',
+            onFinish: () => setProcessing(false),
+        });
     }
 
     function stepUrlResolver(entry: HistoryEntry): string | null {
@@ -192,6 +202,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp07"
+                    canComment={canComment}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
@@ -204,7 +215,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
                             <Input
                                 type="number"
                                 value={draft.tahun ?? ''}
-                                onChange={(e) => setDraft('tahun', e.target.value as unknown as number)}
+                                onChange={(e) => setDraft('tahun', e.target.value === '' ? null : Number(e.target.value))}
                                 disabled={isReadonly}
                                 min={2020}
                                 max={2099}
@@ -215,7 +226,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
                             <Input
                                 type="date"
                                 value={draft.tanggal_mulai_pra_raker ?? ''}
-                                onChange={(e) => setDraft('tanggal_mulai_pra_raker', e.target.value)}
+                                onChange={(e) => setDraft('tanggal_mulai_pra_raker', e.target.value || null)}
                                 disabled={isReadonly}
                             />
                         </div>
@@ -224,7 +235,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
                             <Input
                                 type="date"
                                 value={draft.tanggal_penetapan_program ?? ''}
-                                onChange={(e) => setDraft('tanggal_penetapan_program', e.target.value)}
+                                onChange={(e) => setDraft('tanggal_penetapan_program', e.target.value || null)}
                                 disabled={isReadonly}
                             />
                         </div>
@@ -440,17 +451,35 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, te
                 </SectionCard>
 
                 {/* Actions */}
-                {!isReadonly && (
+                {!isReadonly && (canDraft || canSubmit) && (
                     <div className="flex gap-2">
                         {canDraft && (
-                            <Button variant="outline" onClick={handleDraft} disabled={form.processing}>
-                                {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button variant="outline" disabled={processing}>
+                                        {processing ? 'Menyimpan...' : 'Simpan Draft'}
+                                    </Button>
+                                }
+                                title="Simpan Draft Revisi"
+                                description="Simpan data revisi sebagai draft. Data belum divalidasi dan bisa diubah kembali."
+                                confirmLabel="Simpan Draft"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
+                            />
                         )}
                         {canSubmit && (
-                            <Button onClick={handleSubmit} disabled={form.processing}>
-                                {form.processing ? 'Mengirim...' : 'Submit Revisi'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button disabled={processing}>
+                                        {processing ? 'Mengirim...' : 'Submit Revisi'}
+                                    </Button>
+                                }
+                                title="Submit Revisi"
+                                description="Data akan divalidasi dan dikompilasi menjadi revisi baru PP06. Revisi sebelumnya tetap tersimpan."
+                                confirmLabel="Submit Revisi"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('submit', notes, files)}
+                            />
                         )}
                     </div>
                 )}

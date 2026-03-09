@@ -15,6 +15,8 @@ use App\Http\Requests\Admin\Workflows\Pp04DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp04SubmitRequest;
 use App\Http\Requests\Admin\Workflows\Pp05ApproveRequest;
 use App\Http\Requests\Admin\Workflows\Pp05RejectRequest;
+use App\Http\Requests\Admin\Workflows\Pp07DraftRequest;
+use App\Http\Requests\Admin\Workflows\Pp07SubmitRequest;
 use App\Models\File;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
@@ -1054,6 +1056,7 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $isSubmitted = $pp07Data->submitted_at !== null;
         $mode = $isSubmitted ? 'readonly' : 'edit';
+        $permissions = $this->session->getActivePermissions();
 
         return Inertia::render('admin/workflows/pp/pp07', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
@@ -1064,85 +1067,69 @@ class PpWorkflowController extends Controller
                 'updated_at' => $pp07Data->updated_at->toIso8601String(),
             ],
             'mode' => $mode,
-            'canDraft' => ! $isSubmitted,
-            'canSubmit' => ! $isSubmitted,
+            'canDraft' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.draft', $permissions),
+            'canSubmit' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.submit', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'teams' => $this->getWorkspaceTeams($ppWorkflow->workspace_id),
         ]);
     }
 
-    public function pp07Draft(Request $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
+    public function pp07Draft(Pp07DraftRequest $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
     {
         if ($pp07Data->submitted_at !== null) {
             abort(409, 'Revisi ini sudah disubmit.');
         }
 
-        $this->checkOptimisticLock($pp07Data, $request->input('expected_updated_at'));
+        $validated = $request->validated();
+
+        $this->checkOptimisticLock($pp07Data, $validated['expected_updated_at']);
 
         $pp07Data->update([
-            'draft_data' => $request->input('draft_data'),
+            'draft_data' => $validated['draft_data'],
         ]);
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp07Data,
+            'pp.pp07.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
 
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP07',
             action: 'drafted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp07_data',
             dataId: $pp07Data->id,
-            notes: $request->input('notes'),
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         return back();
     }
 
-    public function pp07Submit(Request $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
+    public function pp07Submit(Pp07SubmitRequest $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
     {
         if ($pp07Data->submitted_at !== null) {
             abort(409, 'Revisi ini sudah disubmit.');
         }
 
-        $this->checkOptimisticLock($pp07Data, $request->input('expected_updated_at'));
+        $validated = $request->validated();
 
-        $draftData = $request->input('draft_data', $pp07Data->draft_data ?? []);
+        $this->checkOptimisticLock($pp07Data, $validated['expected_updated_at']);
 
-        // Validate combined PP01-PP04 rules
-        $validated = validator($draftData, [
-            'tahun' => ['required', 'integer', 'min:2020', 'max:2099'],
-            'tanggal_mulai_pra_raker' => ['required', 'date'],
-            'tanggal_penetapan_program' => ['required', 'date', 'after:tanggal_mulai_pra_raker'],
-            'kode_bidang_pelayanan' => ['required', 'array', 'min:1'],
-            'kode_bidang_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_bidang_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_sub_bidang_pelayanan' => ['required', 'array', 'min:1'],
-            'kode_sub_bidang_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_sub_bidang_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_kategori_pelayanan' => ['required', 'array', 'min:1'],
-            'kode_kategori_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_kategori_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_jenis_program' => ['required', 'array', 'min:1'],
-            'kode_jenis_program.*.kode' => ['required', 'string', 'max:10'],
-            'kode_jenis_program.*.nama' => ['required', 'string', 'max:255'],
-            'item_kuisioner' => ['required', 'array', 'min:1'],
-            'item_kuisioner.*.kode' => ['required', 'string', 'max:10'],
-            'item_kuisioner.*.pertanyaan' => ['required', 'string', 'max:255'],
-            'item_kuisioner.*.tipe' => ['required', 'string', 'max:50'],
-            'item_kuisioner.*.satuan' => ['required_unless:item_kuisioner.*.tipe,Kualitatif', 'nullable', 'string', 'max:100'],
-            'item_plafon_anggaran' => ['required', 'array', 'min:1'],
-            'item_plafon_anggaran.*.team_id' => ['required', 'integer', 'exists:teams,id'],
-            'item_plafon_anggaran.*.kode_team' => ['required', 'string', 'max:10'],
-            'item_plafon_anggaran.*.plafon_anggaran' => ['required', 'numeric', 'min:0'],
-            'item_plafon_anggaran.*.nama_bank' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nama_rekening' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nomor_rekening' => ['required', 'string', 'max:50'],
-        ])->validate();
+        $draftData = $validated['draft_data'];
 
         // Unique tahun check (PP07 may change tahun)
         $existingPp = PpWorkflow::query()
             ->where('workspace_id', $ppWorkflow->workspace_id)
             ->where('id', '!=', $ppWorkflow->id)
             ->get()
-            ->filter(function (PpWorkflow $wf) use ($validated) {
+            ->filter(function (PpWorkflow $wf) use ($draftData) {
                 $status = $this->engine->getWorkflowStatus($wf->history ?? []);
 
                 if (in_array($status, ['terminated', 'deleted'])) {
@@ -1151,11 +1138,11 @@ class PpWorkflowController extends Controller
 
                 $pp01 = $wf->latestPp01();
 
-                return $pp01 && $pp01->tahun === (int) $validated['tahun'];
+                return $pp01 && $pp01->tahun === (int) $draftData['tahun'];
             });
 
         if ($existingPp->isNotEmpty()) {
-            return back()->withErrors(['tahun' => "PP untuk tahun {$validated['tahun']} sudah ada di workspace ini."]);
+            return back()->withErrors(['tahun' => "PP untuk tahun {$draftData['tahun']} sudah ada di workspace ini."]);
         }
 
         // Compute new revision number
@@ -1191,10 +1178,19 @@ class PpWorkflowController extends Controller
             $authorOverrides['pp05_created_at'] = $previousPp06->pp05_created_at;
         }
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $pp07Data, $validated, $newRevision, $authorOverrides) {
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp07Data,
+            'pp.pp07.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $pp07Data, $draftData, $newRevision, $authorOverrides, $validated, $sessionContext, $fileIds) {
             // Save final draft_data and mark as submitted
             $pp07Data->update([
-                'draft_data' => $validated,
+                'draft_data' => $draftData,
                 'submitted_at' => now(),
             ]);
 
@@ -1204,16 +1200,17 @@ class PpWorkflowController extends Controller
                 step: 'PP07',
                 action: 'submitted',
                 userId: $request->user()->id,
-                sessionContext: $this->getSessionContext(),
+                sessionContext: $sessionContext,
                 table: 'pp07_data',
                 dataId: $pp07Data->id,
-                notes: $request->input('notes'),
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
                 extra: ['revision' => $newRevision],
             );
 
             // Compile new PP06 revision
             $compileService = app(PpCompileService::class);
-            $pp06 = $compileService->compileFromDraft($ppWorkflow, $validated, $newRevision, $authorOverrides);
+            $pp06 = $compileService->compileFromDraft($ppWorkflow, $draftData, $newRevision, $authorOverrides);
 
             // Record PP06 completed
             $this->engine->recordAction(
@@ -1221,7 +1218,7 @@ class PpWorkflowController extends Controller
                 step: 'PP06',
                 action: 'completed',
                 userId: null,
-                sessionContext: $this->getSessionContext(),
+                sessionContext: $sessionContext,
                 table: 'pp06_periode_tahunan',
                 dataId: $pp06->id,
                 extra: [
