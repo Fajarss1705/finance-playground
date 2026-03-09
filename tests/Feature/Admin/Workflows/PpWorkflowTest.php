@@ -145,6 +145,166 @@ it('submits PP01 and auto-creates PP02', function () {
     expect($pp02)->not->toBeNull();
 });
 
+// --- PP01 Validation ---
+
+it('rejects PP01 submit with missing required fields', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $workflow->update(['history' => $history]);
+
+    // Submit with no data
+    $this->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'expected_updated_at' => $pp01->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['tahun', 'tanggal_mulai_pra_raker', 'tanggal_penetapan_program', 'kode_bidang_pelayanan']);
+
+    // History should NOT have a submit entry
+    $workflow->refresh();
+    expect($workflow->history)->toHaveCount(1);
+});
+
+it('rejects PP01 submit when tanggal_penetapan is before tanggal_mulai', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $workflow->update(['history' => $history]);
+
+    $this->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'tahun' => 2027,
+        'tanggal_mulai_pra_raker' => '2027-06-01',
+        'tanggal_penetapan_program' => '2027-03-01', // before mulai
+        'kode_bidang_pelayanan' => [['kode' => '01', 'nama' => 'Kegiatan', 'catatan' => null]],
+        'kode_sub_bidang_pelayanan' => [['kode' => '01A', 'nama' => 'Sub', 'catatan' => null]],
+        'kode_kategori_pelayanan' => [['kode' => 'K1', 'nama' => 'Kat', 'catatan' => null]],
+        'kode_jenis_program' => [['kode' => 'R', 'nama' => 'Rutin', 'catatan' => null]],
+        'expected_updated_at' => $pp01->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['tanggal_penetapan_program']);
+});
+
+it('rejects PP01 submit with duplicate tahun in same workspace', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.create', 'admin.workflows.pp.pp01.show', 'admin.workflows.pp.pp01.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    // Create first PP with tahun 2027
+    $this->post(route('admin.workflows.pp.create'));
+    $workflow1 = PpWorkflow::first();
+    $pp01First = Pp01Data::where('pp_workflow_id', $workflow1->id)->first();
+
+    $this->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow1, 'pp01Data' => $pp01First]), [
+        'tahun' => 2027,
+        'tanggal_mulai_pra_raker' => '2027-01-15',
+        'tanggal_penetapan_program' => '2027-03-01',
+        'kode_bidang_pelayanan' => [['kode' => '01', 'nama' => 'Kegiatan', 'catatan' => null]],
+        'kode_sub_bidang_pelayanan' => [['kode' => '01A', 'nama' => 'Sub', 'catatan' => null]],
+        'kode_kategori_pelayanan' => [['kode' => 'K1', 'nama' => 'Kat', 'catatan' => null]],
+        'kode_jenis_program' => [['kode' => 'R', 'nama' => 'Rutin', 'catatan' => null]],
+        'expected_updated_at' => $pp01First->fresh()->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    // Create second PP and try to submit with same tahun
+    $this->post(route('admin.workflows.pp.create'));
+    $workflow2 = PpWorkflow::latest('id')->first();
+    $pp01Second = Pp01Data::where('pp_workflow_id', $workflow2->id)->first();
+
+    $this->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow2, 'pp01Data' => $pp01Second]), [
+        'tahun' => 2027, // duplicate
+        'tanggal_mulai_pra_raker' => '2027-02-01',
+        'tanggal_penetapan_program' => '2027-04-01',
+        'kode_bidang_pelayanan' => [['kode' => '02', 'nama' => 'Pendidikan', 'catatan' => null]],
+        'kode_sub_bidang_pelayanan' => [['kode' => '02A', 'nama' => 'Sub', 'catatan' => null]],
+        'kode_kategori_pelayanan' => [['kode' => 'K2', 'nama' => 'Kat', 'catatan' => null]],
+        'kode_jenis_program' => [['kode' => 'S', 'nama' => 'Spesial', 'catatan' => null]],
+        'expected_updated_at' => $pp01Second->fresh()->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['tahun']);
+});
+
+it('returns 409 when expected_updated_at is stale on PP01 draft', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.show', 'admin.workflows.pp.pp01.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $workflow->update(['history' => $history]);
+
+    $staleTimestamp = $pp01->updated_at->toIso8601String();
+
+    // Simulate another user updating the record after some time
+    $this->travel(2)->seconds();
+    $pp01->update(['tahun' => 2028]);
+
+    $this->post(route('admin.workflows.pp.pp01.draft', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'tahun' => 2027,
+        'expected_updated_at' => $staleTimestamp,
+    ])->assertStatus(409);
+});
+
+it('renders PP01 in readonly mode for user without draft/submit permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $workflow->update(['history' => $history]);
+
+    $this->get(route('admin.workflows.pp.pp01.show', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp01')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+            ->where('canTerminate', false)
+        );
+});
+
+it('drafts PP01 with notes and records them in history', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.show', 'admin.workflows.pp.pp01.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => [
+        ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+    ]]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $history = $workflow->history;
+    $history[0]['id'] = $pp01->id;
+    $workflow->update(['history' => $history]);
+
+    $this->post(route('admin.workflows.pp.pp01.draft', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'tahun' => 2027,
+        'expected_updated_at' => $pp01->updated_at->toIso8601String(),
+        'notes' => 'Baru isi tahun dulu',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $lastEntry = collect($workflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['notes'])->toBe('Baru isi tahun dulu');
+});
+
 // --- Full Flow ---
 
 it('completes full PP flow through approval and compile', function () {

@@ -1,4 +1,4 @@
-import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
@@ -42,23 +42,21 @@ type Props = {
     canDraft: boolean;
     canSubmit: boolean;
     canTerminate: boolean;
+    canComment: boolean;
     isRejectionReentry: boolean;
 };
 
-export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, isRejectionReentry }: Props) {
+export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
+    const [processing, setProcessing] = useState(false);
 
-    const form = useForm({
-        tahun: stepData.tahun ?? '',
-        tanggal_mulai_pra_raker: stepData.tanggal_mulai_pra_raker ?? '',
-        tanggal_penetapan_program: stepData.tanggal_penetapan_program ?? '',
-        kode_bidang_pelayanan: stepData.kode_bidang_pelayanan.length > 0 ? stepData.kode_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-        kode_sub_bidang_pelayanan: stepData.kode_sub_bidang_pelayanan.length > 0 ? stepData.kode_sub_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-        kode_kategori_pelayanan: stepData.kode_kategori_pelayanan.length > 0 ? stepData.kode_kategori_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-        kode_jenis_program: stepData.kode_jenis_program.length > 0 ? stepData.kode_jenis_program : [{ kode: '', nama: '', catatan: '' }],
-        expected_updated_at: stepData.updated_at,
-        notes: '',
-    });
+    const [tahun, setTahun] = useState<number | string>(stepData.tahun ?? '');
+    const [tanggalMulai, setTanggalMulai] = useState(stepData.tanggal_mulai_pra_raker ?? '');
+    const [tanggalPenetapan, setTanggalPenetapan] = useState(stepData.tanggal_penetapan_program ?? '');
+    const [kodeBidang, setKodeBidang] = useState<KodeItem[]>(stepData.kode_bidang_pelayanan.length > 0 ? stepData.kode_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }]);
+    const [kodeSubBidang, setKodeSubBidang] = useState<KodeItem[]>(stepData.kode_sub_bidang_pelayanan.length > 0 ? stepData.kode_sub_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }]);
+    const [kodeKategori, setKodeKategori] = useState<KodeItem[]>(stepData.kode_kategori_pelayanan.length > 0 ? stepData.kode_kategori_pelayanan : [{ kode: '', nama: '', catatan: '' }]);
+    const [kodeJenis, setKodeJenis] = useState<KodeItem[]>(stepData.kode_jenis_program.length > 0 ? stepData.kode_jenis_program : [{ kode: '', nama: '', catatan: '' }]);
 
     const isReadonly = mode === 'readonly';
 
@@ -69,14 +67,29 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
         { title: 'PP01: Rencana Periode', href: '#' },
     ];
 
-    function handleDraft() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp01/${stepData.id}/draft`, {
-            preserveScroll: true,
-        });
+    function buildFormData(notes: string, files: File[]) {
+        return {
+            tahun,
+            tanggal_mulai_pra_raker: tanggalMulai,
+            tanggal_penetapan_program: tanggalPenetapan,
+            kode_bidang_pelayanan: kodeBidang,
+            kode_sub_bidang_pelayanan: kodeSubBidang,
+            kode_kategori_pelayanan: kodeKategori,
+            kode_jenis_program: kodeJenis,
+            expected_updated_at: stepData.updated_at,
+            notes: notes || undefined,
+            ...(files.length > 0 ? { files } : {}),
+        };
     }
 
-    function handleSubmit() {
-        form.post(`/admin/workflows/pp/${workflow.id}/pp01/${stepData.id}/submit`);
+    function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
+        setProcessing(true);
+        const url = `/admin/workflows/pp/${workflow.id}/pp01/${stepData.id}/${action}`;
+        router.post(url, buildFormData(notes, files), {
+            forceFormData: files.length > 0,
+            preserveScroll: action === 'draft',
+            onFinish: () => setProcessing(false),
+        });
     }
 
     function stepUrlResolver(entry: HistoryEntry): string | null {
@@ -109,11 +122,11 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                 {errors.submit && <AlertError errors={[errors.submit]} title="Gagal submit" />}
                 {errors.tahun && <AlertError errors={[errors.tahun]} title="Validasi gagal" />}
 
-                {/* History & Comment — collapsed by default on step pages */}
                 <HistoryCommentSection
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp01"
+                    canComment={canComment}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
@@ -124,33 +137,33 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                             <Label>Tahun Periode *</Label>
                             <Input
                                 type="number"
-                                value={form.data.tahun}
-                                onChange={(e) => form.setData('tahun', e.target.value as unknown as number)}
+                                value={tahun}
+                                onChange={(e) => setTahun(e.target.value === '' ? '' : Number(e.target.value))}
                                 disabled={isReadonly}
                                 min={2020}
                                 max={2099}
                             />
-                            {form.errors.tahun && <p className="text-xs text-destructive">{form.errors.tahun}</p>}
+                            {errors.tahun && <p className="text-xs text-destructive">{errors.tahun}</p>}
                         </div>
                         <div className="space-y-1.5">
                             <Label>Tanggal Mulai Pra-Raker *</Label>
                             <Input
                                 type="date"
-                                value={form.data.tanggal_mulai_pra_raker}
-                                onChange={(e) => form.setData('tanggal_mulai_pra_raker', e.target.value)}
+                                value={tanggalMulai}
+                                onChange={(e) => setTanggalMulai(e.target.value)}
                                 disabled={isReadonly}
                             />
-                            {form.errors.tanggal_mulai_pra_raker && <p className="text-xs text-destructive">{form.errors.tanggal_mulai_pra_raker}</p>}
+                            {errors.tanggal_mulai_pra_raker && <p className="text-xs text-destructive">{errors.tanggal_mulai_pra_raker}</p>}
                         </div>
                         <div className="space-y-1.5">
                             <Label>Tanggal Penetapan Program *</Label>
                             <Input
                                 type="date"
-                                value={form.data.tanggal_penetapan_program}
-                                onChange={(e) => form.setData('tanggal_penetapan_program', e.target.value)}
+                                value={tanggalPenetapan}
+                                onChange={(e) => setTanggalPenetapan(e.target.value)}
                                 disabled={isReadonly}
                             />
-                            {form.errors.tanggal_penetapan_program && <p className="text-xs text-destructive">{form.errors.tanggal_penetapan_program}</p>}
+                            {errors.tanggal_penetapan_program && <p className="text-xs text-destructive">{errors.tanggal_penetapan_program}</p>}
                         </div>
                     </div>
                 </SectionCard>
@@ -158,46 +171,72 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                 <KodeTable
                     title="Kode Bidang Pelayanan"
                     addLabel="Tambah Bidang Pelayanan"
-                    items={form.data.kode_bidang_pelayanan}
-                    onChange={(items) => form.setData('kode_bidang_pelayanan', items)}
+                    items={kodeBidang}
+                    onChange={setKodeBidang}
                     disabled={isReadonly}
+                    errorPrefix="kode_bidang_pelayanan"
+                    errors={errors}
                 />
 
                 <KodeTable
                     title="Kode Sub Bidang Pelayanan"
                     addLabel="Tambah Sub Bidang Pelayanan"
-                    items={form.data.kode_sub_bidang_pelayanan}
-                    onChange={(items) => form.setData('kode_sub_bidang_pelayanan', items)}
+                    items={kodeSubBidang}
+                    onChange={setKodeSubBidang}
                     disabled={isReadonly}
+                    errorPrefix="kode_sub_bidang_pelayanan"
+                    errors={errors}
                 />
 
                 <KodeTable
                     title="Kode Kategori Pelayanan"
                     addLabel="Tambah Kategori Pelayanan"
-                    items={form.data.kode_kategori_pelayanan}
-                    onChange={(items) => form.setData('kode_kategori_pelayanan', items)}
+                    items={kodeKategori}
+                    onChange={setKodeKategori}
                     disabled={isReadonly}
+                    errorPrefix="kode_kategori_pelayanan"
+                    errors={errors}
                 />
 
                 <KodeTable
                     title="Kode Jenis Program"
                     addLabel="Tambah Jenis Program"
-                    items={form.data.kode_jenis_program}
-                    onChange={(items) => form.setData('kode_jenis_program', items)}
+                    items={kodeJenis}
+                    onChange={setKodeJenis}
                     disabled={isReadonly}
+                    errorPrefix="kode_jenis_program"
+                    errors={errors}
                 />
 
-                {!isReadonly && (
+                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
                     <div className="flex gap-2">
                         {canDraft && (
-                            <Button variant="outline" onClick={handleDraft} disabled={form.processing}>
-                                {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button variant="outline" disabled={processing}>
+                                        {processing ? 'Menyimpan...' : 'Simpan Draft'}
+                                    </Button>
+                                }
+                                title="Simpan Draft"
+                                description="Simpan data sebagai draft. Data belum divalidasi dan bisa diubah kembali."
+                                confirmLabel="Simpan Draft"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
+                            />
                         )}
                         {canSubmit && (
-                            <Button onClick={handleSubmit} disabled={form.processing}>
-                                {form.processing ? 'Mengirim...' : 'Submit'}
-                            </Button>
+                            <ActionConfirmDialog
+                                trigger={
+                                    <Button disabled={processing}>
+                                        {processing ? 'Mengirim...' : 'Submit'}
+                                    </Button>
+                                }
+                                title="Submit PP01"
+                                description="Data akan divalidasi dan dikunci. Step selanjutnya (PP02) akan diaktifkan."
+                                confirmLabel="Submit"
+                                processing={processing}
+                                onConfirm={({ notes, files }) => handleAction('submit', notes, files)}
+                            />
                         )}
                         {canTerminate && (
                             <TerminateButton workflowId={workflow.id} />
@@ -253,12 +292,16 @@ function KodeTable({
     items,
     onChange,
     disabled,
+    errorPrefix,
+    errors,
 }: {
     title: string;
     addLabel: string;
     items: KodeItem[];
     onChange: (items: KodeItem[]) => void;
     disabled: boolean;
+    errorPrefix: string;
+    errors: Record<string, string>;
 }) {
     function addRow() {
         onChange([...items, { kode: '', nama: '', catatan: '' }]);
@@ -273,8 +316,11 @@ function KodeTable({
         onChange(updated);
     }
 
+    const tableError = errors[errorPrefix];
+
     return (
         <SectionCard title={title}>
+            {tableError && <p className="mb-2 text-xs text-destructive">{tableError}</p>}
             <div className="overflow-x-auto">
                 <table className="min-w-150 w-full text-sm">
                     <thead>
@@ -296,6 +342,7 @@ function KodeTable({
                                         className="h-8"
                                         maxLength={10}
                                     />
+                                    {errors[`${errorPrefix}.${i}.kode`] && <p className="text-xs text-destructive">{errors[`${errorPrefix}.${i}.kode`]}</p>}
                                 </td>
                                 {!disabled && (
                                     <td className="px-3 py-1.5">
@@ -311,6 +358,7 @@ function KodeTable({
                                         disabled={disabled}
                                         className="h-8"
                                     />
+                                    {errors[`${errorPrefix}.${i}.nama`] && <p className="text-xs text-destructive">{errors[`${errorPrefix}.${i}.nama`]}</p>}
                                 </td>
                                 <td className="px-3 py-1.5">
                                     <Input

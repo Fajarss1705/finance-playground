@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin\Workflows;
 use App\Contracts\WorkflowDefinition;
 use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\Workflows\Pp01DraftRequest;
+use App\Http\Requests\Admin\Workflows\Pp01SubmitRequest;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
 use App\Models\Pp\Pp03Data;
@@ -228,9 +230,11 @@ class PpWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
-        $pp01 = $ppWorkflow->latestPp01();
 
         $mode = $this->resolveMode($statuses, 'PP01');
+        $permissions = $this->session->getActivePermissions();
+        $isEditable = $mode === 'edit' || $mode === 'create';
+        $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
 
         return Inertia::render('admin/workflows/pp/pp01', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
@@ -246,39 +250,19 @@ class PpWorkflowController extends Controller
                 'updated_at' => $pp01Data->updated_at->toIso8601String(),
             ],
             'mode' => $mode,
-            'canDraft' => $mode === 'edit' || $mode === 'create',
-            'canSubmit' => $mode === 'edit' || $mode === 'create',
-            'canTerminate' => $this->engine->getWorkflowStatus($history) === 'active',
+            'canDraft' => $isEditable && in_array('admin.workflows.pp.pp01.draft', $permissions),
+            'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp01.submit', $permissions),
+            'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP01']['cycle'] > 1 && $statuses['PP01']['status'] === 'active',
         ]);
     }
 
-    public function pp01Draft(Request $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
+    public function pp01Draft(Pp01DraftRequest $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP01');
 
-        $validated = $request->validate([
-            'tahun' => ['nullable', 'integer', 'min:2020', 'max:2099'],
-            'tanggal_mulai_pra_raker' => ['nullable', 'date'],
-            'tanggal_penetapan_program' => ['nullable', 'date'],
-            'kode_bidang_pelayanan' => ['nullable', 'array'],
-            'kode_bidang_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_bidang_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_bidang_pelayanan.*.catatan' => ['nullable', 'string'],
-            'kode_sub_bidang_pelayanan' => ['nullable', 'array'],
-            'kode_sub_bidang_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_sub_bidang_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_sub_bidang_pelayanan.*.catatan' => ['nullable', 'string'],
-            'kode_kategori_pelayanan' => ['nullable', 'array'],
-            'kode_kategori_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_kategori_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_kategori_pelayanan.*.catatan' => ['nullable', 'string'],
-            'kode_jenis_program' => ['nullable', 'array'],
-            'kode_jenis_program.*.kode' => ['required', 'string', 'max:10'],
-            'kode_jenis_program.*.nama' => ['required', 'string', 'max:255'],
-            'kode_jenis_program.*.catatan' => ['nullable', 'string'],
-            'expected_updated_at' => ['required', 'string'],
-        ]);
+        $validated = $request->validated();
 
         $this->checkOptimisticLock($pp01Data, $validated['expected_updated_at']);
 
@@ -290,44 +274,33 @@ class PpWorkflowController extends Controller
 
         $this->syncKodeItems($pp01Data, $validated);
 
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp01Data,
+            'pp.pp01.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP01',
             action: 'drafted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp01_data',
             dataId: $pp01Data->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         return back();
     }
 
-    public function pp01Submit(Request $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
+    public function pp01Submit(Pp01SubmitRequest $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
     {
-        $validated = $request->validate([
-            'tahun' => ['required', 'integer', 'min:2020', 'max:2099'],
-            'tanggal_mulai_pra_raker' => ['required', 'date'],
-            'tanggal_penetapan_program' => ['required', 'date', 'after:tanggal_mulai_pra_raker'],
-            'kode_bidang_pelayanan' => ['required', 'array', 'min:1'],
-            'kode_bidang_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_bidang_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_bidang_pelayanan.*.catatan' => ['nullable', 'string'],
-            'kode_sub_bidang_pelayanan' => ['required', 'array', 'min:1'],
-            'kode_sub_bidang_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_sub_bidang_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_sub_bidang_pelayanan.*.catatan' => ['nullable', 'string'],
-            'kode_kategori_pelayanan' => ['required', 'array', 'min:1'],
-            'kode_kategori_pelayanan.*.kode' => ['required', 'string', 'max:10'],
-            'kode_kategori_pelayanan.*.nama' => ['required', 'string', 'max:255'],
-            'kode_kategori_pelayanan.*.catatan' => ['nullable', 'string'],
-            'kode_jenis_program' => ['required', 'array', 'min:1'],
-            'kode_jenis_program.*.kode' => ['required', 'string', 'max:10'],
-            'kode_jenis_program.*.nama' => ['required', 'string', 'max:255'],
-            'kode_jenis_program.*.catatan' => ['nullable', 'string'],
-            'expected_updated_at' => ['required', 'string'],
-            'notes' => ['nullable', 'string'],
-        ]);
+        $validated = $request->validated();
 
         // Check engine state
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
@@ -368,15 +341,25 @@ class PpWorkflowController extends Controller
 
         $this->syncKodeItems($pp01Data, $validated);
 
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pp01Data,
+            'pp.pp01.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
+
         $this->engine->recordAction(
             workflow: $ppWorkflow,
             step: 'PP01',
             action: 'submitted',
             userId: $request->user()->id,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp01_data',
             dataId: $pp01Data->id,
             notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
         );
 
         // Auto-create PP02
@@ -387,7 +370,7 @@ class PpWorkflowController extends Controller
             step: 'PP02',
             action: 'created',
             userId: null,
-            sessionContext: $this->getSessionContext(),
+            sessionContext: $sessionContext,
             table: 'pp02_data',
             dataId: $pp02->id,
         );
