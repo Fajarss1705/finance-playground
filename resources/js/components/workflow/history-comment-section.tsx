@@ -68,7 +68,7 @@ function getBadgeText(entry: HistoryEntry): string {
     let text: string;
     if (action === 'created') {
         // User-created = "Workflow dibuat"; system-created = "PP02 dibuat"
-        text = entry.by !== null ? 'Workflow dibuat' : `${step} dibuat`;
+        text = entry.by != null ? 'Workflow dibuat' : `${step} dibuat`;
     } else if (workflowLevelActions.has(action)) {
         text = actionLabels[action] ?? action;
     } else if (action === 'commented') {
@@ -215,7 +215,7 @@ export default function HistoryCommentSection({
                                     const badgeColor = badgeColorMap[entry.action] ?? defaultBadgeColor;
 
                                     const userParts: string[] = [entry.by_name];
-                                    if (entry.by !== null) {
+                                    if (entry.by != null) {
                                         if (entry.role_name) userParts.push(entry.role_name);
                                         if (entry.team_name) userParts.push(entry.team_name);
                                     }

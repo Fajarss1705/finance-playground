@@ -32,6 +32,7 @@ use App\Services\CommentService;
 use App\Services\HistoryFormatter;
 use App\Services\PpCompileService;
 use App\Services\WorkflowEngine;
+use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -44,6 +45,7 @@ class PpWorkflowController extends Controller
         private ActiveSessionService $session,
         private HistoryFormatter $historyFormatter,
         private CommentService $commentService,
+        private WorkflowNotifier $notifier,
     ) {}
 
     public function index(Request $request): Response
@@ -417,6 +419,12 @@ class PpWorkflowController extends Controller
             dataId: $pp02->id,
         );
 
+        $this->notifier->notify($ppWorkflow, 'pp01.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp02.show', [$ppWorkflow, $pp02]),
+        ], $request->user()->id);
+
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP01 berhasil disubmit.');
     }
 
@@ -544,6 +552,12 @@ class PpWorkflowController extends Controller
             table: 'pp03_data',
             dataId: $pp03->id,
         );
+
+        $this->notifier->notify($ppWorkflow, 'pp02.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp03.show', [$ppWorkflow, $pp03]),
+        ], $request->user()->id);
 
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP02 berhasil disubmit.');
     }
@@ -675,6 +689,12 @@ class PpWorkflowController extends Controller
             table: 'pp04_data',
             dataId: $pp04->id,
         );
+
+        $this->notifier->notify($ppWorkflow, 'pp03.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp04.show', [$ppWorkflow, $pp04]),
+        ], $request->user()->id);
 
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP03 berhasil disubmit.');
     }
@@ -809,6 +829,12 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
+        $this->notifier->notify($ppWorkflow, 'pp04.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp05.show', $ppWorkflow),
+        ], $request->user()->id);
+
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP04 berhasil disubmit.');
     }
 
@@ -910,6 +936,12 @@ class PpWorkflowController extends Controller
             );
         });
 
+        $this->notifier->notify($ppWorkflow, 'pp05.approved', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp06.show', $ppWorkflow),
+        ], $request->user()->id);
+
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Workflow berhasil disetujui.');
     }
 
@@ -993,6 +1025,12 @@ class PpWorkflowController extends Controller
             table: 'pp01_data',
             dataId: $newPp01->id,
         );
+
+        $this->notifier->notify($ppWorkflow, 'pp05.rejected', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp01.show', [$ppWorkflow, $newPp01]),
+        ], $request->user()->id);
 
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Workflow berhasil ditolak. Step dikembalikan untuk perbaikan.');
     }
@@ -1275,6 +1313,12 @@ class PpWorkflowController extends Controller
             );
         });
 
+        $this->notifier->notify($ppWorkflow, 'pp07.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.pp06.show', $ppWorkflow),
+        ], $request->user()->id);
+
         return to_route('admin.workflows.pp.pp06.show', $ppWorkflow)->with('success', 'Revisi berhasil disubmit.');
     }
 
@@ -1334,6 +1378,12 @@ class PpWorkflowController extends Controller
             notes: $request->input('notes'),
             files: ! empty($fileIds) ? $fileIds : null,
         );
+
+        $this->notifier->notify($ppWorkflow, "{$activeStep}.terminated", [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pp.show', $ppWorkflow),
+        ], $request->user()->id);
 
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Workflow berhasil dibatalkan.');
     }
