@@ -6,6 +6,7 @@ import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -45,6 +46,18 @@ type Props = {
     teams: Team[];
 };
 
+function nextKode(prefix: string, existing: { kode_team?: string; kode?: string }[]): string {
+    const nums = existing
+        .map((item) => {
+            const k = item.kode_team ?? item.kode ?? '';
+            const m = k.match(new RegExp(`^${prefix}(\\d+)$`));
+            return m ? parseInt(m[1], 10) : 0;
+        })
+        .filter((n) => n > 0);
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `${prefix}${String(next).padStart(2, '0')}`;
+}
+
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
@@ -52,7 +65,8 @@ function formatRupiah(value: number): string {
 export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, teams }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
-    const isReadonly = mode === 'readonly';
+    const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
+    const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
 
     const [items, setItems] = useState<PlafonItem[]>(
         stepData.item_plafon_anggaran.length > 0
@@ -79,7 +93,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
     ];
 
     function addRow() {
-        setItems([...items, { team_id: 0, kode_team: '', plafon_anggaran: 0, nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' }]);
+        setItems([...items, { team_id: 0, kode_team: nextKode('T', items), plafon_anggaran: 0, nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' }]);
     }
 
     function removeRow(index: number) {
@@ -100,7 +114,6 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
             ...(files.length > 0 ? { files } : {}),
         }, {
             forceFormData: files.length > 0,
-            preserveScroll: action === 'draft',
             onFinish: () => setProcessing(false),
         });
     }
@@ -121,6 +134,12 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <Heading title="PP03: Plafon Anggaran" description="Tentukan plafon anggaran dan rekening per tim" />
                     <StepStatusBadge mode={mode} />
                 </div>
+
+                {isPermissionLocked && (
+                    <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                        Anda hanya dapat melihat data pada step ini.
+                    </div>
+                )}
 
                 {isRejectionReentry && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
@@ -145,10 +164,10 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <table className="min-w-300 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode Tim</th>
+                                    <th className="px-3 py-2 text-left font-medium w-20">Kode Tim <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                    <th className="px-3 py-2 text-left font-medium w-44">Tim</th>
-                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon Rp</th>
+                                    <th className="px-3 py-2 text-left font-medium w-44">Tim <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon Rp <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
                                     <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
                                     <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
@@ -165,7 +184,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
                                                 <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                 </Button>
                                             </td>
                                         )}
@@ -199,8 +218,8 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             <Input value={item.nomor_rekening} onChange={(e) => updateRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
                                             {errors[`item_plafon_anggaran.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nomor_rekening`]}</p>}
                                         </td>
-                                        <td className="px-3 py-1.5">
-                                            <Input value={item.catatan ?? ''} onChange={(e) => updateRow(i, 'catatan', e.target.value)} disabled={isReadonly} className="h-8" />
+                                        <td className="px-3 py-1.5 align-top">
+                                            <Textarea value={item.catatan ?? ''} onChange={(e) => updateRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8 resize-y" />
                                         </td>
                                     </tr>
                                 ))}
@@ -222,9 +241,9 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                     )}
                 </SectionCard>
 
-                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
+                {((!isReadonly && (canDraft || canSubmit)) || canTerminate) && (
                     <div className="flex gap-2">
-                        {canDraft && (
+                        {!isReadonly && canDraft && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button variant="outline" disabled={processing}>
@@ -238,7 +257,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
                             />
                         )}
-                        {canSubmit && (
+                        {!isReadonly && canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button disabled={processing}>

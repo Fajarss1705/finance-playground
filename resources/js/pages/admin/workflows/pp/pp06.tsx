@@ -164,7 +164,7 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                 {/* Pertanyaan Kuisioner */}
                 <SectionCard title="Pertanyaan Kuisioner">
                     <div className="overflow-x-auto">
-                        <table className="min-w-150 w-full text-sm">
+                        <table className="min-w-200 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
                                     <th className="px-3 py-2 text-left font-medium w-20">Kode</th>

@@ -5,8 +5,10 @@ import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DateInput } from '@/components/ui/date-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -15,6 +17,17 @@ import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
 type KodeItem = { kode: string; nama: string; catatan: string | null };
+
+function nextKode(prefix: string, existing: { kode: string }[]): string {
+    const nums = existing
+        .map((item) => {
+            const m = item.kode.match(new RegExp(`^${prefix}(\\d+)$`));
+            return m ? parseInt(m[1], 10) : 0;
+        })
+        .filter((n) => n > 0);
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `${prefix}${String(next).padStart(2, '0')}`;
+}
 
 type StepData = {
     id: number;
@@ -53,12 +66,13 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
     const [tahun, setTahun] = useState<number | string>(stepData.tahun ?? '');
     const [tanggalMulai, setTanggalMulai] = useState(stepData.tanggal_mulai_pra_raker ?? '');
     const [tanggalPenetapan, setTanggalPenetapan] = useState(stepData.tanggal_penetapan_program ?? '');
-    const [kodeBidang, setKodeBidang] = useState<KodeItem[]>(stepData.kode_bidang_pelayanan.length > 0 ? stepData.kode_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }]);
-    const [kodeSubBidang, setKodeSubBidang] = useState<KodeItem[]>(stepData.kode_sub_bidang_pelayanan.length > 0 ? stepData.kode_sub_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }]);
-    const [kodeKategori, setKodeKategori] = useState<KodeItem[]>(stepData.kode_kategori_pelayanan.length > 0 ? stepData.kode_kategori_pelayanan : [{ kode: '', nama: '', catatan: '' }]);
-    const [kodeJenis, setKodeJenis] = useState<KodeItem[]>(stepData.kode_jenis_program.length > 0 ? stepData.kode_jenis_program : [{ kode: '', nama: '', catatan: '' }]);
+    const [kodeBidang, setKodeBidang] = useState<KodeItem[]>(stepData.kode_bidang_pelayanan.length > 0 ? stepData.kode_bidang_pelayanan : [{ kode: 'B01', nama: '', catatan: '' }]);
+    const [kodeSubBidang, setKodeSubBidang] = useState<KodeItem[]>(stepData.kode_sub_bidang_pelayanan.length > 0 ? stepData.kode_sub_bidang_pelayanan : [{ kode: 'SB01', nama: '', catatan: '' }]);
+    const [kodeKategori, setKodeKategori] = useState<KodeItem[]>(stepData.kode_kategori_pelayanan.length > 0 ? stepData.kode_kategori_pelayanan : [{ kode: 'K01', nama: '', catatan: '' }]);
+    const [kodeJenis, setKodeJenis] = useState<KodeItem[]>(stepData.kode_jenis_program.length > 0 ? stepData.kode_jenis_program : [{ kode: 'J01', nama: '', catatan: '' }]);
 
-    const isReadonly = mode === 'readonly';
+    const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
+    const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
@@ -87,7 +101,6 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
         const url = `/admin/workflows/pp/${workflow.id}/pp01/${stepData.id}/${action}`;
         router.post(url, buildFormData(notes, files), {
             forceFormData: files.length > 0,
-            preserveScroll: action === 'draft',
             onFinish: () => setProcessing(false),
         });
     }
@@ -113,6 +126,12 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <StepStatusBadge mode={mode} />
                 </div>
 
+                {isPermissionLocked && (
+                    <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                        Anda hanya dapat melihat data pada step ini.
+                    </div>
+                )}
+
                 {isRejectionReentry && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
                         Step ini dikembalikan dari PP05. Data dari pengisian sebelumnya sudah dimuat ulang.
@@ -134,7 +153,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                 <SectionCard title="Informasi Periode">
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div className="space-y-1.5">
-                            <Label>Tahun Periode *</Label>
+                            <Label>Tahun Periode <span className="text-destructive">*</span></Label>
                             <Input
                                 type="number"
                                 value={tahun}
@@ -146,21 +165,19 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                             {errors.tahun && <p className="text-xs text-destructive">{errors.tahun}</p>}
                         </div>
                         <div className="space-y-1.5">
-                            <Label>Tanggal Mulai Pra-Raker *</Label>
-                            <Input
-                                type="date"
+                            <Label>Tanggal Mulai Pra-Raker <span className="text-destructive">*</span></Label>
+                            <DateInput
                                 value={tanggalMulai}
-                                onChange={(e) => setTanggalMulai(e.target.value)}
+                                onChange={setTanggalMulai}
                                 disabled={isReadonly}
                             />
                             {errors.tanggal_mulai_pra_raker && <p className="text-xs text-destructive">{errors.tanggal_mulai_pra_raker}</p>}
                         </div>
                         <div className="space-y-1.5">
-                            <Label>Tanggal Penetapan Program *</Label>
-                            <Input
-                                type="date"
+                            <Label>Tanggal Penetapan Program <span className="text-destructive">*</span></Label>
+                            <DateInput
                                 value={tanggalPenetapan}
-                                onChange={(e) => setTanggalPenetapan(e.target.value)}
+                                onChange={setTanggalPenetapan}
                                 disabled={isReadonly}
                             />
                             {errors.tanggal_penetapan_program && <p className="text-xs text-destructive">{errors.tanggal_penetapan_program}</p>}
@@ -176,6 +193,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     disabled={isReadonly}
                     errorPrefix="kode_bidang_pelayanan"
                     errors={errors}
+                    kodePrefix="B"
                 />
 
                 <KodeTable
@@ -186,6 +204,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     disabled={isReadonly}
                     errorPrefix="kode_sub_bidang_pelayanan"
                     errors={errors}
+                    kodePrefix="SB"
                 />
 
                 <KodeTable
@@ -196,6 +215,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     disabled={isReadonly}
                     errorPrefix="kode_kategori_pelayanan"
                     errors={errors}
+                    kodePrefix="K"
                 />
 
                 <KodeTable
@@ -206,11 +226,12 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     disabled={isReadonly}
                     errorPrefix="kode_jenis_program"
                     errors={errors}
+                    kodePrefix="J"
                 />
 
-                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
+                {((!isReadonly && (canDraft || canSubmit)) || canTerminate) && (
                     <div className="flex gap-2">
-                        {canDraft && (
+                        {!isReadonly && canDraft && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button variant="outline" disabled={processing}>
@@ -224,7 +245,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
                             />
                         )}
-                        {canSubmit && (
+                        {!isReadonly && canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button disabled={processing}>
@@ -294,6 +315,7 @@ function KodeTable({
     disabled,
     errorPrefix,
     errors,
+    kodePrefix,
 }: {
     title: string;
     addLabel: string;
@@ -302,9 +324,10 @@ function KodeTable({
     disabled: boolean;
     errorPrefix: string;
     errors: Record<string, string>;
+    kodePrefix: string;
 }) {
     function addRow() {
-        onChange([...items, { kode: '', nama: '', catatan: '' }]);
+        onChange([...items, { kode: nextKode(kodePrefix, items), nama: '', catatan: '' }]);
     }
 
     function removeRow(index: number) {
@@ -322,13 +345,13 @@ function KodeTable({
         <SectionCard title={title}>
             {tableError && <p className="mb-2 text-xs text-destructive">{tableError}</p>}
             <div className="overflow-x-auto">
-                <table className="min-w-150 w-full text-sm">
+                <table className="min-w-200 w-full text-sm">
                     <thead>
                         <tr className="border-b bg-muted/50">
-                            <th className="px-3 py-2 text-left font-medium w-24">Kode</th>
+                            <th className="px-3 py-2 text-left font-medium w-28">Kode <span className="text-destructive">*</span></th>
                             {!disabled && <th className="px-3 py-2 w-12" />}
-                            <th className="px-3 py-2 text-left font-medium">Nama</th>
-                            <th className="px-3 py-2 text-left font-medium w-48">Catatan</th>
+                            <th className="px-3 py-2 text-left font-medium min-w-48">Nama <span className="text-destructive">*</span></th>
+                            <th className="px-3 py-2 text-left font-medium min-w-64">Catatan</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -347,7 +370,7 @@ function KodeTable({
                                 {!disabled && (
                                     <td className="px-3 py-1.5">
                                         <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
-                                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                         </Button>
                                     </td>
                                 )}
@@ -360,12 +383,13 @@ function KodeTable({
                                     />
                                     {errors[`${errorPrefix}.${i}.nama`] && <p className="text-xs text-destructive">{errors[`${errorPrefix}.${i}.nama`]}</p>}
                                 </td>
-                                <td className="px-3 py-1.5">
-                                    <Input
+                                <td className="px-3 py-1.5 align-top">
+                                    <Textarea
                                         value={item.catatan ?? ''}
                                         onChange={(e) => updateRow(i, 'catatan', e.target.value)}
                                         disabled={disabled}
-                                        className="h-8"
+                                        rows={1}
+                                        className="min-h-8 resize-y"
                                     />
                                 </td>
                             </tr>

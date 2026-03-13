@@ -26,6 +26,7 @@ use App\Models\Pp\Pp03Data;
 use App\Models\Pp\Pp04Data;
 use App\Models\Pp\Pp07Data;
 use App\Models\Pp\PpWorkflow;
+use App\Models\Role;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
@@ -146,7 +147,7 @@ class PpWorkflowController extends Controller
         return to_route('admin.workflows.pp.pp01.show', [
             'ppWorkflow' => $workflow->id,
             'pp01Data' => $pp01->id,
-        ]);
+        ])->with('success', 'Workflow berhasil dibuat.');
     }
 
     public function show(PpWorkflow $ppWorkflow): Response
@@ -336,7 +337,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return back();
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP01 berhasil disimpan.');
     }
 
     public function pp01Submit(Pp01SubmitRequest $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
@@ -411,12 +412,12 @@ class PpWorkflowController extends Controller
             step: 'PP02',
             action: 'created',
             userId: null,
-            sessionContext: $sessionContext,
+            sessionContext: [],
             table: 'pp02_data',
             dataId: $pp02->id,
         );
 
-        return to_route('admin.workflows.pp.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP01 berhasil disubmit.');
     }
 
     public function pp02Show(PpWorkflow $ppWorkflow, Pp02Data $pp02Data): Response
@@ -457,6 +458,10 @@ class PpWorkflowController extends Controller
         $pp02Data->itemKuisioner()->delete();
 
         foreach ($validated['item_kuisioner'] ?? [] as $item) {
+            if (empty($item['kode']) || empty($item['pertanyaan']) || empty($item['tipe'])) {
+                continue;
+            }
+
             $pp02Data->itemKuisioner()->create($item);
         }
 
@@ -483,7 +488,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return back();
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP02 berhasil disimpan.');
     }
 
     public function pp02Submit(Pp02SubmitRequest $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
@@ -535,12 +540,12 @@ class PpWorkflowController extends Controller
             step: 'PP03',
             action: 'created',
             userId: null,
-            sessionContext: $sessionContext,
+            sessionContext: [],
             table: 'pp03_data',
             dataId: $pp03->id,
         );
 
-        return to_route('admin.workflows.pp.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP02 berhasil disubmit.');
     }
 
     public function pp03Show(PpWorkflow $ppWorkflow, Pp03Data $pp03Data): Response
@@ -584,6 +589,10 @@ class PpWorkflowController extends Controller
         $pp03Data->itemPlafonAnggaran()->delete();
 
         foreach ($validated['item_plafon_anggaran'] ?? [] as $item) {
+            if (empty($item['team_id']) || empty($item['kode_team'])) {
+                continue;
+            }
+
             $pp03Data->itemPlafonAnggaran()->create($item);
         }
 
@@ -610,7 +619,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return back();
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP03 berhasil disimpan.');
     }
 
     public function pp03Submit(Pp03SubmitRequest $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
@@ -662,12 +671,12 @@ class PpWorkflowController extends Controller
             step: 'PP04',
             action: 'created',
             userId: null,
-            sessionContext: $sessionContext,
+            sessionContext: [],
             table: 'pp04_data',
             dataId: $pp04->id,
         );
 
-        return to_route('admin.workflows.pp.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP03 berhasil disubmit.');
     }
 
     public function pp04Show(PpWorkflow $ppWorkflow, Pp04Data $pp04Data): Response
@@ -749,7 +758,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return back();
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP04 berhasil disimpan.');
     }
 
     public function pp04Submit(Pp04SubmitRequest $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
@@ -800,7 +809,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return to_route('admin.workflows.pp.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'PP04 berhasil disubmit.');
     }
 
     public function pp05Show(PpWorkflow $ppWorkflow): Response
@@ -895,13 +904,13 @@ class PpWorkflowController extends Controller
                 step: 'PP06',
                 action: 'completed',
                 userId: null,
-                sessionContext: $sessionContext,
+                sessionContext: [],
                 table: 'pp06_periode_tahunan',
                 dataId: $pp06->id,
             );
         });
 
-        return to_route('admin.workflows.pp.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Workflow berhasil disetujui.');
     }
 
     public function pp05Reject(Pp05RejectRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
@@ -980,12 +989,12 @@ class PpWorkflowController extends Controller
             step: 'PP01',
             action: 'created',
             userId: null,
-            sessionContext: $sessionContext,
+            sessionContext: [],
             table: 'pp01_data',
             dataId: $newPp01->id,
         );
 
-        return to_route('admin.workflows.pp.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Workflow berhasil ditolak. Step dikembalikan untuk perbaikan.');
     }
 
     public function pp06Show(PpWorkflow $ppWorkflow): Response
@@ -1143,7 +1152,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return back();
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP07 berhasil disimpan.');
     }
 
     public function pp07Submit(Pp07SubmitRequest $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
@@ -1252,7 +1261,7 @@ class PpWorkflowController extends Controller
                 step: 'PP06',
                 action: 'completed',
                 userId: null,
-                sessionContext: $sessionContext,
+                sessionContext: [],
                 table: 'pp06_periode_tahunan',
                 dataId: $pp06->id,
                 extra: [
@@ -1266,7 +1275,7 @@ class PpWorkflowController extends Controller
             );
         });
 
-        return to_route('admin.workflows.pp.pp06.show', $ppWorkflow);
+        return to_route('admin.workflows.pp.pp06.show', $ppWorkflow)->with('success', 'Revisi berhasil disubmit.');
     }
 
     public function comment(PpCommentRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
@@ -1288,7 +1297,7 @@ class PpWorkflowController extends Controller
             workflowPrefix: 'pp',
         );
 
-        return back();
+        return back()->with('success', 'Komentar berhasil ditambahkan.');
     }
 
     public function terminate(PpTerminateRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
@@ -1326,7 +1335,7 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        return to_route('admin.workflows.pp.index');
+        return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Workflow berhasil dibatalkan.');
     }
 
     public function destroy(PpWorkflow $ppWorkflow): RedirectResponse
@@ -1344,7 +1353,7 @@ class PpWorkflowController extends Controller
 
         $ppWorkflow->delete();
 
-        return to_route('admin.workflows.pp.index');
+        return to_route('admin.workflows.pp.index')->with('success', 'Workflow berhasil dihapus.');
     }
 
     // --- Helper Methods ---
@@ -1352,9 +1361,12 @@ class PpWorkflowController extends Controller
     /** @return array<string, mixed> */
     private function getSessionContext(): array
     {
+        $roleId = $this->session->getActiveRoleId();
+        $teamId = $roleId ? Role::find($roleId)?->team_id : null;
+
         return [
-            'role' => $this->session->getActiveRoleId(),
-            'team' => null, // PP is workspace-level, no team
+            'role' => $roleId,
+            'team' => $teamId,
             'org' => null,
             'workspace' => $this->session->getActiveWorkspaceId(),
         ];
@@ -1424,6 +1436,10 @@ class PpWorkflowController extends Controller
             $pp01Data->$relation()->delete();
 
             foreach ($validated[$key] ?? [] as $item) {
+                if (empty($item['kode']) && empty($item['nama'])) {
+                    continue;
+                }
+
                 $pp01Data->$relation()->create($item);
             }
         }

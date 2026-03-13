@@ -5,7 +5,9 @@ import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DateInput } from '@/components/ui/date-input';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
@@ -61,6 +63,25 @@ type Props = {
 
 const tipePresets = ['Kualitatif', 'Kuantitatif'];
 
+function nextKode(prefix: string, existing: { kode_team?: string; kode?: string }[]): string {
+    const nums = existing
+        .map((item) => {
+            const k = item.kode_team ?? item.kode ?? '';
+            const m = k.match(new RegExp(`^${prefix}(\\d+)$`));
+            return m ? parseInt(m[1], 10) : 0;
+        })
+        .filter((n) => n > 0);
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `${prefix}${String(next).padStart(2, '0')}`;
+}
+
+const kodePrefixMap: Record<string, string> = {
+    kode_bidang_pelayanan: 'B',
+    kode_sub_bidang_pelayanan: 'SB',
+    kode_kategori_pelayanan: 'K',
+    kode_jenis_program: 'J',
+};
+
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
@@ -68,18 +89,19 @@ function formatRupiah(value: number): string {
 export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
-    const isReadonly = mode === 'readonly';
+    const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
+    const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
     const d = stepData.draft_data;
 
     const [draft, setDraftState] = useState<DraftData>({
         tahun: d.tahun ?? null,
         tanggal_mulai_pra_raker: d.tanggal_mulai_pra_raker ?? null,
         tanggal_penetapan_program: d.tanggal_penetapan_program ?? null,
-        kode_bidang_pelayanan: d.kode_bidang_pelayanan?.length > 0 ? d.kode_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-        kode_sub_bidang_pelayanan: d.kode_sub_bidang_pelayanan?.length > 0 ? d.kode_sub_bidang_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-        kode_kategori_pelayanan: d.kode_kategori_pelayanan?.length > 0 ? d.kode_kategori_pelayanan : [{ kode: '', nama: '', catatan: '' }],
-        kode_jenis_program: d.kode_jenis_program?.length > 0 ? d.kode_jenis_program : [{ kode: '', nama: '', catatan: '' }],
-        item_kuisioner: d.item_kuisioner?.length > 0 ? d.item_kuisioner : [{ kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
+        kode_bidang_pelayanan: d.kode_bidang_pelayanan?.length > 0 ? d.kode_bidang_pelayanan : [{ kode: 'B01', nama: '', catatan: '' }],
+        kode_sub_bidang_pelayanan: d.kode_sub_bidang_pelayanan?.length > 0 ? d.kode_sub_bidang_pelayanan : [{ kode: 'SB01', nama: '', catatan: '' }],
+        kode_kategori_pelayanan: d.kode_kategori_pelayanan?.length > 0 ? d.kode_kategori_pelayanan : [{ kode: 'K01', nama: '', catatan: '' }],
+        kode_jenis_program: d.kode_jenis_program?.length > 0 ? d.kode_jenis_program : [{ kode: 'J01', nama: '', catatan: '' }],
+        item_kuisioner: d.item_kuisioner?.length > 0 ? d.item_kuisioner : [{ kode: 'Q01', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
         item_plafon_anggaran: d.item_plafon_anggaran?.length > 0 ? d.item_plafon_anggaran.map((item) => ({ ...item, catatan: item.catatan ?? '' })) : [],
         item_dokumen_sop: d.item_dokumen_sop ?? [],
     });
@@ -102,7 +124,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
     type KodeField = 'kode_bidang_pelayanan' | 'kode_sub_bidang_pelayanan' | 'kode_kategori_pelayanan' | 'kode_jenis_program';
 
     function addKodeRow(field: KodeField) {
-        setDraft(field, [...draft[field], { kode: '', nama: '', catatan: '' }]);
+        setDraft(field, [...draft[field], { kode: nextKode(kodePrefixMap[field], draft[field]), nama: '', catatan: '' }]);
     }
 
     function removeKodeRow(field: KodeField, index: number) {
@@ -115,7 +137,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
 
     // Kuisioner helpers
     function addKuisionerRow() {
-        setDraft('item_kuisioner', [...draft.item_kuisioner, { kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
+        setDraft('item_kuisioner', [...draft.item_kuisioner, { kode: nextKode('Q', draft.item_kuisioner), pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
     }
 
     function removeKuisionerRow(index: number) {
@@ -146,7 +168,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
     function addPlafonRow() {
         setDraft('item_plafon_anggaran', [
             ...draft.item_plafon_anggaran,
-            { team_id: 0, kode_team: '', plafon_anggaran: 0, nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' },
+            { team_id: 0, kode_team: nextKode('T', draft.item_plafon_anggaran), plafon_anggaran: 0, nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' },
         ]);
     }
 
@@ -172,7 +194,6 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
         const url = `/admin/workflows/pp/${workflow.id}/pp07/${stepData.id}/${action}`;
         router.post(url, buildFormData(notes, files), {
             forceFormData: files.length > 0,
-            preserveScroll: action === 'draft',
             onFinish: () => setProcessing(false),
         });
     }
@@ -194,6 +215,12 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <StepStatusBadge mode={mode} />
                 </div>
 
+                {isPermissionLocked && (
+                    <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                        Anda hanya dapat melihat data pada step ini.
+                    </div>
+                )}
+
                 {Object.keys(errors).length > 0 && (
                     <AlertError errors={Object.values(errors)} title="Validasi gagal" />
                 )}
@@ -211,7 +238,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                 <SectionCard title="Informasi Periode">
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium">Tahun *</label>
+                            <label className="text-sm font-medium">Tahun <span className="text-destructive">*</span></label>
                             <Input
                                 type="number"
                                 value={draft.tahun ?? ''}
@@ -222,20 +249,18 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium">Tanggal Mulai Pra-Raker *</label>
-                            <Input
-                                type="date"
+                            <label className="text-sm font-medium">Tanggal Mulai Pra-Raker <span className="text-destructive">*</span></label>
+                            <DateInput
                                 value={draft.tanggal_mulai_pra_raker ?? ''}
-                                onChange={(e) => setDraft('tanggal_mulai_pra_raker', e.target.value || null)}
+                                onChange={(v) => setDraft('tanggal_mulai_pra_raker', v || null)}
                                 disabled={isReadonly}
                             />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium">Tanggal Penetapan Program *</label>
-                            <Input
-                                type="date"
+                            <label className="text-sm font-medium">Tanggal Penetapan Program <span className="text-destructive">*</span></label>
+                            <DateInput
                                 value={draft.tanggal_penetapan_program ?? ''}
-                                onChange={(e) => setDraft('tanggal_penetapan_program', e.target.value || null)}
+                                onChange={(v) => setDraft('tanggal_penetapan_program', v || null)}
                                 disabled={isReadonly}
                             />
                         </div>
@@ -251,12 +276,12 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                 ] as [KodeField, string][]).map(([field, title]) => (
                     <SectionCard key={field} title={title}>
                         <div className="overflow-x-auto">
-                            <table className="min-w-150 w-full text-sm">
+                            <table className="min-w-200 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
-                                        <th className="px-3 py-2 text-left font-medium w-24">Kode</th>
+                                        <th className="px-3 py-2 text-left font-medium w-24">Kode <span className="text-destructive">*</span></th>
                                         {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                        <th className="px-3 py-2 text-left font-medium">Nama</th>
+                                        <th className="px-3 py-2 text-left font-medium">Nama <span className="text-destructive">*</span></th>
                                         <th className="px-3 py-2 text-left font-medium w-48">Catatan</th>
                                     </tr>
                                 </thead>
@@ -269,15 +294,15 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             {!isReadonly && (
                                                 <td className="px-3 py-1.5">
                                                     <Button variant="ghost" size="sm" onClick={() => removeKodeRow(field, i)} className="h-8 w-8 p-0">
-                                                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                     </Button>
                                                 </td>
                                             )}
                                             <td className="px-3 py-1.5">
                                                 <Input value={item.nama} onChange={(e) => updateKodeRow(field, i, 'nama', e.target.value)} disabled={isReadonly} className="h-8" />
                                             </td>
-                                            <td className="px-3 py-1.5">
-                                                <Input value={item.catatan ?? ''} onChange={(e) => updateKodeRow(field, i, 'catatan', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            <td className="px-3 py-1.5 align-top">
+                                                <Textarea value={item.catatan ?? ''} onChange={(e) => updateKodeRow(field, i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8 resize-y" />
                                             </td>
                                         </tr>
                                     ))}
@@ -298,9 +323,9 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <table className="min-w-200 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
+                                    <th className="px-3 py-2 text-left font-medium w-20">Kode <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                    <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
+                                    <th className="px-3 py-2 text-left font-medium">Pertanyaan <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-left font-medium w-36">Tipe</th>
                                     <th className="px-3 py-2 text-left font-medium w-28">Satuan</th>
                                 </tr>
@@ -314,7 +339,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
                                                 <Button variant="ghost" size="sm" onClick={() => removeKuisionerRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                 </Button>
                                             </td>
                                         )}
@@ -368,10 +393,10 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <table className="min-w-300 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode Tim</th>
+                                    <th className="px-3 py-2 text-left font-medium w-20">Kode Tim <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                    <th className="px-3 py-2 text-left font-medium w-44">Tim</th>
-                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon</th>
+                                    <th className="px-3 py-2 text-left font-medium w-44">Tim <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
                                     <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
                                     <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
@@ -387,7 +412,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
                                                 <Button variant="ghost" size="sm" onClick={() => removePlafonRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                 </Button>
                                             </td>
                                         )}
@@ -416,8 +441,8 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         <td className="px-3 py-1.5">
                                             <Input value={item.nomor_rekening} onChange={(e) => updatePlafonRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
                                         </td>
-                                        <td className="px-3 py-1.5">
-                                            <Input value={item.catatan ?? ''} onChange={(e) => updatePlafonRow(i, 'catatan', e.target.value)} disabled={isReadonly} className="h-8" />
+                                        <td className="px-3 py-1.5 align-top">
+                                            <Textarea value={item.catatan ?? ''} onChange={(e) => updatePlafonRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8 resize-y" />
                                         </td>
                                     </tr>
                                 ))}
@@ -441,12 +466,12 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                 {/* Dokumen SOP */}
                 <SectionCard title="Dokumen SOP">
                     {draft.item_dokumen_sop.length === 0 ? (
-                        <p className="py-4 text-center text-sm text-muted-foreground">Tidak ada dokumen dilampirkan.</p>
+                        <p className="py-4 text-center text-sm text-destructive">Tidak ada dokumen dilampirkan.</p>
                     ) : (
-                        <p className="text-sm text-muted-foreground">{draft.item_dokumen_sop.length} file dari revisi sebelumnya.</p>
+                        <p className="text-sm text-destructive">{draft.item_dokumen_sop.length} file dari revisi sebelumnya.</p>
                     )}
                     {!isReadonly && (
-                        <p className="mt-2 text-xs text-muted-foreground">(Prototype: file upload/de-attach dilewati)</p>
+                        <p className="mt-2 text-xs text-destructive">(Prototype: file upload/de-attach dilewati)</p>
                     )}
                 </SectionCard>
 

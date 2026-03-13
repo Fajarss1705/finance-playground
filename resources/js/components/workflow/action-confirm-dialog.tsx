@@ -42,6 +42,9 @@ export default function ActionConfirmDialog({
     function handleConfirm() {
         if (!canConfirm) return;
         onConfirm?.({ notes, files });
+        setOpen(false);
+        setNotes('');
+        setFiles([]);
     }
 
     return (

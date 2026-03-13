@@ -60,13 +60,16 @@ const actionLabels: Record<string, string> = {
 };
 
 /** Actions that use workflow-level labels (no step prefix). */
-const workflowLevelActions = new Set(['created', 'terminated', 'deleted', 'restored']);
+const workflowLevelActions = new Set(['terminated', 'deleted', 'restored']);
 
 function getBadgeText(entry: HistoryEntry): string {
     const { action, step, source, revision } = entry;
 
     let text: string;
-    if (workflowLevelActions.has(action)) {
+    if (action === 'created') {
+        // User-created = "Workflow dibuat"; system-created = "PP02 dibuat"
+        text = entry.by !== null ? 'Workflow dibuat' : `${step} dibuat`;
+    } else if (workflowLevelActions.has(action)) {
         text = actionLabels[action] ?? action;
     } else if (action === 'commented') {
         const stepCode = step || (source && source !== 'show' ? source.toUpperCase() : null);
@@ -212,8 +215,10 @@ export default function HistoryCommentSection({
                                     const badgeColor = badgeColorMap[entry.action] ?? defaultBadgeColor;
 
                                     const userParts: string[] = [entry.by_name];
-                                    if (entry.role_name) userParts.push(entry.role_name);
-                                    if (entry.team_name) userParts.push(entry.team_name);
+                                    if (entry.by !== null) {
+                                        if (entry.role_name) userParts.push(entry.role_name);
+                                        if (entry.team_name) userParts.push(entry.team_name);
+                                    }
                                     const userLine = userParts.join(' · ');
 
                                     return (
@@ -318,7 +323,7 @@ export default function HistoryCommentSection({
                                     {files.map((f, i) => (
                                         <span key={i} className="inline-flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs">
                                             <Paperclip className="h-3 w-3 text-muted-foreground" />
-                                            <span className="max-w-32 truncate">{f.name}</span>
+                                            <span className="break-all">{f.name}</span>
                                             <button
                                                 type="button"
                                                 onClick={() => setFiles((prev) => prev.filter((_, fi) => fi !== i))}
@@ -355,7 +360,7 @@ function FileChip({ file }: { file: FileRef }) {
                 <TooltipTrigger asChild>
                     <span className="inline-flex cursor-not-allowed items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs text-muted-foreground opacity-60">
                         <Paperclip className="h-3 w-3" />
-                        <span className="max-w-40 truncate">{file.original_filename}</span>
+                        <span className="break-all">{file.original_filename}</span>
                         <span>({formatFileSize(file.size)})</span>
                     </span>
                 </TooltipTrigger>
@@ -370,7 +375,7 @@ function FileChip({ file }: { file: FileRef }) {
             className="inline-flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs text-primary hover:bg-muted/50 hover:underline"
         >
             <Paperclip className="h-3 w-3" />
-            <span className="max-w-40 truncate">{file.original_filename}</span>
+            <span className="break-all">{file.original_filename}</span>
             <span className="text-muted-foreground">({formatFileSize(file.size)})</span>
         </a>
     );

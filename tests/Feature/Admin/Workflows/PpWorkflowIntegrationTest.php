@@ -602,7 +602,7 @@ it('terminates workflow at mid-progress (PP03 active) and verifies state', funct
 
     $this->post(route('admin.workflows.pp.terminate', $workflow), [
         'notes' => 'Dibatalkan di tengah proses — perubahan kebijakan',
-    ])->assertRedirect(route('admin.workflows.pp.index'));
+    ])->assertRedirect(route('admin.workflows.pp.show', $workflow));
 
     $workflow->refresh();
     expect($engine->getWorkflowStatus($workflow->history))->toBe('terminated');

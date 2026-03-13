@@ -1652,7 +1652,7 @@ it('terminates an active workflow', function () {
 
     $this->post(route('admin.workflows.pp.terminate', $workflow), [
         'notes' => 'Dibatalkan karena perubahan kebijakan',
-    ])->assertRedirect(route('admin.workflows.pp.index'));
+    ])->assertRedirect(route('admin.workflows.pp.show', $workflow));
 
     $workflow->refresh();
     $engine = new WorkflowEngine;

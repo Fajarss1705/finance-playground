@@ -18,12 +18,12 @@ class Pp03DraftRequest extends FormRequest
     {
         return [
             'item_plafon_anggaran' => ['nullable', 'array'],
-            'item_plafon_anggaran.*.team_id' => ['required', 'integer', 'exists:teams,id'],
-            'item_plafon_anggaran.*.kode_team' => ['required', 'string', 'max:10'],
-            'item_plafon_anggaran.*.plafon_anggaran' => ['required', 'numeric', 'min:0'],
-            'item_plafon_anggaran.*.nama_bank' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nama_rekening' => ['required', 'string', 'max:255'],
-            'item_plafon_anggaran.*.nomor_rekening' => ['required', 'string', 'max:50'],
+            'item_plafon_anggaran.*.team_id' => ['nullable', 'integer', 'exists:teams,id'],
+            'item_plafon_anggaran.*.kode_team' => ['nullable', 'string', 'max:10'],
+            'item_plafon_anggaran.*.plafon_anggaran' => ['nullable', 'numeric', 'min:0'],
+            'item_plafon_anggaran.*.nama_bank' => ['nullable', 'string', 'max:255'],
+            'item_plafon_anggaran.*.nama_rekening' => ['nullable', 'string', 'max:255'],
+            'item_plafon_anggaran.*.nomor_rekening' => ['nullable', 'string', 'max:50'],
             'item_plafon_anggaran.*.catatan' => ['nullable', 'string'],
             'expected_updated_at' => ['required', 'string'],
             'notes' => ['nullable', 'string'],

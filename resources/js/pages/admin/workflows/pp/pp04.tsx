@@ -54,7 +54,8 @@ function formatFileSize(bytes: number): string {
 export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, workspaceFiles }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
-    const isReadonly = mode === 'readonly';
+    const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
+    const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
 
     // Track attached files locally — start from server state
     const [attachedFiles, setAttachedFiles] = useState<WorkspaceFile[]>(
@@ -89,7 +90,6 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
             ...(files.length > 0 ? { files } : {}),
         }, {
             forceFormData: files.length > 0,
-            preserveScroll: action === 'draft',
             onFinish: () => setProcessing(false),
         });
     }
@@ -111,6 +111,12 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <StepStatusBadge mode={mode} />
                 </div>
 
+                {isPermissionLocked && (
+                    <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                        Anda hanya dapat melihat data pada step ini.
+                    </div>
+                )}
+
                 {isRejectionReentry && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
                         Step ini dikembalikan dari PP05. Data dari pengisian sebelumnya sudah dimuat ulang.
@@ -129,12 +135,12 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
                 />
 
                 <SectionCard title="Dokumen">
-                    <p className="mb-3 text-sm text-muted-foreground">
+                    <p className="mb-3 text-sm text-destructive">
                         Contoh dokumen: SOP Pengisian Aplikasi untuk Tim, Standar harga konsumsi per orang, honor pembicara, dll.
                     </p>
 
                     {attachedFiles.length === 0 ? (
-                        <p className="py-4 text-center text-sm text-muted-foreground">Belum ada dokumen dilampirkan.</p>
+                        <p className="py-4 text-center text-sm text-destructive">Belum ada dokumen dilampirkan.</p>
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
@@ -149,7 +155,7 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 <tbody>
                                     {attachedFiles.map((file, i) => (
                                         <tr key={file.id} className="border-b last:border-0">
-                                            <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                                            <td className="px-3 py-2 text-destructive">{i + 1}</td>
                                             <td className="px-3 py-2">
                                                 {isReadonly ? (
                                                     <a href={`/files/${file.id}/download`} className="text-primary hover:underline">
@@ -159,11 +165,11 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                     file.original_filename
                                                 )}
                                             </td>
-                                            <td className="px-3 py-2 text-right text-muted-foreground">{formatFileSize(file.size)}</td>
+                                            <td className="px-3 py-2 text-right text-destructive">{formatFileSize(file.size)}</td>
                                             {!isReadonly && (
                                                 <td className="px-3 py-2">
                                                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => detachFile(file.id)}>
-                                                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                     </Button>
                                                 </td>
                                             )}
@@ -176,7 +182,7 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                     {!isReadonly && availableFiles.length > 0 && (
                         <div className="mt-3">
-                            <label className="mb-1 block text-xs font-medium text-muted-foreground">Lampirkan file dari workspace:</label>
+                            <label className="mb-1 block text-xs font-medium text-destructive">Lampirkan file dari workspace:</label>
                             <div className="flex gap-2">
                                 <FilePickerSelect files={availableFiles} onSelect={attachFile} />
                             </div>
@@ -184,15 +190,15 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
                     )}
 
                     {!isReadonly && availableFiles.length === 0 && attachedFiles.length === 0 && (
-                        <p className="mt-2 text-xs text-muted-foreground">
+                        <p className="mt-2 text-xs text-destructive">
                             Upload file melalui menu File terlebih dahulu, lalu lampirkan di sini.
                         </p>
                     )}
                 </SectionCard>
 
-                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
+                {((!isReadonly && (canDraft || canSubmit)) || canTerminate) && (
                     <div className="flex gap-2">
-                        {canDraft && (
+                        {!isReadonly && canDraft && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button variant="outline" disabled={processing}>
@@ -206,7 +212,7 @@ export default function Pp04({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
                             />
                         )}
-                        {canSubmit && (
+                        {!isReadonly && canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button disabled={processing}>

@@ -36,15 +36,27 @@ type Props = {
 
 const tipePresets = ['Kualitatif', 'Kuantitatif'];
 
+function nextKode(prefix: string, existing: { kode: string }[]): string {
+    const nums = existing
+        .map((item) => {
+            const m = item.kode.match(new RegExp(`^${prefix}(\\d+)$`));
+            return m ? parseInt(m[1], 10) : 0;
+        })
+        .filter((n) => n > 0);
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `${prefix}${String(next).padStart(2, '0')}`;
+}
+
 export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
-    const isReadonly = mode === 'readonly';
+    const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
+    const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
 
     const [items, setItems] = useState<KuisionerItem[]>(
         stepData.item_kuisioner.length > 0
             ? stepData.item_kuisioner
-            : [{ kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
+            : [{ kode: 'Q01', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -55,7 +67,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
     ];
 
     function addRow() {
-        setItems([...items, { kode: '', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
+        setItems([...items, { kode: nextKode('Q', items), pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
     }
 
     function removeRow(index: number) {
@@ -92,7 +104,6 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
             ...(files.length > 0 ? { files } : {}),
         }, {
             forceFormData: files.length > 0,
-            preserveScroll: action === 'draft',
             onFinish: () => setProcessing(false),
         });
     }
@@ -113,6 +124,12 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <Heading title="PP02: Pertanyaan Kuisioner" description="Definisikan pertanyaan kuisioner untuk monitoring" />
                     <StepStatusBadge mode={mode} />
                 </div>
+
+                {isPermissionLocked && (
+                    <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                        Anda hanya dapat melihat data pada step ini.
+                    </div>
+                )}
 
                 {isRejectionReentry && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
@@ -137,9 +154,9 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <table className="min-w-200 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
+                                    <th className="px-3 py-2 text-left font-medium w-20">Kode <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                    <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
+                                    <th className="px-3 py-2 text-left font-medium">Pertanyaan <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-left font-medium w-36">Tipe</th>
                                     <th className="px-3 py-2 text-left font-medium w-28">Satuan</th>
                                 </tr>
@@ -154,7 +171,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
                                                 <Button variant="ghost" size="sm" onClick={() => removeRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                 </Button>
                                             </td>
                                         )}
@@ -206,9 +223,9 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                     )}
                 </SectionCard>
 
-                {!isReadonly && (canDraft || canSubmit || canTerminate) && (
+                {((!isReadonly && (canDraft || canSubmit)) || canTerminate) && (
                     <div className="flex gap-2">
-                        {canDraft && (
+                        {!isReadonly && canDraft && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button variant="outline" disabled={processing}>
@@ -222,7 +239,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 onConfirm={({ notes, files }) => handleAction('draft', notes, files)}
                             />
                         )}
-                        {canSubmit && (
+                        {!isReadonly && canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
                                     <Button disabled={processing}>
