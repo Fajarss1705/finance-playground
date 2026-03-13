@@ -17,6 +17,8 @@ use App\Http\Requests\Admin\Workflows\Pp05ApproveRequest;
 use App\Http\Requests\Admin\Workflows\Pp05RejectRequest;
 use App\Http\Requests\Admin\Workflows\Pp07DraftRequest;
 use App\Http\Requests\Admin\Workflows\Pp07SubmitRequest;
+use App\Http\Requests\Admin\Workflows\PpCommentRequest;
+use App\Http\Requests\Admin\Workflows\PpTerminateRequest;
 use App\Models\File;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
@@ -99,6 +101,8 @@ class PpWorkflowController extends Controller
             ->pluck('tahun')
             ->values();
 
+        $permissions = $this->session->getActivePermissions();
+
         return Inertia::render('admin/workflows/pp/index', [
             'workflows' => $workflows,
             'filters' => [
@@ -107,13 +111,18 @@ class PpWorkflowController extends Controller
                 'trash' => $request->boolean('trash'),
             ],
             'availableTahun' => $availableTahun,
+            'canCreate' => in_array('admin.workflows.pp.create', $permissions),
         ]);
     }
 
     public function create(Request $request): RedirectResponse
     {
+        $permissions = $this->session->getActivePermissions();
+        if (! in_array('admin.workflows.pp.create', $permissions)) {
+            abort(403);
+        }
+
         $workspaceId = $this->session->getActiveWorkspaceId();
-        $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
         $workflow = PpWorkflow::create([
             'workspace_id' => $workspaceId,
@@ -212,6 +221,8 @@ class PpWorkflowController extends Controller
             ];
         }
 
+        $permissions = $this->session->getActivePermissions();
+
         return Inertia::render('admin/workflows/pp/show', [
             'workflow' => [
                 'id' => $ppWorkflow->id,
@@ -230,9 +241,10 @@ class PpWorkflowController extends Controller
                 'step_aktif' => $stepAktifLabel,
             ],
             'dataTerbaru' => $dataTerbaru,
-            'canTerminate' => $workflowStatus === 'active',
-            'canRevise' => $workflowStatus === 'completed',
-            'canDelete' => $workflowStatus === 'terminated',
+            'canTerminate' => $workflowStatus === 'active' && in_array('admin.workflows.pp.terminate', $permissions),
+            'canRevise' => $workflowStatus === 'completed' && in_array('admin.workflows.pp.pp07.draft', $permissions),
+            'canDelete' => $workflowStatus === 'terminated' && in_array('admin.workflows.pp.destroy', $permissions),
+            'canComment' => in_array('admin.workflows.pp.comment', $permissions),
         ]);
     }
 
@@ -1235,14 +1247,14 @@ class PpWorkflowController extends Controller
         return to_route('admin.workflows.pp.pp06.show', $ppWorkflow);
     }
 
-    public function comment(Request $request, PpWorkflow $ppWorkflow): RedirectResponse
+    public function comment(PpCommentRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
-        $validated = $request->validate([
-            'notes' => ['required', 'string'],
-            'source' => ['required', 'string'],
-            'files' => ['nullable', 'array'],
-            'files.*' => ['file', 'max:51200'],
-        ]);
+        $permissions = $this->session->getActivePermissions();
+        if (! in_array('admin.workflows.pp.comment', $permissions)) {
+            abort(403);
+        }
+
+        $validated = $request->validated();
 
         $this->commentService->store(
             workflow: $ppWorkflow,
@@ -1257,13 +1269,12 @@ class PpWorkflowController extends Controller
         return back();
     }
 
-    public function terminate(Request $request, PpWorkflow $ppWorkflow): RedirectResponse
+    public function terminate(PpTerminateRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
-        $request->validate([
-            'notes' => ['required', 'string'],
-            'files' => ['nullable', 'array'],
-            'files.*' => ['file', 'max:51200'],
-        ]);
+        $permissions = $this->session->getActivePermissions();
+        if (! in_array('admin.workflows.pp.terminate', $permissions)) {
+            abort(403);
+        }
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
@@ -1298,6 +1309,11 @@ class PpWorkflowController extends Controller
 
     public function destroy(PpWorkflow $ppWorkflow): RedirectResponse
     {
+        $permissions = $this->session->getActivePermissions();
+        if (! in_array('admin.workflows.pp.destroy', $permissions)) {
+            abort(403);
+        }
+
         $history = $ppWorkflow->history ?? [];
 
         if ($this->engine->getWorkflowStatus($history) !== 'terminated') {

@@ -1550,3 +1550,277 @@ it('validates PP07 submit rejects empty draft data', function () {
     $pp07->refresh();
     expect($pp07->submitted_at)->toBeNull();
 });
+
+// --- Index: canCreate permission ---
+
+it('shows canCreate true when user has create permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.index', 'admin.workflows.pp.create');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/index')
+            ->where('canCreate', true)
+        );
+});
+
+it('shows canCreate false when user lacks create permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.index');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/index')
+            ->where('canCreate', false)
+        );
+});
+
+it('denies create when user lacks create permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.index');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.create'))
+        ->assertForbidden();
+});
+
+// --- Show: permission-based props ---
+
+it('shows workflow detail with permission-based action props', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.index',
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.show',
+        'admin.workflows.pp.terminate',
+        'admin.workflows.pp.comment',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->get(route('admin.workflows.pp.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/show')
+            ->where('canTerminate', true)
+            ->where('canComment', true)
+            ->where('canRevise', false)
+            ->where('canDelete', false)
+        );
+});
+
+it('shows canTerminate false when user lacks terminate permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->get(route('admin.workflows.pp.show', $workflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('canTerminate', false)
+            ->where('canComment', false)
+        );
+});
+
+// --- Terminate ---
+
+it('terminates an active workflow', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.terminate');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->post(route('admin.workflows.pp.terminate', $workflow), [
+        'notes' => 'Dibatalkan karena perubahan kebijakan',
+    ])->assertRedirect(route('admin.workflows.pp.index'));
+
+    $workflow->refresh();
+    $engine = new WorkflowEngine;
+    expect($engine->getWorkflowStatus($workflow->history))->toBe('terminated');
+
+    $terminateEntry = collect($workflow->history)->last(fn ($e) => ($e['action'] ?? '') === 'terminated');
+    expect($terminateEntry)->not->toBeNull()
+        ->and($terminateEntry['notes'])->toBe('Dibatalkan karena perubahan kebijakan');
+});
+
+it('denies terminate when user lacks terminate permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->post(route('admin.workflows.pp.terminate', $workflow), [
+        'notes' => 'Should fail',
+    ])->assertForbidden();
+});
+
+it('rejects terminate without notes', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.terminate');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->post(route('admin.workflows.pp.terminate', $workflow), [])
+        ->assertSessionHasErrors('notes');
+});
+
+it('rejects terminate on non-active workflow', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.terminate');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+            ['step' => 'PP01', 'action' => 'terminated', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'notes' => 'Cancelled'],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->post(route('admin.workflows.pp.terminate', $workflow), [
+        'notes' => 'Double terminate',
+    ])->assertSessionHasErrors('terminate');
+});
+
+// --- Destroy ---
+
+it('soft-deletes a terminated workflow', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.destroy');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+            ['step' => 'PP01', 'action' => 'terminated', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'notes' => 'Cancelled'],
+        ],
+    ]);
+
+    $this->delete(route('admin.workflows.pp.destroy', $workflow))
+        ->assertRedirect(route('admin.workflows.pp.index'));
+
+    expect(PpWorkflow::find($workflow->id))->toBeNull();
+    expect(PpWorkflow::withTrashed()->find($workflow->id))->not->toBeNull();
+});
+
+it('denies destroy when user lacks delete permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+            ['step' => 'PP01', 'action' => 'terminated', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'notes' => 'Cancelled'],
+        ],
+    ]);
+
+    $this->delete(route('admin.workflows.pp.destroy', $workflow))
+        ->assertForbidden();
+});
+
+it('rejects destroy on non-terminated workflow', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.destroy');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->delete(route('admin.workflows.pp.destroy', $workflow))
+        ->assertSessionHasErrors('delete');
+});
+
+// --- Comment ---
+
+it('adds a comment to a workflow', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.comment');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+
+    $this->post(route('admin.workflows.pp.comment', $workflow), [
+        'notes' => 'Komentar dari show page',
+        'source' => 'show',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+    $commentEntry = collect($workflow->history)->last(fn ($e) => ($e['action'] ?? '') === 'commented');
+    expect($commentEntry)->not->toBeNull()
+        ->and($commentEntry['notes'])->toBe('Komentar dari show page')
+        ->and($commentEntry['source'])->toBe('show');
+});
+
+it('denies comment when user lacks comment permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+
+    $this->post(route('admin.workflows.pp.comment', $workflow), [
+        'notes' => 'Should fail',
+        'source' => 'show',
+    ])->assertForbidden();
+});
+
+it('rejects comment without notes', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show', 'admin.workflows.pp.comment');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+
+    $this->post(route('admin.workflows.pp.comment', $workflow), [
+        'source' => 'show',
+    ])->assertSessionHasErrors('notes');
+});

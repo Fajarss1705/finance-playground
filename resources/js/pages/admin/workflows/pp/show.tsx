@@ -60,6 +60,7 @@ type Props = {
     canTerminate: boolean;
     canRevise: boolean;
     canDelete: boolean;
+    canComment: boolean;
 };
 
 const stepDefs = [
@@ -76,7 +77,7 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID').format(value);
 }
 
-export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate, canRevise, canDelete }: Props) {
+export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate, canRevise, canDelete, canComment }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
@@ -226,6 +227,7 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="show"
+                    canComment={canComment}
                     stepUrlResolver={(entry) => {
                         if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
                         const step = entry.step;

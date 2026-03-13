@@ -41,6 +41,7 @@ type Props = {
     };
     filters: Filters;
     availableTahun: number[];
+    canCreate: boolean;
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -71,7 +72,7 @@ function applyFilter(key: string, value: string) {
     router.visit(`/admin/workflows/pp?${params.toString()}`, { preserveState: true });
 }
 
-export default function PpIndex({ workflows, filters, availableTahun }: Props) {
+export default function PpIndex({ workflows, filters, availableTahun, canCreate }: Props) {
     function handleCreate() {
         router.post('/admin/workflows/pp/create');
     }
@@ -82,10 +83,12 @@ export default function PpIndex({ workflows, filters, availableTahun }: Props) {
             <div className="space-y-6 p-6">
                 <div className="flex items-center justify-between">
                     <Heading title="Perencanaan Periode" description="Kelola perencanaan periode tahunan" />
-                    <Button onClick={handleCreate}>
-                        <Plus className="mr-1 h-4 w-4" />
-                        Buat PP
-                    </Button>
+                    {canCreate && (
+                        <Button onClick={handleCreate}>
+                            <Plus className="mr-1 h-4 w-4" />
+                            Buat PP
+                        </Button>
+                    )}
                 </div>
 
                 {/* Filter Bar */}
