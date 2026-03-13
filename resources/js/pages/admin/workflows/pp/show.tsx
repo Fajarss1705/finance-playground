@@ -5,16 +5,11 @@ import { Button } from '@/components/ui/button';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import StepProgress from '@/components/workflow/step-progress';
+import type { StepperCycle } from '@/components/workflow/step-progress';
 import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
-
-type StepStatus = {
-    status: string;
-    dataId: number | null;
-    cycle: number;
-};
 
 type PlafonItem = {
     kode: string | null;
@@ -49,8 +44,7 @@ type Workflow = {
     label: string;
     status: string;
     history: HistoryEntry[];
-    step_statuses: Record<string, StepStatus>;
-    current_steps: string[];
+    stepper_cycles: StepperCycle[];
 };
 
 type Props = {
@@ -63,16 +57,6 @@ type Props = {
     canComment: boolean;
 };
 
-const stepDefs = [
-    { code: 'PP01', label: 'Rencana Periode' },
-    { code: 'PP02', label: 'Pertanyaan Kuisioner' },
-    { code: 'PP03', label: 'Plafon Anggaran' },
-    { code: 'PP04', label: 'Dokumen SOP' },
-    { code: 'PP05', label: 'Persetujuan' },
-    { code: 'PP06', label: 'Periode Tahunan' },
-    { code: 'PP07', label: 'Revisi' },
-];
-
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID').format(value);
 }
@@ -83,21 +67,6 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
         { title: workflow.label, href: `/admin/workflows/pp/${workflow.id}` },
     ];
-
-    function stepUrl(code: string): string | null {
-        const status = workflow.step_statuses[code];
-        if (!status || status.status === 'pending') return null;
-
-        if (code === 'PP05' || code === 'PP06') {
-            return `/admin/workflows/pp/${workflow.id}/${code.toLowerCase()}`;
-        }
-
-        if (status.dataId) {
-            return `/admin/workflows/pp/${workflow.id}/${code.toLowerCase()}/${status.dataId}`;
-        }
-
-        return null;
-    }
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -152,15 +121,7 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
                 {/* Progress Step */}
                 <div className="rounded-lg border p-4">
                     <h3 className="mb-3 text-sm font-medium">Progress Step</h3>
-                    <StepProgress
-                        steps={stepDefs.map((s) => ({
-                            code: s.code,
-                            label: s.label,
-                            status: (workflow.step_statuses[s.code]?.status ?? 'pending') as 'completed' | 'active' | 'pending' | 'skipped' | 'rejected',
-                            url: stepUrl(s.code),
-                        }))}
-                        currentStep={workflow.current_steps[0]}
-                    />
+                    <StepProgress cycles={workflow.stepper_cycles} />
                 </div>
 
                 {/* Data Terbaru */}

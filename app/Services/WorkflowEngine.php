@@ -76,6 +76,158 @@ class WorkflowEngine
     }
 
     /**
+     * Get stepper data grouped by cycles for the show page.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @param  \Closure(string, ?int): ?string  $urlResolver  Resolves (stepCode, dataId) → URL or null
+     * @return list<array{number: int, status: string, steps: list<array{code: string, label: string, status: string, url: ?string}>}>
+     */
+    public function getStepperData(WorkflowDefinition $definition, array $history, \Closure $urlResolver): array
+    {
+        $this->stepOrder = $definition->steps();
+        $rejections = $this->extractRejections($definition, $history);
+
+        if (empty($rejections)) {
+            return [$this->buildCurrentCycle($definition, $history, $urlResolver, 1)];
+        }
+
+        $cycles = [];
+        $cycleNumber = 1;
+
+        foreach ($rejections as $rejection) {
+            $cycles[] = $this->buildPreviousCycle(
+                $definition,
+                $history,
+                $urlResolver,
+                $cycleNumber,
+                $rejection,
+                $rejections,
+            );
+            $cycleNumber++;
+        }
+
+        $cycles[] = $this->buildCurrentCycle($definition, $history, $urlResolver, $cycleNumber);
+
+        return $cycles;
+    }
+
+    /**
+     * Build cycle data for the current (latest) cycle using live step statuses.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @param  \Closure(string, ?int): ?string  $urlResolver
+     * @return array{number: int, status: string, steps: list<array{code: string, label: string, status: string, url: ?string}>}
+     */
+    private function buildCurrentCycle(WorkflowDefinition $definition, array $history, \Closure $urlResolver, int $number): array
+    {
+        $statuses = $this->getStepStatuses($definition, $history);
+        $steps = [];
+
+        foreach ($definition->steps() as $code) {
+            $info = $statuses[$code];
+            $steps[] = [
+                'code' => $code,
+                'label' => $definition->stepLabel($code),
+                'status' => $info['status'],
+                'url' => $urlResolver($code, $info['dataId']),
+            ];
+        }
+
+        $workflowStatus = $this->getWorkflowStatus($history);
+        $cycleStatus = $workflowStatus === 'completed' ? 'completed' : 'active';
+
+        return [
+            'number' => $number,
+            'status' => $cycleStatus,
+            'steps' => $steps,
+        ];
+    }
+
+    /**
+     * Build cycle data for a previous (rejected) cycle.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @param  \Closure(string, ?int): ?string  $urlResolver
+     * @param  array{step: string, at: string, targetStep: string}  $rejection
+     * @param  list<array{step: string, at: string, targetStep: string}>  $allRejections
+     * @return array{number: int, status: string, steps: list<array{code: string, label: string, status: string, url: ?string}>}
+     */
+    private function buildPreviousCycle(
+        WorkflowDefinition $definition,
+        array $history,
+        \Closure $urlResolver,
+        int $number,
+        array $rejection,
+        array $allRejections,
+    ): array {
+        $allSteps = $definition->steps();
+        $rejectingStepIndex = array_search($rejection['step'], $allSteps);
+        $cycleSteps = array_slice($allSteps, 0, $rejectingStepIndex + 1);
+
+        // Determine this cycle's time window
+        $previousRejection = $number > 1 ? $allRejections[$number - 2] : null;
+        $windowStart = $previousRejection ? $previousRejection['at'] : null;
+        $windowEnd = $rejection['at'];
+
+        $steps = [];
+
+        foreach ($cycleSteps as $code) {
+            if ($code === $rejection['step']) {
+                $status = 'rejected';
+            } else {
+                $status = 'completed';
+            }
+
+            $dataId = $this->getDataIdInWindow($code, $history, $windowStart, $windowEnd);
+            $steps[] = [
+                'code' => $code,
+                'label' => $definition->stepLabel($code),
+                'status' => $status,
+                'url' => $urlResolver($code, $dataId),
+            ];
+        }
+
+        return [
+            'number' => $number,
+            'status' => 'rejected',
+            'steps' => $steps,
+        ];
+    }
+
+    /**
+     * Get the latest data ID for a step within a time window.
+     *
+     * @param  list<array<string, mixed>>  $history
+     */
+    private function getDataIdInWindow(string $code, array $history, ?string $windowStart, string $windowEnd): ?int
+    {
+        $latestId = null;
+
+        foreach ($history as $entry) {
+            $entryStep = $entry['step'] ?? '';
+            $entryTime = $entry['at'] ?? '';
+
+            if ($entryStep !== $code) {
+                continue;
+            }
+
+            if ($windowStart !== null && $entryTime <= $windowStart) {
+                continue;
+            }
+
+            if ($entryTime > $windowEnd) {
+                break;
+            }
+
+            if (isset($entry['id'])) {
+                $latestId = $entry['id'];
+            }
+        }
+
+        return $latestId;
+    }
+
+    /**
      * Compute status for every step in the workflow.
      *
      * @param  list<array<string, mixed>>  $history

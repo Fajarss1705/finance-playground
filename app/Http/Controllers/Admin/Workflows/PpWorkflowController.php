@@ -153,7 +153,6 @@ class PpWorkflowController extends Controller
     {
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
-        $statuses = $this->engine->getStepStatuses($definition, $history);
         $currentSteps = $this->engine->getCurrentSteps($definition, $history);
         $workflowStatus = $this->engine->getWorkflowStatus($history);
         $pp01 = $ppWorkflow->latestPp01();
@@ -196,6 +195,26 @@ class PpWorkflowController extends Controller
             $stepAktifLabel = $step.': '.($stepNames[$step] ?? $step);
         }
 
+        // Stepper cycles with URL resolver
+        $wfId = $ppWorkflow->id;
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($wfId): ?string {
+            if ($dataId === null && ! in_array($code, ['PP05', 'PP06'])) {
+                return null;
+            }
+
+            $base = "/admin/workflows/pp/{$wfId}";
+
+            if ($code === 'PP05' || $code === 'PP06') {
+                return "{$base}/".strtolower($code);
+            }
+
+            if ($dataId) {
+                return "{$base}/".strtolower($code)."/{$dataId}";
+            }
+
+            return null;
+        });
+
         // Data Terbaru from PP06
         $dataTerbaru = null;
         if ($pp06) {
@@ -229,8 +248,7 @@ class PpWorkflowController extends Controller
                 'label' => $label,
                 'status' => $workflowStatus,
                 'history' => $this->historyFormatter->format($history),
-                'step_statuses' => $statuses,
-                'current_steps' => $currentSteps,
+                'stepper_cycles' => $stepperCycles,
             ],
             'informasi' => [
                 'tahun' => $pp01?->tahun,
@@ -793,9 +811,13 @@ class PpWorkflowController extends Controller
         $permissions = $this->session->getActivePermissions();
 
         // Load all step data for review
+        /** @var Pp01Data|null $pp01 */
         $pp01 = $ppWorkflow->pp01Data()->latest('id')->first();
+        /** @var Pp02Data|null $pp02 */
         $pp02 = $ppWorkflow->pp02Data()->latest('id')->first();
+        /** @var Pp03Data|null $pp03 */
         $pp03 = $ppWorkflow->pp03Data()->latest('id')->first();
+        /** @var Pp04Data|null $pp04 */
         $pp04 = $ppWorkflow->pp04Data()->latest('id')->first();
 
         $pp01?->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram']);
