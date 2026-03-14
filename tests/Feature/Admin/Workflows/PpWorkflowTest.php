@@ -783,7 +783,7 @@ it('completes full PP flow through approval and compile', function () {
     $statuses = $engine->getStepStatuses($definition, $workflow->history);
     expect($statuses['PP05']['status'])->toBe('completed')
         ->and($statuses['PP06']['status'])->toBe('completed')
-        ->and($statuses['PP07']['status'])->toBe('active');
+        ->and($statuses['PP07']['status'])->toBe('pending');
 
     $pp06 = $workflow->latestPp06();
     expect($pp06)->not->toBeNull()

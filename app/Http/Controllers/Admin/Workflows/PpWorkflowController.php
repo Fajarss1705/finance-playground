@@ -208,8 +208,12 @@ class PpWorkflowController extends Controller
 
             $base = "/admin/workflows/pp/{$wfId}";
 
-            if ($code === 'PP05' || $code === 'PP06') {
-                return "{$base}/".strtolower($code);
+            if ($code === 'PP05') {
+                return "{$base}/pp05";
+            }
+
+            if ($code === 'PP06') {
+                return "{$base}/pp06?revision=0";
             }
 
             if ($dataId) {
@@ -288,6 +292,9 @@ class PpWorkflowController extends Controller
         $statuses = $this->engine->getStepStatuses($definition, $history);
 
         $mode = $this->resolveMode($statuses, 'PP01');
+        if (($statuses['PP01']['dataId'] ?? null) !== null && $statuses['PP01']['dataId'] !== $pp01Data->id) {
+            $mode = 'readonly';
+        }
         $permissions = $this->session->getActivePermissions();
         $isEditable = $mode === 'edit' || $mode === 'create';
         $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
@@ -324,6 +331,7 @@ class PpWorkflowController extends Controller
     public function pp01Draft(Pp01DraftRequest $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP01');
+        $this->ensureCurrentRecord($ppWorkflow, 'PP01', $pp01Data->id);
 
         $validated = $request->validated();
 
@@ -373,6 +381,7 @@ class PpWorkflowController extends Controller
             return back()->withErrors(['submit' => 'Step ini sudah tidak aktif.']);
         }
 
+        $this->ensureCurrentRecord($ppWorkflow, 'PP01', $pp01Data->id);
         $this->checkOptimisticLock($pp01Data, $validated['expected_updated_at']);
 
         // Check unique PP per tahun per workspace
@@ -465,6 +474,9 @@ class PpWorkflowController extends Controller
         $statuses = $this->engine->getStepStatuses($definition, $history);
 
         $mode = $this->resolveMode($statuses, 'PP02');
+        if (($statuses['PP02']['dataId'] ?? null) !== null && $statuses['PP02']['dataId'] !== $pp02Data->id) {
+            $mode = 'readonly';
+        }
         $permissions = $this->session->getActivePermissions();
         $isEditable = $mode === 'edit' || $mode === 'create';
         $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
@@ -495,6 +507,7 @@ class PpWorkflowController extends Controller
     public function pp02Draft(Pp02DraftRequest $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP02');
+        $this->ensureCurrentRecord($ppWorkflow, 'PP02', $pp02Data->id);
 
         $validated = $request->validated();
 
@@ -546,6 +559,7 @@ class PpWorkflowController extends Controller
             return back()->withErrors(['submit' => 'Step ini sudah tidak aktif.']);
         }
 
+        $this->ensureCurrentRecord($ppWorkflow, 'PP02', $pp02Data->id);
         $this->checkOptimisticLock($pp02Data, $validated['expected_updated_at']);
 
         $pp02Data->itemKuisioner()->delete();
@@ -620,6 +634,9 @@ class PpWorkflowController extends Controller
         $statuses = $this->engine->getStepStatuses($definition, $history);
 
         $mode = $this->resolveMode($statuses, 'PP03');
+        if (($statuses['PP03']['dataId'] ?? null) !== null && $statuses['PP03']['dataId'] !== $pp03Data->id) {
+            $mode = 'readonly';
+        }
         $permissions = $this->session->getActivePermissions();
         $isEditable = $mode === 'edit' || $mode === 'create';
         $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
@@ -653,6 +670,7 @@ class PpWorkflowController extends Controller
     public function pp03Draft(Pp03DraftRequest $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP03');
+        $this->ensureCurrentRecord($ppWorkflow, 'PP03', $pp03Data->id);
 
         $validated = $request->validated();
 
@@ -711,6 +729,7 @@ class PpWorkflowController extends Controller
             return back()->withErrors(['submit' => 'Step ini sudah tidak aktif.']);
         }
 
+        $this->ensureCurrentRecord($ppWorkflow, 'PP03', $pp03Data->id);
         $this->checkOptimisticLock($pp03Data, $validated['expected_updated_at']);
 
         $pp03Data->itemPlafonAnggaran()->delete();
@@ -782,6 +801,9 @@ class PpWorkflowController extends Controller
         $statuses = $this->engine->getStepStatuses($definition, $history);
 
         $mode = $this->resolveMode($statuses, 'PP04');
+        if (($statuses['PP04']['dataId'] ?? null) !== null && $statuses['PP04']['dataId'] !== $pp04Data->id) {
+            $mode = 'readonly';
+        }
         $permissions = $this->session->getActivePermissions();
         $isEditable = $mode === 'edit' || $mode === 'create';
         $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
@@ -814,6 +836,7 @@ class PpWorkflowController extends Controller
     public function pp04Draft(Pp04DraftRequest $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
     {
         $this->ensureStepActive($ppWorkflow, 'PP04');
+        $this->ensureCurrentRecord($ppWorkflow, 'PP04', $pp04Data->id);
 
         $validated = $request->validated();
 
@@ -876,6 +899,7 @@ class PpWorkflowController extends Controller
             return back()->withErrors(['submit' => 'Step ini sudah tidak aktif.']);
         }
 
+        $this->ensureCurrentRecord($ppWorkflow, 'PP04', $pp04Data->id);
         $this->checkOptimisticLock($pp04Data, $validated['expected_updated_at']);
 
         $sessionContext = $this->getSessionContext();
@@ -1048,6 +1072,7 @@ class PpWorkflowController extends Controller
                 sessionContext: [],
                 table: 'pp06_periode_tahunan',
                 dataId: $pp06->id,
+                extra: ['revision' => 0],
             );
         });
 
@@ -1153,7 +1178,12 @@ class PpWorkflowController extends Controller
     public function pp06Show(PpWorkflow $ppWorkflow): Response
     {
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
-        $pp06 = $ppWorkflow->latestPp06();
+
+        $revisionParam = request()->query('revision');
+        if ($revisionParam !== null) {
+            $pp06 = $ppWorkflow->pp06PeriodeTahunan()->where('revision', (int) $revisionParam)->first();
+        }
+        $pp06 ??= $ppWorkflow->latestPp06();
         $pp06?->load([
             'itemPlafonAnggaran.team',
             'kodeBidangPelayanan',
@@ -1254,14 +1284,26 @@ class PpWorkflowController extends Controller
         $mode = $isSubmitted ? 'readonly' : 'edit';
         $permissions = $this->session->getActivePermissions();
 
+        // Resolve file metadata for dokumen_sop items
+        $draftData = $pp07Data->draft_data ?? [];
+        $dokumenFileIds = collect($draftData['item_dokumen_sop'] ?? [])->pluck('file_id')->filter()->all();
+        $fileMap = File::whereIn('id', $dokumenFileIds)->get()->keyBy('id');
+        $dokumenFiles = collect($dokumenFileIds)->map(fn (int $id) => $fileMap->get($id))->filter()->map(fn (File $f) => [
+            'file_id' => $f->id,
+            'uuid' => $f->uuid,
+            'original_filename' => $f->original_filename,
+            'size' => $f->size,
+        ])->values()->all();
+
         return Inertia::render('admin/workflows/pp/pp07', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'stepData' => [
                 'id' => $pp07Data->id,
-                'draft_data' => $pp07Data->draft_data ?? [],
+                'draft_data' => $draftData,
                 'submitted_at' => $pp07Data->submitted_at?->toIso8601String(),
                 'updated_at' => $pp07Data->updated_at->toIso8601String(),
             ],
+            'dokumenFiles' => $dokumenFiles,
             'mode' => $mode,
             'canDraft' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.draft', $permissions),
             'canSubmit' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.submit', $permissions),
@@ -1286,12 +1328,34 @@ class PpWorkflowController extends Controller
 
         $this->checkOptimisticLock($pp07Data, $validated['expected_updated_at']);
 
+        $sessionContext = $this->getSessionContext();
+
+        // Upload new dokumen files
+        $newFileIds = $this->commentService->storeFiles(
+            $request->file('dokumen_files', []),
+            $ppWorkflow,
+            'pp.pp07.dokumen',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        // Merge kept + new file IDs into draft_data
+        $keepFileIds = $validated['keep_file_ids'] ?? [];
+        $allFileIds = array_merge($keepFileIds, $newFileIds);
+        $draftData = $validated['draft_data'];
+        $draftData['item_dokumen_sop'] = array_map(fn (int $id) => ['file_id' => $id], $allFileIds);
+
+        // Set is_workspace_public = true on all attached files
+        if (! empty($allFileIds)) {
+            File::whereIn('id', $allFileIds)->update(['is_workspace_public' => true]);
+        }
+
         $pp07Data->update([
-            'draft_data' => $validated['draft_data'],
+            'draft_data' => $draftData,
         ]);
 
-        $sessionContext = $this->getSessionContext();
-        $fileIds = $this->commentService->storeFiles(
+        // Comment attachment files (separate from dokumen files)
+        $commentFileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $pp07Data,
             'pp.pp07.draft',
@@ -1308,7 +1372,7 @@ class PpWorkflowController extends Controller
             table: 'pp07_data',
             dataId: $pp07Data->id,
             notes: $validated['notes'] ?? null,
-            files: ! empty($fileIds) ? $fileIds : null,
+            files: ! empty($commentFileIds) ? $commentFileIds : null,
         );
 
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP07 berhasil disimpan.');
@@ -1381,7 +1445,28 @@ class PpWorkflowController extends Controller
         }
 
         $sessionContext = $this->getSessionContext();
-        $fileIds = $this->commentService->storeFiles(
+
+        // Upload new dokumen files
+        $newDokumenFileIds = $this->commentService->storeFiles(
+            $request->file('dokumen_files', []),
+            $ppWorkflow,
+            'pp.pp07.dokumen',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        // Merge kept + new file IDs into draft_data
+        $keepFileIds = $validated['keep_file_ids'] ?? [];
+        $allDokumenFileIds = array_merge($keepFileIds, $newDokumenFileIds);
+        $draftData['item_dokumen_sop'] = array_map(fn (int $id) => ['file_id' => $id], $allDokumenFileIds);
+
+        // Set is_workspace_public = true on all attached files
+        if (! empty($allDokumenFileIds)) {
+            File::whereIn('id', $allDokumenFileIds)->update(['is_workspace_public' => true]);
+        }
+
+        // Comment attachment files (separate from dokumen files)
+        $commentFileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $pp07Data,
             'pp.pp07.submit',
@@ -1389,7 +1474,7 @@ class PpWorkflowController extends Controller
             $sessionContext,
         );
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $pp07Data, $draftData, $newRevision, $authorOverrides, $validated, $sessionContext, $fileIds) {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $pp07Data, $draftData, $newRevision, $authorOverrides, $validated, $sessionContext, $commentFileIds) {
             // Save final draft_data and mark as submitted
             $pp07Data->update([
                 'draft_data' => $draftData,
@@ -1406,7 +1491,7 @@ class PpWorkflowController extends Controller
                 table: 'pp07_data',
                 dataId: $pp07Data->id,
                 notes: $validated['notes'] ?? null,
-                files: ! empty($fileIds) ? $fileIds : null,
+                files: ! empty($commentFileIds) ? $commentFileIds : null,
                 extra: ['revision' => $newRevision],
             );
 
@@ -1584,6 +1669,18 @@ class PpWorkflowController extends Controller
 
         if (! in_array($step, $this->engine->getCurrentSteps($definition, $ppWorkflow->history ?? []))) {
             abort(409, 'Step ini sudah tidak aktif.');
+        }
+    }
+
+    private function ensureCurrentRecord(PpWorkflow $ppWorkflow, string $step, int $recordId): void
+    {
+        $definition = $this->engine->resolveDefinition(WorkflowType::PP);
+        $history = $ppWorkflow->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+        $expectedId = $statuses[$step]['dataId'] ?? null;
+
+        if ($expectedId !== null && $expectedId !== $recordId) {
+            abort(409, 'Data ini bukan versi terkini untuk step ini.');
         }
     }
 

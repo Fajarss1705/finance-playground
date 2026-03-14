@@ -88,25 +88,31 @@ class WorkflowEngine
         $rejections = $this->extractRejections($definition, $history);
 
         if (empty($rejections)) {
-            return [$this->buildCurrentCycle($definition, $history, $urlResolver, 1)];
+            $cycles = [$this->buildCurrentCycle($definition, $history, $urlResolver, 1)];
+        } else {
+            $cycles = [];
+            $cycleNumber = 1;
+
+            foreach ($rejections as $rejection) {
+                $cycles[] = $this->buildPreviousCycle(
+                    $definition,
+                    $history,
+                    $urlResolver,
+                    $cycleNumber,
+                    $rejection,
+                    $rejections,
+                );
+                $cycleNumber++;
+            }
+
+            $cycles[] = $this->buildCurrentCycle($definition, $history, $urlResolver, $cycleNumber);
         }
 
-        $cycles = [];
-        $cycleNumber = 1;
-
-        foreach ($rejections as $rejection) {
-            $cycles[] = $this->buildPreviousCycle(
-                $definition,
-                $history,
-                $urlResolver,
-                $cycleNumber,
-                $rejection,
-                $rejections,
-            );
-            $cycleNumber++;
+        // Append revision cycles (PP07 → PP06) if any revisions exist
+        $revisionCycles = $this->buildRevisionCycles($definition, $history, $urlResolver);
+        foreach ($revisionCycles as $revCycle) {
+            $cycles[] = $revCycle;
         }
-
-        $cycles[] = $this->buildCurrentCycle($definition, $history, $urlResolver, $cycleNumber);
 
         return $cycles;
     }
@@ -124,12 +130,18 @@ class WorkflowEngine
         $steps = [];
 
         foreach ($definition->steps() as $code) {
+            // Exclude revision steps — they appear in their own revision cycles
+            if ($definition->stepType($code) === StepType::Revision) {
+                continue;
+            }
+
             $info = $statuses[$code];
             $steps[] = [
                 'code' => $code,
                 'label' => $definition->stepLabel($code),
                 'status' => $info['status'],
                 'url' => $urlResolver($code, $info['dataId']),
+                'stepType' => $definition->stepType($code)->value,
             ];
         }
 
@@ -139,6 +151,7 @@ class WorkflowEngine
         return [
             'number' => $number,
             'status' => $cycleStatus,
+            'type' => 'initial',
             'steps' => $steps,
         ];
     }
@@ -172,6 +185,10 @@ class WorkflowEngine
         $steps = [];
 
         foreach ($cycleSteps as $code) {
+            if ($definition->stepType($code) === StepType::Revision) {
+                continue;
+            }
+
             if ($code === $rejection['step']) {
                 $status = 'rejected';
             } else {
@@ -184,14 +201,126 @@ class WorkflowEngine
                 'label' => $definition->stepLabel($code),
                 'status' => $status,
                 'url' => $urlResolver($code, $dataId),
+                'stepType' => $definition->stepType($code)->value,
             ];
         }
 
         return [
             'number' => $number,
             'status' => 'rejected',
+            'type' => 'rejection',
             'steps' => $steps,
         ];
+    }
+
+    /**
+     * Build revision cycles from PP07 → PP06 pairs in history.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @param  \Closure(string, ?int): ?string  $urlResolver
+     * @return list<array{number: int, status: string, type: string, revisionNumber: int, steps: list<array{code: string, label: string, status: string, url: ?string}>}>
+     */
+    private function buildRevisionCycles(WorkflowDefinition $definition, array $history, \Closure $urlResolver): array
+    {
+        // Find the revision step code and its prerequisite (final step)
+        $revisionCode = null;
+        $finalCode = null;
+
+        foreach ($definition->steps() as $code) {
+            if ($definition->stepType($code) === StepType::Revision) {
+                $revisionCode = $code;
+                $prereqs = $definition->prerequisites($code);
+                $finalCode = $prereqs[0] ?? null;
+
+                break;
+            }
+        }
+
+        if ($revisionCode === null || $finalCode === null) {
+            return [];
+        }
+
+        // Find all PP07 'created' entries — each one starts a revision cycle
+        $revisionCreations = [];
+
+        foreach ($history as $entry) {
+            if (($entry['step'] ?? '') === $revisionCode && ($entry['action'] ?? '') === 'created') {
+                $revisionCreations[] = $entry;
+            }
+        }
+
+        if (empty($revisionCreations)) {
+            return [];
+        }
+
+        $cycles = [];
+
+        foreach ($revisionCreations as $i => $creation) {
+            $revisionNumber = $i + 1;
+            $pp07DataId = $creation['id'] ?? null;
+
+            // Check if this PP07 was submitted
+            $pp07Submitted = false;
+
+            foreach ($history as $entry) {
+                if (($entry['step'] ?? '') === $revisionCode
+                    && ($entry['action'] ?? '') === 'submitted'
+                    && ($entry['id'] ?? null) === $pp07DataId) {
+                    $pp07Submitted = true;
+
+                    break;
+                }
+            }
+
+            // Find the matching PP06 completed entry for this revision
+            $pp06DataId = null;
+
+            foreach ($history as $entry) {
+                if (($entry['step'] ?? '') === $finalCode
+                    && ($entry['action'] ?? '') === 'completed'
+                    && ($entry['revision'] ?? null) === $revisionNumber) {
+                    $pp06DataId = $entry['id'] ?? null;
+
+                    break;
+                }
+            }
+
+            $pp07Status = $pp07Submitted ? 'completed' : 'active';
+            $pp06Status = $pp06DataId !== null ? 'completed' : 'pending';
+
+            // For PP06 in revision cycles, append revision query param to base URL
+            $pp06Url = null;
+
+            if ($pp06DataId !== null) {
+                $baseUrl = $urlResolver($finalCode, $pp06DataId);
+                $pp06Url = $baseUrl !== null ? $baseUrl."?revision={$revisionNumber}" : null;
+            }
+
+            $cycles[] = [
+                'number' => count($cycles) + 1,
+                'status' => $pp07Submitted ? 'completed' : 'active',
+                'type' => 'revision',
+                'revisionNumber' => $revisionNumber,
+                'steps' => [
+                    [
+                        'code' => $revisionCode,
+                        'label' => $definition->stepLabel($revisionCode),
+                        'status' => $pp07Status,
+                        'url' => $urlResolver($revisionCode, $pp07DataId),
+                        'stepType' => $definition->stepType($revisionCode)->value,
+                    ],
+                    [
+                        'code' => $finalCode,
+                        'label' => $definition->stepLabel($finalCode),
+                        'status' => $pp06Status,
+                        'url' => $pp06Url,
+                        'stepType' => $definition->stepType($finalCode)->value,
+                    ],
+                ],
+            ];
+        }
+
+        return $cycles;
     }
 
     /**
@@ -326,16 +455,22 @@ class WorkflowEngine
     {
         $stepType = $definition->stepType($code);
 
-        // Revision step: special handling — active only after final is completed
+        // Revision step: pending by default, active only when a revision draft is in progress
         if ($stepType === StepType::Revision) {
             $prereqs = $definition->prerequisites($code);
-            $allPrereqsMet = $this->arePrerequisitesMet($definition, $prereqs, $history, $rejections);
 
-            if (! $allPrereqsMet) {
+            if (! $this->arePrerequisitesMet($definition, $prereqs, $history, $rejections)) {
                 return 'pending';
             }
 
-            return 'active';
+            // Check latest action for this step — active only if created/drafted but not submitted
+            $latestAction = $this->getLatestAction($code, $history);
+
+            if ($latestAction === 'created' || $latestAction === 'drafted') {
+                return 'active';
+            }
+
+            return 'pending';
         }
 
         // Final step: auto-completed by system
@@ -511,6 +646,24 @@ class WorkflowEngine
         }
 
         return $latestId;
+    }
+
+    /**
+     * Get the latest action for a step from history.
+     *
+     * @param  list<array<string, mixed>>  $history
+     */
+    private function getLatestAction(string $code, array $history): ?string
+    {
+        $latest = null;
+
+        foreach ($history as $entry) {
+            if (($entry['step'] ?? '') === $code) {
+                $latest = $entry['action'] ?? null;
+            }
+        }
+
+        return $latest;
     }
 
     /**

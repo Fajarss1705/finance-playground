@@ -309,7 +309,7 @@ it('completes full PP flow with separate Monev and BU users', function () {
     $statuses = $engine->getStepStatuses($definition, $workflow->history);
     expect($statuses['PP05']['status'])->toBe('completed')
         ->and($statuses['PP06']['status'])->toBe('completed')
-        ->and($statuses['PP07']['status'])->toBe('active');
+        ->and($statuses['PP07']['status'])->toBe('pending'); // PP07 is pending until revision initiated
 
     // Verify PP06 compiled data
     $pp06 = $workflow->latestPp06();
@@ -452,9 +452,9 @@ it('completes full rejection cycle: reject → re-entry → resubmit all steps �
     $stepperData = $engine->getStepperData($definition, $workflow->history, fn ($step, $id) => '#');
     expect($stepperData)->toHaveCount(2);
 
-    // Verify history has entries from both cycles
+    // Verify history has entries from both cycles (created + rejected + created + approved)
     $pp05Entries = collect($workflow->history)->where('step', 'PP05');
-    expect($pp05Entries)->toHaveCount(2); // rejected + approved
+    expect($pp05Entries)->toHaveCount(4);
 });
 
 // === D4: PP07 multiple revisions (rev0 → rev1 → rev2) ===
@@ -762,4 +762,77 @@ it('prevents non-Koordinator from deleting terminated workflow (Koordinator-only
     // Evaluator tries to delete terminated workflow — should be denied
     ppActivateSession($this, $evalUser, $evalRole, $workspace);
     $this->delete(route('admin.workflows.pp.destroy', $workflow))->assertForbidden();
+});
+
+// === D12: Stale record guard prevents writing to old PP01-PP04 records after rejection ===
+
+it('rejects draft/submit to old PP01 record after rejection creates a new one', function () {
+    [$monevUser, $monevRole, $workspace] = setupMonevUser();
+    $org = $monevRole->team->organization;
+    [$buUser, $buRole, , $buTeam] = setupBuUser($org, $workspace);
+
+    // Advance to PP05 (submits PP01-PP04), then reject
+    $workflow = advanceToPP05($this, [$monevUser, $monevRole, $workspace], [$buUser, $buRole, $workspace, $buTeam]);
+
+    ppActivateSession($this, $monevUser, $monevRole, $workspace);
+    $this->post(route('admin.workflows.pp.pp05.reject', ['ppWorkflow' => $workflow]), [
+        'notes' => 'Needs revision',
+    ])->assertRedirect();
+
+    $workflow->refresh();
+
+    // Get both old (cycle 1) and new (cycle 2) PP01 records
+    $allPp01 = $workflow->pp01Data()->orderBy('id')->get();
+    expect($allPp01)->toHaveCount(2);
+    $oldPp01 = $allPp01->first();
+    $newPp01 = $allPp01->last();
+
+    // Drafting to the OLD PP01 should be rejected with 409
+    $this->post(route('admin.workflows.pp.pp01.draft', ['ppWorkflow' => $workflow, 'pp01Data' => $oldPp01]),
+        array_merge(pp01SubmitData(2028), ['expected_updated_at' => $oldPp01->updated_at->toIso8601String()])
+    )->assertStatus(409);
+
+    // Submitting to the OLD PP01 should be rejected with 409
+    $this->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow, 'pp01Data' => $oldPp01]),
+        array_merge(pp01SubmitData(2028), ['expected_updated_at' => $oldPp01->updated_at->toIso8601String()])
+    )->assertStatus(409);
+
+    // Verify old PP01 data is unchanged
+    $oldPp01->refresh();
+    expect($oldPp01->tahun)->toBe(2027);
+
+    // Drafting to the NEW PP01 should succeed
+    $this->post(route('admin.workflows.pp.pp01.draft', ['ppWorkflow' => $workflow, 'pp01Data' => $newPp01]),
+        array_merge(pp01SubmitData(2028), ['expected_updated_at' => $newPp01->fresh()->updated_at->toIso8601String()])
+    )->assertRedirect();
+
+    // Verify new PP01 was updated
+    $newPp01->refresh();
+    expect($newPp01->tahun)->toBe(2028);
+});
+
+it('shows old PP01 record as readonly when viewing during cycle 2', function () {
+    [$monevUser, $monevRole, $workspace] = setupMonevUser();
+    $org = $monevRole->team->organization;
+    [$buUser, $buRole, , $buTeam] = setupBuUser($org, $workspace);
+
+    $workflow = advanceToPP05($this, [$monevUser, $monevRole, $workspace], [$buUser, $buRole, $workspace, $buTeam]);
+
+    ppActivateSession($this, $monevUser, $monevRole, $workspace);
+    $this->post(route('admin.workflows.pp.pp05.reject', ['ppWorkflow' => $workflow]), [
+        'notes' => 'Needs revision',
+    ]);
+
+    $workflow->refresh();
+    $oldPp01 = $workflow->pp01Data()->orderBy('id')->first();
+
+    // Viewing the old PP01 should render as readonly
+    $response = $this->get(route('admin.workflows.pp.pp01.show', ['ppWorkflow' => $workflow, 'pp01Data' => $oldPp01]));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('admin/workflows/pp/pp01')
+        ->where('mode', 'readonly')
+        ->where('canDraft', false)
+        ->where('canSubmit', false)
+    );
 });
