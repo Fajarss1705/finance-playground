@@ -17,8 +17,10 @@ class Pp04DraftRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'attach_file_ids' => ['nullable', 'array'],
-            'attach_file_ids.*' => ['integer', 'exists:files,id'],
+            'keep_file_ids' => ['nullable', 'array'],
+            'keep_file_ids.*' => ['integer', 'exists:files,id'],
+            'dokumen_files' => ['nullable', 'array'],
+            'dokumen_files.*' => ['file', 'max:51200'],
             'expected_updated_at' => ['required', 'string'],
             'notes' => ['nullable', 'string'],
             'files' => ['nullable', 'array'],
