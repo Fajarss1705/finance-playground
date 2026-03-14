@@ -2019,3 +2019,85 @@ it('filters index by anggaran bracket', function () {
             ->has('workflows.data', 0)
         );
 });
+
+// --- Backend Permission Enforcement ---
+
+it('returns 403 for index without index permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $this->get(route('admin.workflows.pp.index'))->assertForbidden();
+});
+
+it('returns 403 for pp01 draft without draft permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [['step' => 'PP01', 'action' => 'created', 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1]],
+    ]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->post(route('admin.workflows.pp.pp01.draft', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'expected_updated_at' => $pp01->updated_at->toIso8601String(),
+    ])->assertForbidden();
+});
+
+it('returns 403 for pp03 submit without submit permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+    $pp03 = Pp03Data::create(['pp_workflow_id' => $workflow->id]);
+
+    $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'items' => [],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertForbidden();
+});
+
+it('returns 403 for pp05 approve without approve permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp05.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $this->post(route('admin.workflows.pp.pp05.approve', $workflow))
+        ->assertForbidden();
+});
+
+it('returns 403 for pp05 reject without reject permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp05.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $this->post(route('admin.workflows.pp.pp05.reject', $workflow), [
+        'notes' => 'Test rejection',
+    ])->assertForbidden();
+});
+
+it('returns 403 for pp06 export without export permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp06.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $this->get(route('admin.workflows.pp.pp06.export.pdf', $workflow))
+        ->assertForbidden();
+    $this->get(route('admin.workflows.pp.pp06.export.excel', $workflow))
+        ->assertForbidden();
+    $this->get(route('admin.workflows.pp.pp06.export.zip', $workflow))
+        ->assertForbidden();
+});
+
+it('returns 403 for pp07 create without create permission', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp07.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $this->post(route('admin.workflows.pp.pp07.create', $workflow))
+        ->assertForbidden();
+});

@@ -51,6 +51,7 @@ class PpWorkflowController extends Controller
 
     public function index(Request $request): Response
     {
+        $this->checkPermission('admin.workflows.pp.index');
         $workspaceId = $this->session->getActiveWorkspaceId();
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
@@ -132,10 +133,7 @@ class PpWorkflowController extends Controller
 
     public function create(Request $request): RedirectResponse
     {
-        $permissions = $this->session->getActivePermissions();
-        if (! in_array('admin.workflows.pp.create', $permissions)) {
-            abort(403);
-        }
+        $this->checkPermission('admin.workflows.pp.create');
 
         $workspaceId = $this->session->getActiveWorkspaceId();
 
@@ -167,6 +165,7 @@ class PpWorkflowController extends Controller
     public function show(PpWorkflow $ppWorkflow): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $currentSteps = $this->engine->getCurrentSteps($definition, $history);
@@ -300,6 +299,7 @@ class PpWorkflowController extends Controller
     public function pp01Show(PpWorkflow $ppWorkflow, Pp01Data $pp01Data): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp01.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
@@ -345,6 +345,7 @@ class PpWorkflowController extends Controller
     public function pp01Draft(Pp01DraftRequest $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp01.draft');
         $this->ensureStepActive($ppWorkflow, 'PP01');
         $this->ensureCurrentRecord($ppWorkflow, 'PP01', $pp01Data->id);
 
@@ -387,6 +388,7 @@ class PpWorkflowController extends Controller
     public function pp01Submit(Pp01SubmitRequest $request, PpWorkflow $ppWorkflow, Pp01Data $pp01Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp01.submit');
         $validated = $request->validated();
 
         // Check engine state
@@ -486,6 +488,7 @@ class PpWorkflowController extends Controller
     public function pp02Show(PpWorkflow $ppWorkflow, Pp02Data $pp02Data): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp02.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
@@ -525,6 +528,7 @@ class PpWorkflowController extends Controller
     public function pp02Draft(Pp02DraftRequest $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp02.draft');
         $this->ensureStepActive($ppWorkflow, 'PP02');
         $this->ensureCurrentRecord($ppWorkflow, 'PP02', $pp02Data->id);
 
@@ -571,6 +575,7 @@ class PpWorkflowController extends Controller
     public function pp02Submit(Pp02SubmitRequest $request, PpWorkflow $ppWorkflow, Pp02Data $pp02Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp02.submit');
         $validated = $request->validated();
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
@@ -650,6 +655,7 @@ class PpWorkflowController extends Controller
     public function pp03Show(PpWorkflow $ppWorkflow, Pp03Data $pp03Data): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp03.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
@@ -692,6 +698,7 @@ class PpWorkflowController extends Controller
     public function pp03Draft(Pp03DraftRequest $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp03.draft');
         $this->ensureStepActive($ppWorkflow, 'PP03');
         $this->ensureCurrentRecord($ppWorkflow, 'PP03', $pp03Data->id);
 
@@ -745,6 +752,7 @@ class PpWorkflowController extends Controller
     public function pp03Submit(Pp03SubmitRequest $request, PpWorkflow $ppWorkflow, Pp03Data $pp03Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp03.submit');
         $validated = $request->validated();
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
@@ -821,6 +829,7 @@ class PpWorkflowController extends Controller
     public function pp04Show(PpWorkflow $ppWorkflow, Pp04Data $pp04Data): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp04.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
@@ -862,6 +871,7 @@ class PpWorkflowController extends Controller
     public function pp04Draft(Pp04DraftRequest $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp04.draft');
         $this->ensureStepActive($ppWorkflow, 'PP04');
         $this->ensureCurrentRecord($ppWorkflow, 'PP04', $pp04Data->id);
 
@@ -919,6 +929,7 @@ class PpWorkflowController extends Controller
     public function pp04Submit(Pp04SubmitRequest $request, PpWorkflow $ppWorkflow, Pp04Data $pp04Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp04.submit');
         $validated = $request->validated();
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
@@ -1000,6 +1011,7 @@ class PpWorkflowController extends Controller
     public function pp05Show(PpWorkflow $ppWorkflow): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp05.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
         $statuses = $this->engine->getStepStatuses($definition, $history);
@@ -1049,6 +1061,7 @@ class PpWorkflowController extends Controller
     public function pp05Approve(Pp05ApproveRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp05.approve');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
         if (! in_array('PP05', $this->engine->getCurrentSteps($definition, $ppWorkflow->history ?? []))) {
@@ -1124,6 +1137,7 @@ class PpWorkflowController extends Controller
     public function pp05Reject(Pp05RejectRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp05.reject');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
         if (! in_array('PP05', $this->engine->getCurrentSteps($definition, $ppWorkflow->history ?? []))) {
@@ -1215,6 +1229,7 @@ class PpWorkflowController extends Controller
     public function pp06Show(PpWorkflow $ppWorkflow): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp06.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
 
         $revisionParam = request()->query('revision');
@@ -1251,6 +1266,7 @@ class PpWorkflowController extends Controller
     public function pp06ExportPdf(PpWorkflow $ppWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp06.export.pdf');
 
         $revision = request()->query('revision');
         $pp06 = $revision !== null
@@ -1295,6 +1311,7 @@ class PpWorkflowController extends Controller
     public function pp06ExportExcel(PpWorkflow $ppWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp06.export.excel');
 
         $revision = request()->query('revision');
         $pp06 = $revision !== null
@@ -1339,6 +1356,7 @@ class PpWorkflowController extends Controller
     public function pp06ExportZip(PpWorkflow $ppWorkflow): \Symfony\Component\HttpFoundation\StreamedResponse|\Illuminate\Http\RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp06.export.zip');
 
         $revisions = $ppWorkflow->pp06PeriodeTahunan()->orderBy('revision')->get();
 
@@ -1379,8 +1397,7 @@ class PpWorkflowController extends Controller
     public function pp07Create(Request $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
-        $definition = $this->engine->resolveDefinition(WorkflowType::PP);
-        $history = $ppWorkflow->history ?? [];
+        $this->checkPermission('admin.workflows.pp.pp07.create');
 
         // Must have at least one PP06 revision
         $latestPp06 = $ppWorkflow->latestPp06();
@@ -1447,6 +1464,7 @@ class PpWorkflowController extends Controller
     public function pp07Show(PpWorkflow $ppWorkflow, Pp07Data $pp07Data): Response
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp07.show');
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $isSubmitted = $pp07Data->submitted_at !== null;
         $mode = $isSubmitted ? 'readonly' : 'edit';
@@ -1489,6 +1507,7 @@ class PpWorkflowController extends Controller
     public function pp07Draft(Pp07DraftRequest $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp07.draft');
         if ($pp07Data->submitted_at !== null) {
             abort(409, 'Revisi ini sudah disubmit.');
         }
@@ -1550,6 +1569,7 @@ class PpWorkflowController extends Controller
     public function pp07Submit(Pp07SubmitRequest $request, PpWorkflow $ppWorkflow, Pp07Data $pp07Data): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
+        $this->checkPermission('admin.workflows.pp.pp07.submit');
         if ($pp07Data->submitted_at !== null) {
             abort(409, 'Revisi ini sudah disubmit.');
         }
@@ -1715,10 +1735,7 @@ class PpWorkflowController extends Controller
     public function comment(PpCommentRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
-        $permissions = $this->session->getActivePermissions();
-        if (! in_array('admin.workflows.pp.comment', $permissions)) {
-            abort(403);
-        }
+        $this->checkPermission('admin.workflows.pp.comment');
 
         $validated = $request->validated();
 
@@ -1738,10 +1755,7 @@ class PpWorkflowController extends Controller
     public function terminate(PpTerminateRequest $request, PpWorkflow $ppWorkflow): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
-        $permissions = $this->session->getActivePermissions();
-        if (! in_array('admin.workflows.pp.terminate', $permissions)) {
-            abort(403);
-        }
+        $this->checkPermission('admin.workflows.pp.terminate');
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PP);
         $history = $ppWorkflow->history ?? [];
@@ -1783,10 +1797,7 @@ class PpWorkflowController extends Controller
     public function destroy(PpWorkflow $ppWorkflow): RedirectResponse
     {
         $this->ensureWorkspaceOwnership($ppWorkflow);
-        $permissions = $this->session->getActivePermissions();
-        if (! in_array('admin.workflows.pp.destroy', $permissions)) {
-            abort(403);
-        }
+        $this->checkPermission('admin.workflows.pp.destroy');
 
         $history = $ppWorkflow->history ?? [];
 
@@ -1863,6 +1874,13 @@ class PpWorkflowController extends Controller
     {
         if ($ppWorkflow->workspace_id !== $this->session->getActiveWorkspaceId()) {
             abort(403, 'Workflow bukan milik workspace aktif.');
+        }
+    }
+
+    private function checkPermission(string $permission): void
+    {
+        if (! in_array($permission, $this->session->getActivePermissions())) {
+            abort(403);
         }
     }
 
