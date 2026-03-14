@@ -10,6 +10,7 @@ use App\Models\Pp\Pp07Data;
 use App\Models\Pp\PpWorkflow;
 use App\Models\Team;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\ActiveSessionService;
 use App\Services\WorkflowEngine;
 use App\Workflows\PpWorkflowDefinition;
@@ -1820,4 +1821,57 @@ it('rejects comment without notes', function () {
     $this->post(route('admin.workflows.pp.comment', $workflow), [
         'source' => 'show',
     ])->assertSessionHasErrors('notes');
+});
+
+// --- Workspace Scoping Guard ---
+
+it('returns 403 when accessing show of workflow from different workspace', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $otherWorkspace = Workspace::factory()->create();
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $otherWorkspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+
+    $this->get(route('admin.workflows.pp.show', $workflow))->assertStatus(403);
+});
+
+it('returns 403 when viewing step page of workflow from different workspace', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp01.show');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $otherWorkspace = Workspace::factory()->create();
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $otherWorkspace->id,
+        'history' => [
+            ['step' => 'PP01', 'action' => 'created', 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => 1],
+        ],
+    ]);
+    $pp01 = Pp01Data::create(['pp_workflow_id' => $workflow->id, 'tahun' => 2027]);
+    $workflow->update(['history' => [
+        ['step' => 'PP01', 'action' => 'created', 'at' => now()->toIso8601String(), 'table' => 'pp01_data', 'id' => $pp01->id],
+    ]]);
+
+    $this->get(route('admin.workflows.pp.pp01.show', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]))
+        ->assertStatus(403);
+});
+
+it('returns 403 when commenting on workflow from different workspace', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.comment');
+    activatePpSession($this, $user, $role, $workspace);
+
+    $otherWorkspace = Workspace::factory()->create();
+    $workflow = PpWorkflow::create([
+        'workspace_id' => $otherWorkspace->id,
+        'history' => [],
+    ]);
+
+    $this->post(route('admin.workflows.pp.comment', $workflow), [
+        'source' => 'show',
+        'notes' => 'Cross-workspace comment attempt',
+    ])->assertStatus(403);
 });
