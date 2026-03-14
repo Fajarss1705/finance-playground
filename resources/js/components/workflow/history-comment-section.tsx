@@ -1,6 +1,6 @@
 import { Link, router } from '@inertiajs/react';
 import { useState } from 'react';
-import { ChevronDown, FileText, Paperclip, X } from 'lucide-react';
+import { ChevronDown, Download, FileText, Paperclip, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -321,13 +321,13 @@ export default function HistoryCommentSection({
                                         }}
                                     />
                                     {files.map((f, i) => (
-                                        <span key={i} className="inline-flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs">
-                                            <Paperclip className="h-3 w-3 text-muted-foreground" />
+                                        <span key={i} className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                            <Paperclip className="h-3 w-3" />
                                             <span className="break-all">{f.name}</span>
                                             <button
                                                 type="button"
                                                 onClick={() => setFiles((prev) => prev.filter((_, fi) => fi !== i))}
-                                                className="ml-0.5 text-muted-foreground hover:text-destructive"
+                                                className="ml-0.5 hover:text-destructive"
                                             >
                                                 <X className="h-3 w-3" />
                                             </button>
@@ -372,11 +372,11 @@ function FileChip({ file }: { file: FileRef }) {
     return (
         <a
             href={`/files/${file.uuid}/download`}
-            className="inline-flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 text-xs text-primary hover:bg-muted/50 hover:underline"
+            className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-1 text-xs text-blue-700 underline decoration-blue-300 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
         >
-            <Paperclip className="h-3 w-3" />
+            <Download className="h-3 w-3 shrink-0" />
             <span className="break-all">{file.original_filename}</span>
-            <span className="text-muted-foreground">({formatFileSize(file.size)})</span>
+            <span className="text-blue-500 dark:text-blue-400">({formatFileSize(file.size)})</span>
         </a>
     );
 }
