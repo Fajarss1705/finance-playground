@@ -61,7 +61,7 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
     const [items, setItems] = useState<KuisionerItem[]>(
         stepData.item_kuisioner.length > 0
             ? stepData.item_kuisioner
-            : [{ kode: 'Q01', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
+            : [{ kode: 'Q01', pertanyaan: 'Pertanyaan 1', tipe: 'Kualitatif', satuan: '' }],
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -72,7 +72,9 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
     ];
 
     function addRow() {
-        setItems([...items, { kode: nextKode('Q', items), pertanyaan: '', tipe: 'Kualitatif', satuan: '' }]);
+        const kode = nextKode('Q', items);
+        const num = items.length + 1;
+        setItems([...items, { kode, pertanyaan: `Pertanyaan ${num}`, tipe: 'Kualitatif', satuan: '' }]);
     }
 
     function removeRow(index: number) {

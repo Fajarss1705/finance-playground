@@ -33,11 +33,19 @@ type ReviewData = {
     pp04: { item_dokumen: { file: { uuid: string; original_filename: string } }[] } | null;
 };
 
+type SubmitterInfo = {
+    name: string;
+    role: string | null;
+    team: string | null;
+    at: string;
+};
+
 type Workflow = { id: number; label: string; history: HistoryEntry[] };
 
 type Props = {
     workflow: Workflow;
     reviewData: ReviewData;
+    submitters: Record<string, SubmitterInfo>;
     stepStatus: string;
     canApprove: boolean;
     canReject: boolean;
@@ -55,7 +63,7 @@ function formatTanggal(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-export default function Pp05({ workflow, reviewData, stepStatus, canApprove, canReject, canTerminate, canComment, actionRoles, activeRoleName }: Props) {
+export default function Pp05({ workflow, reviewData, submitters, stepStatus, canApprove, canReject, canTerminate, canComment, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const isActive = canApprove || canReject;
 
@@ -103,7 +111,8 @@ export default function Pp05({ workflow, reviewData, stepStatus, canApprove, can
                 {/* PP01 Review */}
                 {reviewData.pp01 && (
                     <SectionCard title="PP01 — Rencana Periode">
-                        <div className="grid gap-2 text-sm sm:grid-cols-3">
+                        <SubmittedBy info={submitters.PP01} />
+                        <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
                             <div><span className="text-muted-foreground">Tahun:</span> {reviewData.pp01.tahun}</div>
                             <div><span className="text-muted-foreground">Mulai Pra-Raker:</span> {formatTanggal(reviewData.pp01.tanggal_mulai_pra_raker)}</div>
                             <div><span className="text-muted-foreground">Penetapan Program:</span> {formatTanggal(reviewData.pp01.tanggal_penetapan_program)}</div>
@@ -120,7 +129,8 @@ export default function Pp05({ workflow, reviewData, stepStatus, canApprove, can
                 {/* PP02 Review */}
                 {reviewData.pp02 && (
                     <SectionCard title="PP02 — Pertanyaan Kuisioner">
-                        <div className="overflow-x-auto">
+                        <SubmittedBy info={submitters.PP02} />
+                        <div className="mt-2 overflow-x-auto">
                             <table className="min-w-200 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
@@ -148,7 +158,8 @@ export default function Pp05({ workflow, reviewData, stepStatus, canApprove, can
                 {/* PP03 Review */}
                 {reviewData.pp03 && (
                     <SectionCard title="PP03 — Plafon Anggaran">
-                        <div className="overflow-x-auto">
+                        <SubmittedBy info={submitters.PP03} />
+                        <div className="mt-2 overflow-x-auto">
                             <table className="min-w-200 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
@@ -189,6 +200,7 @@ export default function Pp05({ workflow, reviewData, stepStatus, canApprove, can
                 {/* PP04 Review */}
                 {reviewData.pp04 && (
                     <SectionCard title="PP04 — Dokumen SOP">
+                        <SubmittedBy info={submitters.PP04} />
                         {reviewData.pp04.item_dokumen.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Tidak ada dokumen dilampirkan.</p>
                         ) : (
@@ -305,6 +317,18 @@ function TerminateButton({ workflowId }: { workflowId: number }) {
                 });
             }}
         />
+    );
+}
+
+function SubmittedBy({ info }: { info?: SubmitterInfo }) {
+    if (!info) return null;
+    const parts = [info.name];
+    if (info.role) parts.push(info.role);
+    if (info.team) parts.push(info.team);
+    return (
+        <p className="text-xs text-muted-foreground">
+            Disubmit oleh: <span className="font-medium text-foreground">{parts.join(' · ')}</span> — {info.at}
+        </p>
     );
 }
 

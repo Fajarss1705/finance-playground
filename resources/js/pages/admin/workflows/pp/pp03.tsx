@@ -110,36 +110,48 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
         setItems(items.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
-    function handlePaste(e: React.ClipboardEvent) {
+    const pasteFields: (keyof PlafonItem)[] = ['kode_team', 'plafon_anggaran', 'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan'];
+
+    function handleCellPaste(e: React.ClipboardEvent, rowIndex: number, fieldIndex: number) {
         const text = e.clipboardData.getData('text/plain').trim();
-        if (!text) return;
-
-        const lines = text.split('\n').filter((line) => line.trim());
-        const rows = lines.map((line) => line.split('\t'));
-
-        // Need at least 1 column to treat as tabular data
-        if (rows.length === 0) return;
+        if (!text || (!text.includes('\t') && !text.includes('\n'))) return;
 
         e.preventDefault();
 
-        const allItems = [...items];
-        const newItems: PlafonItem[] = rows.map((cols) => {
-            const kode = nextKode('T', allItems);
-            const plafon = parseInt((cols[0] ?? '').replace(/\D/g, ''), 10) || 0;
-            const row: PlafonItem = {
-                kode_team: kode,
-                team_id: 0,
-                plafon_anggaran: plafon,
-                nama_bank: cols[1]?.trim() ?? '',
-                nama_rekening: cols[2]?.trim() ?? '',
-                nomor_rekening: cols[3]?.trim() ?? '',
-                catatan: cols[4]?.trim() ?? '',
-            };
-            allItems.push(row);
-            return row;
-        });
+        const lines = text.split('\n').filter((l) => l.trim());
 
-        setItems(allItems);
+        setItems((prev) => {
+            const updated = [...prev];
+            lines.forEach((line, lineIdx) => {
+                const cols = line.split('\t');
+                const targetRow = rowIndex + lineIdx;
+
+                if (targetRow >= updated.length) {
+                    updated.push({
+                        team_id: 0,
+                        kode_team: nextKode('T', updated),
+                        plafon_anggaran: 0,
+                        nama_bank: '',
+                        nama_rekening: '',
+                        nomor_rekening: '',
+                        catatan: '',
+                    });
+                }
+
+                cols.forEach((val, colIdx) => {
+                    const fi = fieldIndex + colIdx;
+                    if (fi < pasteFields.length) {
+                        const field = pasteFields[fi];
+                        if (field === 'plafon_anggaran') {
+                            (updated[targetRow] as Record<string, unknown>)[field] = parseInt(val.replace(/\D/g, ''), 10) || 0;
+                        } else {
+                            (updated[targetRow] as Record<string, unknown>)[field] = val.trim();
+                        }
+                    }
+                });
+            });
+            return updated;
+        });
     }
 
     function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
@@ -219,7 +231,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 <SectionCard title="Plafon Anggaran Per Tim">
                     {errors.item_plafon_anggaran && <p className="mb-2 text-xs text-destructive">{errors.item_plafon_anggaran}</p>}
-                    <div className="overflow-x-auto" onPaste={!isReadonly ? handlePaste : undefined}>
+                    <div className="overflow-x-auto">
                         <table className="min-w-300 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
@@ -237,7 +249,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 {items.map((item, i) => (
                                     <tr key={i} className="border-b last:border-0">
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.kode_team} onChange={(e) => updateRow(i, 'kode_team', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
+                                            <Input value={item.kode_team} onChange={(e) => updateRow(i, 'kode_team', e.target.value)} onPaste={(e) => handleCellPaste(e, i, 0)} disabled={isReadonly} className="h-8" maxLength={10} />
                                             {errors[`item_plafon_anggaran.${i}.kode_team`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.kode_team`]}</p>}
                                         </td>
                                         {!isReadonly && (
@@ -262,19 +274,19 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             {errors[`item_plafon_anggaran.${i}.team_id`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.team_id`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            <RupiahInput value={item.plafon_anggaran} onChange={(v) => updateRow(i, 'plafon_anggaran', v)} disabled={isReadonly} className="h-8" min={0} />
+                                            <RupiahInput value={item.plafon_anggaran} onChange={(v) => updateRow(i, 'plafon_anggaran', v)} onPaste={(e) => handleCellPaste(e, i, 1)} disabled={isReadonly} className="h-8" min={0} />
                                             {errors[`item_plafon_anggaran.${i}.plafon_anggaran`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.plafon_anggaran`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.nama_bank} onChange={(e) => updateRow(i, 'nama_bank', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            <Input value={item.nama_bank} onChange={(e) => updateRow(i, 'nama_bank', e.target.value)} onPaste={(e) => handleCellPaste(e, i, 2)} disabled={isReadonly} className="h-8" />
                                             {errors[`item_plafon_anggaran.${i}.nama_bank`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nama_bank`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.nama_rekening} onChange={(e) => updateRow(i, 'nama_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            <Input value={item.nama_rekening} onChange={(e) => updateRow(i, 'nama_rekening', e.target.value)} onPaste={(e) => handleCellPaste(e, i, 3)} disabled={isReadonly} className="h-8" />
                                             {errors[`item_plafon_anggaran.${i}.nama_rekening`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nama_rekening`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.nomor_rekening} onChange={(e) => updateRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            <Input value={item.nomor_rekening} onChange={(e) => updateRow(i, 'nomor_rekening', e.target.value)} onPaste={(e) => handleCellPaste(e, i, 4)} disabled={isReadonly} className="h-8" />
                                             {errors[`item_plafon_anggaran.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nomor_rekening`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5 align-top">
@@ -300,7 +312,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                             </Button>
                             <span className="text-xs text-muted-foreground">
                                 <ClipboardPaste className="mr-1 inline h-3 w-3" />
-                                Bisa paste dari Excel (Plafon | Bank | Nama Rek | No Rek | Catatan) — Tim dipilih manual
+                                Paste dari Excel ke sel mana saja — data mengisi ke kanan dan ke bawah otomatis. Tim dipilih manual.
                             </span>
                         </div>
                     )}

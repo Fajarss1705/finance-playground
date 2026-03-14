@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Role;
+use App\Models\User;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -33,6 +35,7 @@ class Pp06ExcelExportService
         $this->sheetKuisioner($spreadsheet, $pp06);
         $this->sheetPlafon($spreadsheet, $pp06);
         $this->sheetDokumen($spreadsheet, $pp06);
+        $this->sheetRiwayat($spreadsheet, $pp06);
 
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -42,6 +45,29 @@ class Pp06ExcelExportService
         $spreadsheet->disconnectWorksheets();
 
         return $tempPath;
+    }
+
+    private function authorLine(Pp06PeriodeTahunan $pp06, string $prefix): string
+    {
+        $name = $pp06->{"{$prefix}_created_by_user_name"};
+        $role = $pp06->{"{$prefix}_created_by_role_name"};
+        $team = $pp06->{"{$prefix}_created_by_team_name"};
+        $date = $pp06->{"{$prefix}_created_at"};
+
+        $parts = $name;
+        $roleParts = [];
+        if ($role) {
+            $roleParts[] = $role;
+        }
+        if ($team) {
+            $roleParts[] = $team;
+        }
+        if (! empty($roleParts)) {
+            $parts .= ' ('.implode(' — ', $roleParts).')';
+        }
+        $parts .= ' — '.($date?->format('d/m/Y') ?? '-');
+
+        return $parts;
     }
 
     private function sheetInformasi(Spreadsheet $spreadsheet, Pp06PeriodeTahunan $pp06): void
@@ -74,21 +100,21 @@ class Pp06ExcelExportService
         $row++;
 
         $authors = [
-            ['PP01 — Periode', $pp06->pp01_created_by_user_name, $pp06->pp01_created_by_role_name, $pp06->pp01_created_at],
-            ['PP02 — Kuisioner', $pp06->pp02_created_by_user_name, $pp06->pp02_created_by_role_name, $pp06->pp02_created_at],
-            ['PP03 — Plafon', $pp06->pp03_created_by_user_name, $pp06->pp03_created_by_role_name, $pp06->pp03_created_at],
-            ['PP04 — Dokumen', $pp06->pp04_created_by_user_name, $pp06->pp04_created_by_role_name, $pp06->pp04_created_at],
-            ['PP05 — Persetujuan', $pp06->pp05_created_by_user_name, $pp06->pp05_created_by_role_name, $pp06->pp05_created_at],
+            ['PP01 — Periode', 'pp01'],
+            ['PP02 — Kuisioner', 'pp02'],
+            ['PP03 — Plafon', 'pp03'],
+            ['PP04 — Dokumen', 'pp04'],
+            ['PP05 — Persetujuan', 'pp05'],
         ];
 
-        foreach ($authors as [$step, $name, $role, $date]) {
+        foreach ($authors as [$step, $prefix]) {
             $sheet->setCellValue("A{$row}", $step);
-            $sheet->setCellValue("B{$row}", "{$name} ({$role}) — ".($date?->format('d/m/Y') ?? '-'));
+            $sheet->setCellValue("B{$row}", $this->authorLine($pp06, $prefix));
             $row++;
         }
 
         $sheet->getColumnDimension('A')->setWidth(30);
-        $sheet->getColumnDimension('B')->setWidth(50);
+        $sheet->getColumnDimension('B')->setWidth(60);
     }
 
     private function sheetKodeReferensi(Spreadsheet $spreadsheet, Pp06PeriodeTahunan $pp06): void
@@ -214,6 +240,83 @@ class Pp06ExcelExportService
 
         $sheet->getColumnDimension('A')->setWidth(8);
         $sheet->getColumnDimension('B')->setWidth(50);
+    }
+
+    private function sheetRiwayat(Spreadsheet $spreadsheet, Pp06PeriodeTahunan $pp06): void
+    {
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle('Riwayat');
+
+        $headers = ['Waktu', 'Step', 'Aksi', 'Oleh', 'Role', 'Tim', 'Catatan'];
+        $columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+        foreach ($headers as $i => $header) {
+            $sheet->setCellValue("{$columns[$i]}1", $header);
+        }
+        $this->styleTableHeader($sheet, 'A1:G1');
+
+        $history = $pp06->ppWorkflow->history ?? [];
+        $entries = $this->resolveHistory($history);
+
+        $row = 2;
+        foreach ($entries as $entry) {
+            $sheet->setCellValue("A{$row}", $entry['at']);
+            $sheet->setCellValue("B{$row}", $entry['step']);
+            $sheet->setCellValue("C{$row}", $entry['action']);
+            $sheet->setCellValue("D{$row}", $entry['user']);
+            $sheet->setCellValue("E{$row}", $entry['role']);
+            $sheet->setCellValue("F{$row}", $entry['team']);
+            $sheet->setCellValue("G{$row}", $entry['notes'] ?? '');
+            $row++;
+        }
+
+        $sheet->getColumnDimension('A')->setWidth(18);
+        $sheet->getColumnDimension('B')->setWidth(10);
+        $sheet->getColumnDimension('C')->setWidth(16);
+        $sheet->getColumnDimension('D')->setWidth(22);
+        $sheet->getColumnDimension('E')->setWidth(22);
+        $sheet->getColumnDimension('F')->setWidth(22);
+        $sheet->getColumnDimension('G')->setWidth(40);
+    }
+
+    /**
+     * Resolve history entries into display-ready data.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @return list<array{step: string, action: string, user: string, role: string, team: string, at: string, notes: string|null}>
+     */
+    private function resolveHistory(array $history): array
+    {
+        $userIds = collect($history)->pluck('by')->filter()->unique()->all();
+        $roleIds = collect($history)->pluck('role')->filter()->unique()->all();
+
+        $users = User::whereIn('id', $userIds)->pluck('name', 'id');
+        $roles = Role::withTrashed()->whereIn('id', $roleIds)->with('team')->get()->keyBy('id');
+
+        $actionLabels = [
+            'created' => 'Dibuat',
+            'drafted' => 'Draft disimpan',
+            'submitted' => 'Disubmit',
+            'approved' => 'Disetujui',
+            'rejected' => 'Ditolak',
+            'terminated' => 'Dibatalkan',
+            'commented' => 'Komentar',
+        ];
+
+        return collect($history)->map(function ($entry) use ($users, $roles, $actionLabels) {
+            $userId = $entry['by'] ?? null;
+            $roleId = $entry['role'] ?? null;
+            $role = $roleId ? $roles->get($roleId) : null;
+
+            return [
+                'step' => $entry['step'] ?? '-',
+                'action' => $actionLabels[$entry['action'] ?? ''] ?? ($entry['action'] ?? '-'),
+                'user' => $userId ? ($users[$userId] ?? 'Unknown') : 'System',
+                'role' => $role?->name ?? '-',
+                'team' => $role?->team?->name ?? '-',
+                'at' => isset($entry['at']) ? \Carbon\Carbon::parse($entry['at'])->format('d/m/Y H:i') : '-',
+                'notes' => $entry['notes'] ?? null,
+            ];
+        })->all();
     }
 
     private function styleHeader(mixed $sheet, string $range): void

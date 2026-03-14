@@ -49,10 +49,13 @@ type Revision = { id: number; revision: number; tahun: number; created_at: strin
 
 type Workflow = { id: number; label: string; status: string; history: HistoryEntry[] };
 
+type ChangeItem = { description: string };
+
 type Props = {
     workflow: Workflow;
     pp06: Pp06 | null;
     allRevisions: Revision[];
+    changelogByRevision: Record<number, ChangeItem[]>;
     canRevise: boolean;
     activeDraftId: number | null;
     canComment: boolean;
@@ -74,7 +77,7 @@ function AuthorLine({ name, role, date }: { name: string; role: string; date: st
     );
 }
 
-export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDraftId, canComment }: Props) {
+export default function Pp06({ workflow, pp06, allRevisions, changelogByRevision, canRevise, activeDraftId, canComment }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
@@ -140,6 +143,24 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                                 </a>
                             ))}
                         </div>
+                    </SectionCard>
+                )}
+
+                {/* Changelog untuk revisi ini */}
+                {pp06.revision > 0 && changelogByRevision[pp06.revision] !== undefined && (
+                    <SectionCard title={`Perubahan dari Revisi ${pp06.revision - 1} → ${pp06.revision}`}>
+                        {changelogByRevision[pp06.revision].length === 0 ? (
+                            <p className="text-sm italic text-muted-foreground">Tidak ada perubahan</p>
+                        ) : (
+                            <ul className="space-y-1 text-sm">
+                                {changelogByRevision[pp06.revision].map((c, i) => (
+                                    <li key={i} className="flex gap-2">
+                                        <span className="shrink-0 text-muted-foreground">&bull;</span>
+                                        <span>{c.description}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </SectionCard>
                 )}
 

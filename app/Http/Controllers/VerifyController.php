@@ -28,17 +28,38 @@ class VerifyController extends Controller
             $pp06->update(['verification_code' => $code]);
         }
 
+        $pp06->loadMissing([
+            'ppWorkflow',
+            'itemKuisioner',
+            'itemPlafonAnggaran.team',
+            'itemDokumenSop',
+            'kodeBidangPelayanan',
+            'kodeSubBidangPelayanan',
+            'kodeKategoriPelayanan',
+            'kodeJenisProgram',
+        ]);
+
         $workflow = $pp06->ppWorkflow;
+        $totalPlafon = $pp06->itemPlafonAnggaran->sum('plafon_anggaran');
 
         return response()->json([
             'status' => $tampered ? 'tampered' : 'valid',
-            'document_type' => 'Periode Tahunan',
-            'label' => $workflow->label ?? "PP #{$workflow->id}",
-            'revision' => $pp06->revision,
-            'compiled_at' => $pp06->created_at->toIso8601String(),
             'message' => $tampered
                 ? 'Data telah berubah sejak dokumen ini dikompilasi.'
                 : 'Dokumen terverifikasi — data tidak berubah.',
+            'document_type' => 'Periode Tahunan',
+            'label' => $workflow->label ?? "PP #{$workflow->id}",
+            'tahun' => $pp06->tahun,
+            'revision' => $pp06->revision,
+            'compiled_at' => $pp06->created_at->toIso8601String(),
+            'organization' => $pp06->pp01_created_by_organization_name,
+            'total_plafon' => (int) $totalPlafon,
+            'kuisioner_count' => $pp06->itemKuisioner->count(),
+            'dokumen_count' => $pp06->itemDokumenSop->count(),
+            'kode_count' => $pp06->kodeBidangPelayanan->count()
+                + $pp06->kodeSubBidangPelayanan->count()
+                + $pp06->kodeKategoriPelayanan->count()
+                + $pp06->kodeJenisProgram->count(),
         ]);
     }
 }

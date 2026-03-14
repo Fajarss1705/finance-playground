@@ -12,9 +12,10 @@ type RupiahInputProps = {
     disabled?: boolean;
     className?: string;
     min?: number;
+    onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void;
 };
 
-export function RupiahInput({ value, onChange, disabled, className = '', min }: RupiahInputProps) {
+export function RupiahInput({ value, onChange, disabled, className = '', min, onPaste }: RupiahInputProps) {
     const inputRef = useRef<HTMLInputElement>(null);
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -44,6 +45,7 @@ export function RupiahInput({ value, onChange, disabled, className = '', min }: 
             inputMode="numeric"
             value={formatNumber(value)}
             onChange={handleChange}
+            onPaste={onPaste}
             disabled={disabled}
             className={`text-right ${className}`}
             placeholder="0"

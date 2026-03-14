@@ -172,8 +172,8 @@ export default function StepProgress({ cycles, activeRoleName }: { cycles: Stepp
                     <CycleRow
                         key={cycle.number}
                         cycle={cycle}
-                        defaultExpanded={isLatest}
-                        collapsible={!isLatest}
+                        defaultExpanded={true}
+                        collapsible={true}
                         activeRoleName={activeRoleName}
                     />
                 );

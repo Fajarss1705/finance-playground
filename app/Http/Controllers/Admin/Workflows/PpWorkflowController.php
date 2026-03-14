@@ -292,6 +292,7 @@ class PpWorkflowController extends Controller
             'canRevise' => $workflowStatus === 'completed' && in_array('admin.workflows.pp.pp07.draft', $permissions),
             'canDelete' => $workflowStatus === 'terminated' && in_array('admin.workflows.pp.destroy', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
+            'canExportZip' => $pp06 !== null && in_array('admin.workflows.pp.pp06.export.zip', $permissions),
             'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
@@ -1035,6 +1036,8 @@ class PpWorkflowController extends Controller
         $isActive = $statuses['PP05']['status'] === 'active';
         $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
 
+        $submitters = $this->resolveStepSubmitters($history, ['PP01', 'PP02', 'PP03', 'PP04']);
+
         return Inertia::render('admin/workflows/pp/pp05', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'reviewData' => [
@@ -1043,6 +1046,7 @@ class PpWorkflowController extends Controller
                 'pp03' => $pp03,
                 'pp04' => $pp04,
             ],
+            'submitters' => $submitters,
             'stepStatus' => $statuses['PP05']['status'],
             'canApprove' => $isActive && in_array('admin.workflows.pp.pp05.approve', $permissions),
             'canReject' => $isActive && in_array('admin.workflows.pp.pp05.reject', $permissions),
@@ -1123,7 +1127,8 @@ class PpWorkflowController extends Controller
         });
 
         // Generate export files (outside transaction — failures are non-blocking)
-        $compileService->generateExportFiles($pp06, $request->user()->id, $ppWorkflow->workspace_id);
+        $exportResult = $compileService->generateExportFiles($pp06, $request->user()->id, $ppWorkflow->workspace_id);
+        $this->appendExportFilesToHistory($ppWorkflow, $exportResult, 0);
 
         $this->notifier->notify($ppWorkflow, 'pp05.approved', [
             'actor_name' => $request->user()->name,
@@ -1251,12 +1256,23 @@ class PpWorkflowController extends Controller
         $workflowStatus = $this->engine->getWorkflowStatus($ppWorkflow->history ?? []);
         $permissions = $this->session->getActivePermissions();
 
+        // Extract changelog diffs from history (PP07 submitted entries)
+        $changelogByRevision = [];
+        foreach ($ppWorkflow->history ?? [] as $entry) {
+            if (($entry['step'] ?? '') === 'PP07'
+                && ($entry['action'] ?? '') === 'submitted'
+                && isset($entry['revision'], $entry['changes'])) {
+                $changelogByRevision[$entry['revision']] = $entry['changes'];
+            }
+        }
+
         return Inertia::render('admin/workflows/pp/pp06', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'pp06' => $pp06,
             'allRevisions' => $ppWorkflow->pp06PeriodeTahunan()
                 ->orderBy('revision')
                 ->get(['id', 'revision', 'tahun', 'created_at']),
+            'changelogByRevision' => $changelogByRevision,
             'canRevise' => $pp06 !== null && $workflowStatus === 'completed',
             'activeDraftId' => $activeDraft?->id,
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
@@ -1294,6 +1310,7 @@ class PpWorkflowController extends Controller
         // Regenerate on-demand if file doesn't exist
         $compileService = app(PpCompileService::class);
         $exportResult = $compileService->generateExportFiles($pp06, auth()->id(), $ppWorkflow->workspace_id);
+        $this->appendExportFilesToHistory($ppWorkflow, $exportResult, $pp06->revision);
 
         if (! $exportResult['pdf_file_id']) {
             return back()->withErrors(['export' => 'Gagal membuat file PDF.']);
@@ -1339,6 +1356,7 @@ class PpWorkflowController extends Controller
         // Regenerate on-demand if file doesn't exist
         $compileService = app(PpCompileService::class);
         $exportResult = $compileService->generateExportFiles($pp06, auth()->id(), $ppWorkflow->workspace_id);
+        $this->appendExportFilesToHistory($ppWorkflow, $exportResult, $pp06->revision);
 
         if (! $exportResult['excel_file_id']) {
             return back()->withErrors(['export' => 'Gagal membuat file Excel.']);
@@ -1358,34 +1376,130 @@ class PpWorkflowController extends Controller
         $this->ensureWorkspaceOwnership($ppWorkflow);
         $this->checkPermission('admin.workflows.pp.pp06.export.zip');
 
-        $revisions = $ppWorkflow->pp06PeriodeTahunan()->orderBy('revision')->get();
+        $revisions = $ppWorkflow->pp06PeriodeTahunan()->with('itemDokumenSop')->orderBy('revision')->get();
 
         if ($revisions->isEmpty()) {
             return back()->withErrors(['export' => 'PP06 belum dikompilasi.']);
         }
 
-        $files = \App\Models\File::where('attachable_type', \App\Models\Pp\Pp06PeriodeTahunan::class)
-            ->whereIn('attachable_id', $revisions->pluck('id'))
-            ->whereNotNull('path')
-            ->get();
+        // 1. Build per-revision data: export files + dokumen SOP from PP06 compiled data
+        $revisionData = [];
+        $allPp06DokumenFileIds = [];
 
-        if ($files->isEmpty()) {
-            return back()->withErrors(['export' => 'Tidak ada file ekspor yang tersedia.']);
+        foreach ($revisions as $pp06) {
+            $exportFiles = File::where('attachable_type', \App\Models\Pp\Pp06PeriodeTahunan::class)
+                ->where('attachable_id', $pp06->id)
+                ->whereNotNull('path')
+                ->get();
+
+            $dokumenFileIds = $pp06->itemDokumenSop->pluck('file_id')->all();
+            $dokumenFiles = ! empty($dokumenFileIds)
+                ? File::whereIn('id', $dokumenFileIds)->whereNotNull('path')->get()
+                : collect();
+
+            $allPp06DokumenFileIds = array_merge($allPp06DokumenFileIds, $dokumenFileIds);
+
+            $revisionData[$pp06->revision] = [
+                'exports' => $exportFiles,
+                'dokumen' => $dokumenFiles,
+            ];
+        }
+
+        // 2. Find rejected cycle PP04 files (not referenced by any PP06 revision)
+        $allPp06DokumenFileIds = array_unique($allPp06DokumenFileIds);
+        $pp04Records = $ppWorkflow->pp04Data()->orderBy('id')->get();
+        $rejectedCycles = [];
+        $rejectedCycleNum = 0;
+
+        foreach ($pp04Records as $pp04) {
+            $fileIds = $pp04->itemDokumen()->pluck('file_id')->all();
+            if (empty($fileIds)) {
+                continue;
+            }
+
+            // If none of this PP04's files are in any PP06, it's from a rejected cycle
+            $inPp06 = ! empty(array_intersect($fileIds, $allPp06DokumenFileIds));
+            if (! $inPp06) {
+                $rejectedCycleNum++;
+                $files = File::whereIn('id', $fileIds)->whereNotNull('path')->get();
+                if ($files->isNotEmpty()) {
+                    $rejectedCycles[$rejectedCycleNum] = $files;
+                }
+            }
+        }
+
+        // 3. Comment/history attachment files (global)
+        $historyFileIds = collect($ppWorkflow->history ?? [])
+            ->pluck('files')
+            ->filter()
+            ->flatten()
+            ->unique()
+            ->all();
+        $commentFiles = ! empty($historyFileIds)
+            ? File::whereIn('id', $historyFileIds)->whereNotNull('path')->get()
+            : collect();
+
+        $hasFiles = collect($revisionData)->contains(fn ($d) => $d['exports']->isNotEmpty() || $d['dokumen']->isNotEmpty())
+            || ! empty($rejectedCycles)
+            || $commentFiles->isNotEmpty();
+
+        if (! $hasFiles) {
+            return back()->withErrors(['export' => 'Tidak ada file yang tersedia untuk diunduh.']);
         }
 
         $zipFilename = "PP06-PeriodeTahunan-{$ppWorkflow->id}.zip";
 
-        return response()->streamDownload(function () use ($files) {
+        return response()->streamDownload(function () use ($revisionData, $rejectedCycles, $commentFiles) {
             $zip = new \ZipStream\ZipStream(
                 outputStream: fopen('php://output', 'wb'),
                 sendHttpHeaders: false,
             );
 
-            foreach ($files as $file) {
+            $usedNames = [];
+
+            $addFile = function (File $file, string $folder) use ($zip, &$usedNames) {
                 $disk = \Illuminate\Support\Facades\Storage::disk($file->disk);
-                if ($disk->exists($file->path)) {
-                    $zip->addFileFromPath($file->original_filename, $disk->path($file->path));
+                if (! $disk->exists($file->path)) {
+                    return;
                 }
+
+                $name = $folder.'/'.$file->original_filename;
+
+                if (isset($usedNames[$name])) {
+                    $usedNames[$name]++;
+                    $ext = pathinfo($file->original_filename, PATHINFO_EXTENSION);
+                    $base = pathinfo($file->original_filename, PATHINFO_FILENAME);
+                    $name = $folder.'/'.$base.' ('.$usedNames[$name].').'.$ext;
+                } else {
+                    $usedNames[$name] = 1;
+                }
+
+                $zip->addFileFromPath($name, $disk->path($file->path));
+            };
+
+            // Revisi N/ folders
+            foreach ($revisionData as $revision => $data) {
+                $revFolder = "Revisi {$revision}";
+
+                foreach ($data['exports'] as $file) {
+                    $addFile($file, $revFolder);
+                }
+
+                foreach ($data['dokumen'] as $file) {
+                    $addFile($file, "{$revFolder}/Dokumen SOP");
+                }
+            }
+
+            // Siklus Ditolak/ folders (only if any exist)
+            foreach ($rejectedCycles as $cycle => $files) {
+                foreach ($files as $file) {
+                    $addFile($file, "Siklus Ditolak/Siklus {$cycle}/Dokumen SOP");
+                }
+            }
+
+            // Lampiran Komentar/
+            foreach ($commentFiles as $file) {
+                $addFile($file, 'Lampiran Komentar');
             }
 
             $zip->finish();
@@ -1721,7 +1835,8 @@ class PpWorkflowController extends Controller
         });
 
         // Generate export files (outside transaction — failures are non-blocking)
-        $compileService->generateExportFiles($pp06, $request->user()->id, $ppWorkflow->workspace_id);
+        $exportResult = $compileService->generateExportFiles($pp06, $request->user()->id, $ppWorkflow->workspace_id);
+        $this->appendExportFilesToHistory($ppWorkflow, $exportResult, $newRevision);
 
         $this->notifier->notify($ppWorkflow, 'pp07.submitted', [
             'actor_name' => $request->user()->name,
@@ -1916,13 +2031,94 @@ class PpWorkflowController extends Controller
             $pp01Data->$relation()->delete();
 
             foreach ($validated[$key] ?? [] as $item) {
-                if (empty($item['kode']) && empty($item['nama'])) {
+                if (empty($item['kode']) || empty($item['nama'])) {
                     continue;
                 }
 
                 $pp01Data->$relation()->create($item);
             }
         }
+    }
+
+    /**
+     * Append export file IDs to the matching "PP06 completed" history entry.
+     *
+     * @param  array{pdf_file_id: int|null, excel_file_id: int|null}  $exportResult
+     */
+    private function appendExportFilesToHistory(PpWorkflow $ppWorkflow, array $exportResult, int $revision): void
+    {
+        $newFileIds = array_values(array_filter([
+            $exportResult['pdf_file_id'],
+            $exportResult['excel_file_id'],
+        ]));
+
+        if (empty($newFileIds)) {
+            return;
+        }
+
+        $history = $ppWorkflow->history ?? [];
+
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (
+                ($history[$i]['step'] ?? '') === 'PP06'
+                && ($history[$i]['action'] ?? '') === 'completed'
+                && ($history[$i]['revision'] ?? null) === $revision
+            ) {
+                $existing = $history[$i]['files'] ?? [];
+                $history[$i]['files'] = array_values(array_unique(array_merge($existing, $newFileIds)));
+                break;
+            }
+        }
+
+        $ppWorkflow->update(['history' => $history]);
+    }
+
+    /**
+     * Resolve the latest submitter info for each given step from workflow history.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @param  list<string>  $steps
+     * @return array<string, array{name: string, role: string|null, team: string|null, at: string}>
+     */
+    private function resolveStepSubmitters(array $history, array $steps): array
+    {
+        $submitters = [];
+
+        foreach ($history as $entry) {
+            $step = $entry['step'] ?? '';
+            $action = $entry['action'] ?? '';
+
+            if ($action === 'submitted' && in_array($step, $steps, true)) {
+                $submitters[$step] = [
+                    'by' => $entry['by'] ?? null,
+                    'role' => $entry['role'] ?? null,
+                    'team' => $entry['team'] ?? null,
+                    'at' => $entry['at'] ?? null,
+                ];
+            }
+        }
+
+        // Batch resolve names
+        $userIds = array_filter(array_column($submitters, 'by'));
+        $roleIds = array_filter(array_column($submitters, 'role'));
+        $teamIds = array_filter(array_column($submitters, 'team'));
+
+        $users = ! empty($userIds) ? \App\Models\User::withTrashed()->whereIn('id', $userIds)->pluck('name', 'id') : collect();
+        $roles = ! empty($roleIds) ? Role::withTrashed()->whereIn('id', $roleIds)->pluck('name', 'id') : collect();
+        $teams = ! empty($teamIds) ? \App\Models\Team::withTrashed()->whereIn('id', $teamIds)->pluck('name', 'id') : collect();
+
+        $result = [];
+
+        foreach ($submitters as $step => $data) {
+            $result[$step] = [
+                'name' => $data['by'] ? ($users[$data['by']] ?? 'Unknown') : 'System',
+                'role' => $data['role'] ? ($roles[$data['role']] ?? null) : null,
+                'team' => $data['team'] ? ($teams[$data['team']] ?? null) : null,
+                'at' => $data['at'] ? \Carbon\Carbon::parse($data['at'])->timezone('Asia/Jakarta')->format('d/m/Y H:i').' WIB' : '-',
+            ];
+        }
+
+        return $result;
     }
 
     private function resolveSessionRoleName(): string

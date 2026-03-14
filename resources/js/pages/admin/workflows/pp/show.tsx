@@ -1,5 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { useState } from 'react';
+import { Download } from 'lucide-react';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
@@ -55,6 +56,7 @@ type Props = {
     canRevise: boolean;
     canDelete: boolean;
     canComment: boolean;
+    canExportZip: boolean;
     activeRoleName: string | null;
 };
 
@@ -62,7 +64,7 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID').format(value);
 }
 
-export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate, canRevise, canDelete, canComment, activeRoleName }: Props) {
+export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate, canRevise, canDelete, canComment, canExportZip, activeRoleName }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
@@ -79,13 +81,23 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
                         <Heading title={workflow.label} description="Detail perencanaan periode" />
                         <WorkflowStatusBadge status={workflow.status} />
                     </div>
-                    {dataTerbaru && (
-                        <Button asChild>
-                            <Link href={`/admin/workflows/pp/${workflow.id}/pp06`}>
-                                Lihat Periode Tahunan
-                            </Link>
-                        </Button>
-                    )}
+                    <div className="flex gap-2">
+                        {canExportZip && (
+                            <Button variant="outline" asChild>
+                                <a href={`/admin/workflows/pp/${workflow.id}/pp06/export/zip`}>
+                                    <Download className="mr-1.5 h-4 w-4" />
+                                    Unduh ZIP
+                                </a>
+                            </Button>
+                        )}
+                        {dataTerbaru && (
+                            <Button asChild>
+                                <Link href={`/admin/workflows/pp/${workflow.id}/pp06`}>
+                                    Lihat Periode Tahunan
+                                </Link>
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Informasi */}
@@ -211,7 +223,7 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
                             {canRevise && (
                                 <Button
                                     variant="secondary"
-                                    onClick={() => router.visit(`/admin/workflows/pp/${workflow.id}/pp07`)}
+                                    onClick={() => router.post(`/admin/workflows/pp/${workflow.id}/pp07/create`)}
                                 >
                                     Revisi
                                 </Button>

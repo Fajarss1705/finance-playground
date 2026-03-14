@@ -71,10 +71,10 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
     const [tahun, setTahun] = useState<number | string>(stepData.tahun ?? '');
     const [tanggalMulai, setTanggalMulai] = useState(stepData.tanggal_mulai_pra_raker ?? '');
     const [tanggalPenetapan, setTanggalPenetapan] = useState(stepData.tanggal_penetapan_program ?? '');
-    const [kodeBidang, setKodeBidang] = useState<KodeItem[]>(stepData.kode_bidang_pelayanan.length > 0 ? stepData.kode_bidang_pelayanan : [{ kode: 'B01', nama: '', catatan: '' }]);
-    const [kodeSubBidang, setKodeSubBidang] = useState<KodeItem[]>(stepData.kode_sub_bidang_pelayanan.length > 0 ? stepData.kode_sub_bidang_pelayanan : [{ kode: 'SB01', nama: '', catatan: '' }]);
-    const [kodeKategori, setKodeKategori] = useState<KodeItem[]>(stepData.kode_kategori_pelayanan.length > 0 ? stepData.kode_kategori_pelayanan : [{ kode: 'K01', nama: '', catatan: '' }]);
-    const [kodeJenis, setKodeJenis] = useState<KodeItem[]>(stepData.kode_jenis_program.length > 0 ? stepData.kode_jenis_program : [{ kode: 'J01', nama: '', catatan: '' }]);
+    const [kodeBidang, setKodeBidang] = useState<KodeItem[]>(stepData.kode_bidang_pelayanan.length > 0 ? stepData.kode_bidang_pelayanan : [{ kode: 'B01', nama: 'B01', catatan: '' }]);
+    const [kodeSubBidang, setKodeSubBidang] = useState<KodeItem[]>(stepData.kode_sub_bidang_pelayanan.length > 0 ? stepData.kode_sub_bidang_pelayanan : [{ kode: 'SB01', nama: 'SB01', catatan: '' }]);
+    const [kodeKategori, setKodeKategori] = useState<KodeItem[]>(stepData.kode_kategori_pelayanan.length > 0 ? stepData.kode_kategori_pelayanan : [{ kode: 'K01', nama: 'K01', catatan: '' }]);
+    const [kodeJenis, setKodeJenis] = useState<KodeItem[]>(stepData.kode_jenis_program.length > 0 ? stepData.kode_jenis_program : [{ kode: 'J01', nama: 'J01', catatan: '' }]);
 
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
     const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
@@ -348,7 +348,8 @@ function KodeTable({
     kodePrefix: string;
 }) {
     function addRow() {
-        onChange([...items, { kode: nextKode(kodePrefix, items), nama: '', catatan: '' }]);
+        const kode = nextKode(kodePrefix, items);
+        onChange([...items, { kode, nama: kode, catatan: '' }]);
     }
 
     function removeRow(index: number) {
