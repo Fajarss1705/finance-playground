@@ -13,6 +13,8 @@ import HistoryCommentSection from '@/components/workflow/history-comment-section
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
+import ActionRolesSection from '@/components/workflow/action-roles-section';
+import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
@@ -57,9 +59,11 @@ type Props = {
     canTerminate: boolean;
     canComment: boolean;
     isRejectionReentry: boolean;
+    actionRoles: ActionRole[];
+    activeRoleName: string | null;
 };
 
-export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry }: Props) {
+export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
 
@@ -126,6 +130,12 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <StepStatusBadge mode={mode} />
                 </div>
 
+                {mode === 'readonly' && (
+                    <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-700 dark:bg-green-950 dark:text-green-200">
+                        Step ini sudah selesai disubmit. Data hanya dapat dilihat.
+                    </div>
+                )}
+
                 {isPermissionLocked && (
                     <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
                         Anda hanya dapat melihat data pada step ini.
@@ -140,6 +150,8 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 {errors.submit && <AlertError errors={[errors.submit]} title="Gagal submit" />}
                 {errors.tahun && <AlertError errors={[errors.tahun]} title="Validasi gagal" />}
+
+                <ActionRolesSection items={actionRoles} activeRoleName={activeRoleName} />
 
                 <HistoryCommentSection
                     entries={workflow.history}

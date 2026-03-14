@@ -20,6 +20,7 @@ use App\Http\Requests\Admin\Workflows\Pp07SubmitRequest;
 use App\Http\Requests\Admin\Workflows\PpCommentRequest;
 use App\Http\Requests\Admin\Workflows\PpTerminateRequest;
 use App\Models\File;
+use App\Models\Permission;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp02Data;
 use App\Models\Pp\Pp03Data;
@@ -218,6 +219,16 @@ class PpWorkflowController extends Controller
             return null;
         });
 
+        // Inject step roles into stepper for tooltips
+        $stepRoleMap = $this->resolveStepRoles();
+
+        foreach ($stepperCycles as &$cycle) {
+            foreach ($cycle['steps'] as &$step) {
+                $step['roles'] = $stepRoleMap[$step['code']] ?? [];
+            }
+        }
+        unset($cycle, $step);
+
         // Data Terbaru from PP06
         $dataTerbaru = null;
         if ($pp06) {
@@ -266,6 +277,7 @@ class PpWorkflowController extends Controller
             'canRevise' => $workflowStatus === 'completed' && in_array('admin.workflows.pp.pp07.draft', $permissions),
             'canDelete' => $workflowStatus === 'terminated' && in_array('admin.workflows.pp.destroy', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -299,6 +311,13 @@ class PpWorkflowController extends Controller
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP01']['cycle'] > 1 && $statuses['PP01']['status'] === 'active',
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pp.pp01.draft' => ['Simpan Draft', false],
+                'admin.workflows.pp.pp01.submit' => ['Submit', true],
+                'admin.workflows.pp.comment' => ['Komentar', false],
+                'admin.workflows.pp.terminate' => ['Batalkan Workflow', true],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -406,8 +425,19 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        // Auto-create PP02
+        // Auto-create PP02 (prefill from previous cycle if rejection re-entry)
         $pp02 = Pp02Data::create(['pp_workflow_id' => $ppWorkflow->id]);
+
+        $previousPp02 = $ppWorkflow->pp02Data()
+            ->where('id', '!=', $pp02->id)
+            ->latest('id')
+            ->first();
+
+        if ($previousPp02) {
+            foreach ($previousPp02->itemKuisioner as $item) {
+                $pp02->itemKuisioner()->create($item->only(['kode', 'pertanyaan', 'tipe', 'satuan']));
+            }
+        }
 
         $this->engine->recordAction(
             workflow: $ppWorkflow,
@@ -452,6 +482,13 @@ class PpWorkflowController extends Controller
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP02']['cycle'] > 1 && $statuses['PP02']['status'] === 'active',
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pp.pp02.draft' => ['Simpan Draft', false],
+                'admin.workflows.pp.pp02.submit' => ['Submit', true],
+                'admin.workflows.pp.comment' => ['Komentar', false],
+                'admin.workflows.pp.terminate' => ['Batalkan Workflow', true],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -540,8 +577,22 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        // Auto-create PP03
+        // Auto-create PP03 (prefill from previous cycle if rejection re-entry)
         $pp03 = Pp03Data::create(['pp_workflow_id' => $ppWorkflow->id]);
+
+        $previousPp03 = $ppWorkflow->pp03Data()
+            ->where('id', '!=', $pp03->id)
+            ->latest('id')
+            ->first();
+
+        if ($previousPp03) {
+            foreach ($previousPp03->itemPlafonAnggaran as $item) {
+                $pp03->itemPlafonAnggaran()->create($item->only([
+                    'team_id', 'kode_team', 'plafon_anggaran',
+                    'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan',
+                ]));
+            }
+        }
 
         $this->engine->recordAction(
             workflow: $ppWorkflow,
@@ -589,6 +640,13 @@ class PpWorkflowController extends Controller
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP03']['cycle'] > 1 && $statuses['PP03']['status'] === 'active',
             'teams' => $this->getWorkspaceTeams($ppWorkflow->workspace_id),
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pp.pp03.draft' => ['Simpan Draft', false],
+                'admin.workflows.pp.pp03.submit' => ['Submit', true],
+                'admin.workflows.pp.comment' => ['Komentar', false],
+                'admin.workflows.pp.terminate' => ['Batalkan Workflow', true],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -603,11 +661,18 @@ class PpWorkflowController extends Controller
         $pp03Data->itemPlafonAnggaran()->delete();
 
         foreach ($validated['item_plafon_anggaran'] ?? [] as $item) {
-            if (empty($item['team_id']) || empty($item['kode_team'])) {
+            if (empty($item['kode_team'])) {
                 continue;
             }
 
-            $pp03Data->itemPlafonAnggaran()->create($item);
+            $pp03Data->itemPlafonAnggaran()->create([
+                ...$item,
+                'team_id' => ! empty($item['team_id']) ? $item['team_id'] : null,
+                'plafon_anggaran' => $item['plafon_anggaran'] ?? 0,
+                'nama_bank' => $item['nama_bank'] ?? '',
+                'nama_rekening' => $item['nama_rekening'] ?? '',
+                'nomor_rekening' => $item['nomor_rekening'] ?? '',
+            ]);
         }
 
         $pp03Data->touch();
@@ -677,8 +742,19 @@ class PpWorkflowController extends Controller
             files: ! empty($fileIds) ? $fileIds : null,
         );
 
-        // Auto-create PP04
+        // Auto-create PP04 (prefill from previous cycle if rejection re-entry)
         $pp04 = Pp04Data::create(['pp_workflow_id' => $ppWorkflow->id]);
+
+        $previousPp04 = $ppWorkflow->pp04Data()
+            ->where('id', '!=', $pp04->id)
+            ->latest('id')
+            ->first();
+
+        if ($previousPp04) {
+            foreach ($previousPp04->itemDokumen as $item) {
+                $pp04->itemDokumen()->create(['file_id' => $item->file_id]);
+            }
+        }
 
         $this->engine->recordAction(
             workflow: $ppWorkflow,
@@ -712,16 +788,6 @@ class PpWorkflowController extends Controller
 
         $pp04Data->load('itemDokumen.file');
 
-        // Get workspace files for the file picker (only user's files not yet attached)
-        $attachedFileIds = $pp04Data->itemDokumen->pluck('file_id')->toArray();
-        $workspaceFiles = $isEditable ? File::query()
-            ->where('workspace_id', $ppWorkflow->workspace_id)
-            ->whereNotIn('id', $attachedFileIds)
-            ->whereNull('deleted_at')
-            ->orderByDesc('created_at')
-            ->get(['id', 'original_filename', 'mime_type', 'size'])
-            ->toArray() : [];
-
         return Inertia::render('admin/workflows/pp/pp04', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'stepData' => [
@@ -735,7 +801,13 @@ class PpWorkflowController extends Controller
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'isRejectionReentry' => $statuses['PP04']['cycle'] > 1 && $statuses['PP04']['status'] === 'active',
-            'workspaceFiles' => $workspaceFiles,
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pp.pp04.draft' => ['Simpan Draft', false],
+                'admin.workflows.pp.pp04.submit' => ['Submit', true],
+                'admin.workflows.pp.comment' => ['Komentar', false],
+                'admin.workflows.pp.terminate' => ['Batalkan Workflow', true],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -747,18 +819,31 @@ class PpWorkflowController extends Controller
 
         $this->checkOptimisticLock($pp04Data, $validated['expected_updated_at']);
 
-        // Sync attached files
-        $attachFileIds = $validated['attach_file_ids'] ?? [];
+        $sessionContext = $this->getSessionContext();
+
+        // Upload new dokumen files
+        $newFileIds = $this->commentService->storeFiles(
+            $request->file('dokumen_files', []),
+            $pp04Data,
+            'pp.pp04.dokumen',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        // Keep existing + new uploaded file IDs
+        $keepFileIds = $validated['keep_file_ids'] ?? [];
+        $allFileIds = array_merge($keepFileIds, $newFileIds);
+
         $pp04Data->itemDokumen()->delete();
 
-        foreach ($attachFileIds as $fileId) {
+        foreach ($allFileIds as $fileId) {
             $pp04Data->itemDokumen()->create(['file_id' => $fileId]);
         }
 
         $pp04Data->touch();
 
-        $sessionContext = $this->getSessionContext();
-        $fileIds = $this->commentService->storeFiles(
+        // Comment attachment files (separate from dokumen files)
+        $commentFileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $pp04Data,
             'pp.pp04.draft',
@@ -775,7 +860,7 @@ class PpWorkflowController extends Controller
             table: 'pp04_data',
             dataId: $pp04Data->id,
             notes: $validated['notes'] ?? null,
-            files: ! empty($fileIds) ? $fileIds : null,
+            files: ! empty($commentFileIds) ? $commentFileIds : null,
         );
 
         return to_route('admin.workflows.pp.show', $ppWorkflow)->with('success', 'Draft PP04 berhasil disimpan.');
@@ -793,23 +878,36 @@ class PpWorkflowController extends Controller
 
         $this->checkOptimisticLock($pp04Data, $validated['expected_updated_at']);
 
-        // Sync attached files
-        $attachFileIds = $validated['attach_file_ids'] ?? [];
+        $sessionContext = $this->getSessionContext();
+
+        // Upload new dokumen files
+        $newFileIds = $this->commentService->storeFiles(
+            $request->file('dokumen_files', []),
+            $pp04Data,
+            'pp.pp04.dokumen',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        // Keep existing + new uploaded file IDs
+        $keepFileIds = $validated['keep_file_ids'] ?? [];
+        $allFileIds = array_merge($keepFileIds, $newFileIds);
+
         $pp04Data->itemDokumen()->delete();
 
-        foreach ($attachFileIds as $fileId) {
+        foreach ($allFileIds as $fileId) {
             $pp04Data->itemDokumen()->create(['file_id' => $fileId]);
         }
 
         // Set is_workspace_public = true on all attached files
-        if (! empty($attachFileIds)) {
-            File::whereIn('id', $attachFileIds)->update(['is_workspace_public' => true]);
+        if (! empty($allFileIds)) {
+            File::whereIn('id', $allFileIds)->update(['is_workspace_public' => true]);
         }
 
         $pp04Data->touch();
 
-        $sessionContext = $this->getSessionContext();
-        $fileIds = $this->commentService->storeFiles(
+        // Comment attachment files (separate from dokumen files)
+        $commentFileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $pp04Data,
             'pp.pp04.submit',
@@ -826,7 +924,16 @@ class PpWorkflowController extends Controller
             table: 'pp04_data',
             dataId: $pp04Data->id,
             notes: $validated['notes'] ?? null,
-            files: ! empty($fileIds) ? $fileIds : null,
+            files: ! empty($commentFileIds) ? $commentFileIds : null,
+        );
+
+        // Record PP05 activation in history (stateless approval step)
+        $this->engine->recordAction(
+            workflow: $ppWorkflow,
+            step: 'PP05',
+            action: 'created',
+            userId: null,
+            sessionContext: [],
         );
 
         $this->notifier->notify($ppWorkflow, 'pp04.submitted', [
@@ -871,10 +978,18 @@ class PpWorkflowController extends Controller
                 'pp03' => $pp03,
                 'pp04' => $pp04,
             ],
+            'stepStatus' => $statuses['PP05']['status'],
             'canApprove' => $isActive && in_array('admin.workflows.pp.pp05.approve', $permissions),
             'canReject' => $isActive && in_array('admin.workflows.pp.pp05.reject', $permissions),
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pp.pp05.approve' => ['Setujui', true],
+                'admin.workflows.pp.pp05.reject' => ['Tolak', true],
+                'admin.workflows.pp.comment' => ['Komentar', false],
+                'admin.workflows.pp.terminate' => ['Batalkan Workflow', true],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -1152,6 +1267,12 @@ class PpWorkflowController extends Controller
             'canSubmit' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.submit', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
             'teams' => $this->getWorkspaceTeams($ppWorkflow->workspace_id),
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pp.pp07.draft' => ['Simpan Draft', false],
+                'admin.workflows.pp.pp07.submit' => ['Submit Revisi', true],
+                'admin.workflows.pp.comment' => ['Komentar', false],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
         ]);
     }
 
@@ -1504,6 +1625,109 @@ class PpWorkflowController extends Controller
         }
 
         return \App\Models\Role::find($roleId)?->name ?? 'Unknown';
+    }
+
+    /**
+     * Resolve action-role mapping for a step's permissions.
+     *
+     * @param  array<string, array{string, bool}>  $permissionLabels  ['permission.name' => ['Label', highlight]]
+     * @return list<array{action: string, label: string, roles: list<array{name: string, users: list<string>}>, highlight: bool}>
+     */
+    private function resolveActionRoles(array $permissionLabels): array
+    {
+        $permissions = Permission::whereIn('name', array_keys($permissionLabels))
+            ->with(['roles.team', 'roles.users'])
+            ->get()
+            ->keyBy('name');
+
+        $result = [];
+
+        foreach ($permissionLabels as $permName => [$label, $highlight]) {
+            $perm = $permissions->get($permName);
+            $roles = [];
+
+            if ($perm) {
+                foreach ($perm->roles->sortBy(fn (Role $r) => $r->team ? "{$r->name} ({$r->team->name})" : $r->name) as $role) {
+                    $roles[] = [
+                        'name' => $role->team ? "{$role->name} ({$role->team->name})" : $role->name,
+                        'users' => $role->users->pluck('name')->sort()->values()->all(),
+                    ];
+                }
+            }
+
+            $result[] = [
+                'action' => $permName,
+                'label' => $label,
+                'roles' => $roles,
+                'highlight' => $highlight,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get the active role's formatted name (with team) for frontend highlighting.
+     */
+    private function getActiveRoleName(): ?string
+    {
+        $roleId = $this->session->getActiveRoleId();
+        if (! $roleId) {
+            return null;
+        }
+
+        $role = Role::with('team')->find($roleId);
+
+        return $role
+            ? ($role->team ? "{$role->name} ({$role->team->name})" : $role->name)
+            : null;
+    }
+
+    /**
+     * Resolve which roles are responsible for each PP step's key action.
+     *
+     * @return array<string, list<string>> step code => role names
+     */
+    private function resolveStepRoles(): array
+    {
+        $stepPermissions = [
+            'PP01' => 'admin.workflows.pp.pp01.submit',
+            'PP02' => 'admin.workflows.pp.pp02.submit',
+            'PP03' => 'admin.workflows.pp.pp03.submit',
+            'PP04' => 'admin.workflows.pp.pp04.submit',
+            'PP05' => 'admin.workflows.pp.pp05.approve',
+            'PP06' => null,
+            'PP07' => 'admin.workflows.pp.pp07.submit',
+        ];
+
+        $permNames = array_filter(array_values($stepPermissions));
+        $permissions = Permission::whereIn('name', $permNames)
+            ->with('roles.team')
+            ->get()
+            ->keyBy('name');
+
+        $map = [];
+
+        foreach ($stepPermissions as $step => $permName) {
+            if ($permName === null) {
+                $map[$step] = ['Kompilasi Otomatis'];
+
+                continue;
+            }
+
+            $perm = $permissions->get($permName);
+            $roles = [];
+
+            if ($perm) {
+                foreach ($perm->roles->sortBy(fn (Role $r) => $r->team ? "{$r->name} ({$r->team->name})" : $r->name) as $role) {
+                    $roles[] = $role->team ? "{$role->name} ({$role->team->name})" : $role->name;
+                }
+            }
+
+            $map[$step] = $roles;
+        }
+
+        return $map;
     }
 
     /** @return list<array{id: int, name: string}> */

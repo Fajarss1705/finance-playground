@@ -1,16 +1,19 @@
 import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { ClipboardPaste, Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { RupiahInput } from '@/components/ui/rupiah-input';
 import { Textarea } from '@/components/ui/textarea';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
+import ActionRolesSection from '@/components/workflow/action-roles-section';
+import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
@@ -44,6 +47,8 @@ type Props = {
     canComment: boolean;
     isRejectionReentry: boolean;
     teams: Team[];
+    actionRoles: ActionRole[];
+    activeRoleName: string | null;
 };
 
 function nextKode(prefix: string, existing: { kode_team?: string; kode?: string }[]): string {
@@ -62,7 +67,7 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, teams }: Props) {
+export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, teams, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
@@ -104,11 +109,46 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
         setItems(items.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
+    function handlePaste(e: React.ClipboardEvent) {
+        const text = e.clipboardData.getData('text/plain').trim();
+        if (!text) return;
+
+        const lines = text.split('\n').filter((line) => line.trim());
+        const rows = lines.map((line) => line.split('\t'));
+
+        // Need at least 1 column to treat as tabular data
+        if (rows.length === 0) return;
+
+        e.preventDefault();
+
+        const allItems = [...items];
+        const newItems: PlafonItem[] = rows.map((cols) => {
+            const kode = nextKode('T', allItems);
+            const plafon = parseInt((cols[0] ?? '').replace(/\D/g, ''), 10) || 0;
+            const row: PlafonItem = {
+                kode_team: kode,
+                team_id: 0,
+                plafon_anggaran: plafon,
+                nama_bank: cols[1]?.trim() ?? '',
+                nama_rekening: cols[2]?.trim() ?? '',
+                nomor_rekening: cols[3]?.trim() ?? '',
+                catatan: cols[4]?.trim() ?? '',
+            };
+            allItems.push(row);
+            return row;
+        });
+
+        setItems(allItems);
+    }
+
     function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
         setProcessing(true);
         const url = `/admin/workflows/pp/${workflow.id}/pp03/${stepData.id}/${action}`;
         router.post(url, {
-            item_plafon_anggaran: items,
+            item_plafon_anggaran: items.map((item) => ({
+                ...item,
+                team_id: item.team_id || null,
+            })),
             expected_updated_at: stepData.updated_at,
             notes: notes || undefined,
             ...(files.length > 0 ? { files } : {}),
@@ -135,6 +175,12 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <StepStatusBadge mode={mode} />
                 </div>
 
+                {mode === 'readonly' && (
+                    <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-700 dark:bg-green-950 dark:text-green-200">
+                        Step ini sudah selesai disubmit. Data hanya dapat dilihat.
+                    </div>
+                )}
+
                 {isPermissionLocked && (
                     <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
                         Anda hanya dapat melihat data pada step ini.
@@ -149,6 +195,8 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 {errors.submit && <AlertError errors={[errors.submit]} title="Gagal submit" />}
 
+                <ActionRolesSection items={actionRoles} activeRoleName={activeRoleName} />
+
                 <HistoryCommentSection
                     entries={workflow.history}
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
@@ -160,18 +208,18 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 <SectionCard title="Plafon Anggaran Per Tim">
                     {errors.item_plafon_anggaran && <p className="mb-2 text-xs text-destructive">{errors.item_plafon_anggaran}</p>}
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto" onPaste={!isReadonly ? handlePaste : undefined}>
                         <table className="min-w-300 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
                                     <th className="px-3 py-2 text-left font-medium w-20">Kode Tim <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                    <th className="px-3 py-2 text-left font-medium w-44">Tim <span className="text-destructive">*</span></th>
-                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon Rp <span className="text-destructive">*</span></th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
-                                    <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
-                                    <th className="px-3 py-2 text-left font-medium">Catatan</th>
+                                    <th className="px-3 py-2 text-left font-medium w-56">Tim <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-right font-medium w-44">Plafon Rp <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium w-28">Bank <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium w-48">Nama Rek. <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium w-44">No. Rek. <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium min-w-48">Catatan</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -203,7 +251,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             {errors[`item_plafon_anggaran.${i}.team_id`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.team_id`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            <Input type="number" value={item.plafon_anggaran} onChange={(e) => updateRow(i, 'plafon_anggaran', parseFloat(e.target.value) || 0)} disabled={isReadonly} className="h-8 text-right" min={0} />
+                                            <RupiahInput value={item.plafon_anggaran} onChange={(v) => updateRow(i, 'plafon_anggaran', v)} disabled={isReadonly} className="h-8" min={0} />
                                             {errors[`item_plafon_anggaran.${i}.plafon_anggaran`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.plafon_anggaran`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
@@ -219,7 +267,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             {errors[`item_plafon_anggaran.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`item_plafon_anggaran.${i}.nomor_rekening`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5 align-top">
-                                            <Textarea value={item.catatan ?? ''} onChange={(e) => updateRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8 resize-y" />
+                                            <Textarea value={item.catatan ?? ''} onChange={(e) => updateRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
                                         </td>
                                     </tr>
                                 ))}
@@ -234,10 +282,16 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                         </table>
                     </div>
                     {!isReadonly && (
-                        <Button variant="outline" size="sm" onClick={addRow} className="mt-2">
-                            <Plus className="mr-1 h-3.5 w-3.5" />
-                            Tambah Tim
-                        </Button>
+                        <div className="mt-2 flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={addRow}>
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Tambah Tim
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                                <ClipboardPaste className="mr-1 inline h-3 w-3" />
+                                Bisa paste dari Excel (Plafon | Bank | Nama Rek | No Rek | Catatan) — Tim dipilih manual
+                            </span>
+                        </div>
                     )}
                 </SectionCard>
 

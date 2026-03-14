@@ -1,6 +1,8 @@
 import { Link } from '@inertiajs/react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 type StepStatus = 'completed' | 'active' | 'pending' | 'skipped' | 'rejected';
 
@@ -9,6 +11,7 @@ export type StepperStep = {
     label: string;
     status: StepStatus;
     url: string | null;
+    roles?: string[];
 };
 
 export type StepperCycle = {
@@ -39,7 +42,10 @@ const cycleStatusLabels: Record<string, string> = {
     completed: 'selesai',
 };
 
-function StepDot({ step, index }: { step: StepperStep; index: number }) {
+function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: number; activeRoleName?: string | null }) {
+    const roles = step.roles ?? [];
+    const hasAccess = activeRoleName ? roles.includes(activeRoleName) : false;
+
     const dot = (
         <div
             className={cn(
@@ -48,7 +54,6 @@ function StepDot({ step, index }: { step: StepperStep; index: number }) {
                 step.status === 'active' && 'animate-pulse',
                 step.url && 'cursor-pointer hover:opacity-80',
             )}
-            title={`${step.code}: ${step.label}`}
         >
             {step.status === 'completed' ? (
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -68,12 +73,42 @@ function StepDot({ step, index }: { step: StepperStep; index: number }) {
         </div>
     );
 
+    const wrappedDot = step.url ? <Link href={step.url}>{dot}</Link> : dot;
+
     return (
         <div className="flex flex-col items-center gap-1">
-            {step.url ? (
-                <Link href={step.url}>{dot}</Link>
+            {roles.length > 0 ? (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span>{wrappedDot}</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                        <div className="space-y-1">
+                            <div className="font-medium">{step.code}: {step.label}</div>
+                            <div className="flex flex-wrap gap-1">
+                                {roles.map((role) => (
+                                    <Badge
+                                        key={role}
+                                        variant="secondary"
+                                        className={cn(
+                                            'text-[10px]',
+                                            activeRoleName && role === activeRoleName
+                                                ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300 dark:bg-blue-900 dark:text-blue-200 dark:ring-blue-700'
+                                                : '',
+                                        )}
+                                    >
+                                        {role}
+                                    </Badge>
+                                ))}
+                            </div>
+                            {activeRoleName && !hasAccess && (
+                                <div className="text-[10px] italic text-amber-300">Anda tidak punya akses di step ini</div>
+                            )}
+                        </div>
+                    </TooltipContent>
+                </Tooltip>
             ) : (
-                dot
+                wrappedDot
             )}
             <span className={cn(
                 'max-w-16 text-center text-[10px] leading-tight text-muted-foreground',
@@ -85,12 +120,12 @@ function StepDot({ step, index }: { step: StepperStep; index: number }) {
     );
 }
 
-function StepRow({ steps }: { steps: StepperStep[] }) {
+function StepRow({ steps, activeRoleName }: { steps: StepperStep[]; activeRoleName?: string | null }) {
     return (
         <div className="flex items-center gap-0 overflow-x-auto pb-1">
             {steps.map((step, i) => (
                 <div key={`${step.code}-${i}`} className="flex items-center">
-                    <StepDot step={step} index={i} />
+                    <StepDot step={step} index={i} activeRoleName={activeRoleName} />
                     {i < steps.length - 1 && (
                         <div className={cn('mx-1 -mt-4.5 h-0.5 w-6 shrink-0', lineColors[step.status])} />
                     )}
@@ -100,11 +135,11 @@ function StepRow({ steps }: { steps: StepperStep[] }) {
     );
 }
 
-export default function StepProgress({ cycles }: { cycles: StepperCycle[] }) {
+export default function StepProgress({ cycles, activeRoleName }: { cycles: StepperCycle[]; activeRoleName?: string | null }) {
     const isSingleCycle = cycles.length === 1;
 
     if (isSingleCycle) {
-        return <StepRow steps={cycles[0].steps} />;
+        return <StepRow steps={cycles[0].steps} activeRoleName={activeRoleName} />;
     }
 
     return (
@@ -117,6 +152,7 @@ export default function StepProgress({ cycles }: { cycles: StepperCycle[] }) {
                         cycle={cycle}
                         defaultExpanded={isLatest}
                         collapsible={!isLatest}
+                        activeRoleName={activeRoleName}
                     />
                 );
             })}
@@ -124,7 +160,7 @@ export default function StepProgress({ cycles }: { cycles: StepperCycle[] }) {
     );
 }
 
-function CycleRow({ cycle, defaultExpanded, collapsible }: { cycle: StepperCycle; defaultExpanded: boolean; collapsible: boolean }) {
+function CycleRow({ cycle, defaultExpanded, collapsible, activeRoleName }: { cycle: StepperCycle; defaultExpanded: boolean; collapsible: boolean; activeRoleName?: string | null }) {
     const [expanded, setExpanded] = useState(defaultExpanded);
     const label = `Pengisian ke-${cycle.number} (${cycleStatusLabels[cycle.status] ?? cycle.status})`;
 
@@ -132,7 +168,7 @@ function CycleRow({ cycle, defaultExpanded, collapsible }: { cycle: StepperCycle
         return (
             <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
-                <StepRow steps={cycle.steps} />
+                <StepRow steps={cycle.steps} activeRoleName={activeRoleName} />
             </div>
         );
     }
@@ -155,7 +191,7 @@ function CycleRow({ cycle, defaultExpanded, collapsible }: { cycle: StepperCycle
                 </svg>
                 {label}
             </button>
-            {expanded && <StepRow steps={cycle.steps} />}
+            {expanded && <StepRow steps={cycle.steps} activeRoleName={activeRoleName} />}
         </div>
     );
 }

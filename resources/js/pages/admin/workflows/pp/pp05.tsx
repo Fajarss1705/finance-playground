@@ -1,5 +1,6 @@
 import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
+import { Download } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +9,8 @@ import HistoryCommentSection from '@/components/workflow/history-comment-section
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
+import ActionRolesSection from '@/components/workflow/action-roles-section';
+import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 
@@ -27,7 +30,7 @@ type ReviewData = {
     } | null;
     pp02: { item_kuisioner: KuisionerItem[] } | null;
     pp03: { item_plafon_anggaran: PlafonItem[] } | null;
-    pp04: { item_dokumen: { file: { original_filename: string } }[] } | null;
+    pp04: { item_dokumen: { file: { uuid: string; original_filename: string } }[] } | null;
 };
 
 type Workflow = { id: number; label: string; history: HistoryEntry[] };
@@ -35,17 +38,20 @@ type Workflow = { id: number; label: string; history: HistoryEntry[] };
 type Props = {
     workflow: Workflow;
     reviewData: ReviewData;
+    stepStatus: string;
     canApprove: boolean;
     canReject: boolean;
     canTerminate: boolean;
     canComment: boolean;
+    actionRoles: ActionRole[];
+    activeRoleName: string | null;
 };
 
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp05({ workflow, reviewData, canApprove, canReject, canTerminate, canComment }: Props) {
+export default function Pp05({ workflow, reviewData, stepStatus, canApprove, canReject, canTerminate, canComment, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const isActive = canApprove || canReject;
 
@@ -70,12 +76,14 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
             <div className="space-y-6 p-6">
                 <div className="flex items-center gap-3">
                     <Heading title="PP05: Persetujuan" description="Review dan setujui / tolak perencanaan periode" />
-                    <ApprovalStatusBadge isActive={isActive} />
+                    <ApprovalStatusBadge stepStatus={stepStatus} />
                 </div>
 
                 {(errors.approve || errors.reject) && (
                     <AlertError errors={[errors.approve || errors.reject]} title="Gagal" />
                 )}
+
+                <ActionRolesSection items={actionRoles} activeRoleName={activeRoleName} />
 
                 <HistoryCommentSection
                     entries={workflow.history}
@@ -151,7 +159,7 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                                         <tr key={i} className="border-b last:border-0">
                                             <td className="px-3 py-2 font-mono text-xs">{item.kode_team}</td>
                                             <td className="px-3 py-2">{item.team?.name ?? `Tim #${item.team_id}`}</td>
-                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(item.plafon_anggaran)}</td>
+                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(Number(item.plafon_anggaran))}</td>
                                             <td className="px-3 py-2">{item.nama_bank}</td>
                                             <td className="px-3 py-2">{item.nama_rekening}</td>
                                             <td className="px-3 py-2">{item.nomor_rekening}</td>
@@ -162,7 +170,7 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                                     <tr className="border-t bg-muted/30 font-medium">
                                         <td className="px-3 py-2" colSpan={2}>Total Plafon</td>
                                         <td className="px-3 py-2 text-right tabular-nums">
-                                            {formatRupiah(reviewData.pp03.item_plafon_anggaran.reduce((sum, item) => sum + item.plafon_anggaran, 0))}
+                                            {formatRupiah(reviewData.pp03.item_plafon_anggaran.reduce((sum, item) => sum + Number(item.plafon_anggaran), 0))}
                                         </td>
                                         <td colSpan={3} />
                                     </tr>
@@ -178,11 +186,16 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
                         {reviewData.pp04.item_dokumen.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Tidak ada dokumen dilampirkan.</p>
                         ) : (
-                            <ul className="space-y-1 text-sm">
+                            <ul className="space-y-1.5 text-sm">
                                 {reviewData.pp04.item_dokumen.map((dok, i) => (
-                                    <li key={i} className="flex items-center gap-2">
-                                        <Badge variant="outline" className="text-xs">File</Badge>
-                                        {dok.file.original_filename}
+                                    <li key={i}>
+                                        <a
+                                            href={`/files/${dok.file.uuid}/download`}
+                                            className="inline-flex items-center gap-1.5 rounded border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs text-blue-700 underline decoration-blue-300 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                                        >
+                                            <Download className="h-3 w-3 shrink-0" />
+                                            {dok.file.original_filename}
+                                        </a>
                                     </li>
                                 ))}
                             </ul>
@@ -209,11 +222,14 @@ export default function Pp05({ workflow, reviewData, canApprove, canReject, canT
     );
 }
 
-function ApprovalStatusBadge({ isActive }: { isActive: boolean }) {
-    if (isActive) {
+function ApprovalStatusBadge({ stepStatus }: { stepStatus: string }) {
+    if (stepStatus === 'active') {
         return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">Menunggu Keputusan</Badge>;
     }
-    return <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Sudah Diputuskan</Badge>;
+    if (stepStatus === 'completed') {
+        return <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Sudah Diputuskan</Badge>;
+    }
+    return <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">Belum Aktif</Badge>;
 }
 
 function ApproveButton({ workflowId }: { workflowId: number }) {

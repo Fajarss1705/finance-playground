@@ -55,13 +55,14 @@ type Props = {
     canRevise: boolean;
     canDelete: boolean;
     canComment: boolean;
+    activeRoleName: string | null;
 };
 
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID').format(value);
 }
 
-export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate, canRevise, canDelete, canComment }: Props) {
+export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate, canRevise, canDelete, canComment, activeRoleName }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Manajemen', href: '/admin' },
         { title: 'Perencanaan Periode', href: '/admin/workflows/pp' },
@@ -121,7 +122,7 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
                 {/* Progress Step */}
                 <div className="rounded-lg border p-4">
                     <h3 className="mb-3 text-sm font-medium">Progress Step</h3>
-                    <StepProgress cycles={workflow.stepper_cycles} />
+                    <StepProgress cycles={workflow.stepper_cycles} activeRoleName={activeRoleName} />
                 </div>
 
                 {/* Data Terbaru */}

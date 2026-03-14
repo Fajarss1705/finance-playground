@@ -7,8 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DateInput } from '@/components/ui/date-input';
 import { Input } from '@/components/ui/input';
+import { RupiahInput } from '@/components/ui/rupiah-input';
 import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
+import ActionRolesSection from '@/components/workflow/action-roles-section';
+import type { ActionRole } from '@/components/workflow/action-roles-section';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -59,6 +62,8 @@ type Props = {
     canSubmit: boolean;
     canComment: boolean;
     teams: Team[];
+    actionRoles: ActionRole[];
+    activeRoleName: string | null;
 };
 
 const tipePresets = ['Kualitatif', 'Kuantitatif'];
@@ -86,7 +91,7 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams }: Props) {
+export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
@@ -215,6 +220,12 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <StepStatusBadge mode={mode} />
                 </div>
 
+                {mode === 'readonly' && (
+                    <div className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-700 dark:bg-green-950 dark:text-green-200">
+                        Step ini sudah selesai disubmit. Data hanya dapat dilihat.
+                    </div>
+                )}
+
                 {isPermissionLocked && (
                     <div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
                         Anda hanya dapat melihat data pada step ini.
@@ -224,6 +235,8 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                 {Object.keys(errors).length > 0 && (
                     <AlertError errors={Object.values(errors)} title="Validasi gagal" />
                 )}
+
+                <ActionRolesSection items={actionRoles} activeRoleName={activeRoleName} />
 
                 <HistoryCommentSection
                     entries={workflow.history}
@@ -302,7 +315,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                 <Input value={item.nama} onChange={(e) => updateKodeRow(field, i, 'nama', e.target.value)} disabled={isReadonly} className="h-8" />
                                             </td>
                                             <td className="px-3 py-1.5 align-top">
-                                                <Textarea value={item.catatan ?? ''} onChange={(e) => updateKodeRow(field, i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8 resize-y" />
+                                                <Textarea value={item.catatan ?? ''} onChange={(e) => updateKodeRow(field, i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
                                             </td>
                                         </tr>
                                     ))}
@@ -395,11 +408,11 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 <tr className="border-b bg-muted/50">
                                     <th className="px-3 py-2 text-left font-medium w-20">Kode Tim <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
-                                    <th className="px-3 py-2 text-left font-medium w-44">Tim <span className="text-destructive">*</span></th>
-                                    <th className="px-3 py-2 text-right font-medium w-36">Plafon <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium w-56">Tim <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-right font-medium w-44">Plafon <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
-                                    <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
+                                    <th className="px-3 py-2 text-left font-medium w-48">Nama Rek.</th>
+                                    <th className="px-3 py-2 text-left font-medium w-44">No. Rek.</th>
                                     <th className="px-3 py-2 text-left font-medium">Catatan</th>
                                 </tr>
                             </thead>
@@ -430,7 +443,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             </select>
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            <Input type="number" value={item.plafon_anggaran} onChange={(e) => updatePlafonRow(i, 'plafon_anggaran', parseFloat(e.target.value) || 0)} disabled={isReadonly} className="h-8 text-right" min={0} />
+                                            <RupiahInput value={item.plafon_anggaran} onChange={(v) => updatePlafonRow(i, 'plafon_anggaran', v)} disabled={isReadonly} className="h-8" min={0} />
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <Input value={item.nama_bank} onChange={(e) => updatePlafonRow(i, 'nama_bank', e.target.value)} disabled={isReadonly} className="h-8" />
@@ -442,7 +455,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             <Input value={item.nomor_rekening} onChange={(e) => updatePlafonRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
                                         </td>
                                         <td className="px-3 py-1.5 align-top">
-                                            <Textarea value={item.catatan ?? ''} onChange={(e) => updatePlafonRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8 resize-y" />
+                                            <Textarea value={item.catatan ?? ''} onChange={(e) => updatePlafonRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
                                         </td>
                                     </tr>
                                 ))}
