@@ -178,7 +178,7 @@ test('PP06 completed makes PP07 active', function () {
     $statuses = $this->engine->getStepStatuses($this->definition, $history);
 
     expect($statuses['PP06']['status'])->toBe('completed')
-        ->and($statuses['PP07']['status'])->toBe('active');
+        ->and($statuses['PP07']['status'])->toBe('pending');
 });
 
 // --- Rejection Cycle ---
@@ -313,17 +313,18 @@ test('stepper: no history returns single cycle with first step active', function
 
     $cycles = $this->engine->getStepperData($this->definition, $history, stubUrlResolver());
 
+    // Stepper excludes PP07 (Revision type) — it appears in separate revision cycles
     expect($cycles)->toHaveCount(1)
         ->and($cycles[0]['number'])->toBe(1)
         ->and($cycles[0]['status'])->toBe('active')
-        ->and($cycles[0]['steps'])->toHaveCount(7)
+        ->and($cycles[0]['steps'])->toHaveCount(6)
         ->and($cycles[0]['steps'][0]['code'])->toBe('PP01')
         ->and($cycles[0]['steps'][0]['status'])->toBe('active')
         ->and($cycles[0]['steps'][0]['url'])->toBe('/pp/PP01/1')
         ->and($cycles[0]['steps'][1]['status'])->toBe('pending')
         ->and($cycles[0]['steps'][1]['url'])->toBeNull()
-        ->and($cycles[0]['steps'][6]['code'])->toBe('PP07')
-        ->and($cycles[0]['steps'][6]['status'])->toBe('pending');
+        ->and($cycles[0]['steps'][5]['code'])->toBe('PP06')
+        ->and($cycles[0]['steps'][5]['status'])->toBe('pending');
 });
 
 test('stepper: linear progress returns single cycle with correct statuses', function () {
@@ -382,10 +383,10 @@ test('stepper: single rejection creates 2 cycles', function () {
         ->and($cycles[0]['steps'][4]['status'])->toBe('rejected')
         ->and($cycles[0]['steps'][4]['url'])->toBe('/pp/PP05');
 
-    // Cycle 2: all 7 steps, active
+    // Cycle 2: 6 steps (PP07 excluded from main cycle), active
     expect($cycles[1]['number'])->toBe(2)
         ->and($cycles[1]['status'])->toBe('active')
-        ->and($cycles[1]['steps'])->toHaveCount(7)
+        ->and($cycles[1]['steps'])->toHaveCount(6)
         ->and($cycles[1]['steps'][0]['code'])->toBe('PP01')
         ->and($cycles[1]['steps'][0]['status'])->toBe('completed')
         ->and($cycles[1]['steps'][0]['url'])->toBe('/pp/PP01/2')
@@ -431,7 +432,7 @@ test('stepper: multiple rejections create N+1 cycles', function () {
         ->and($cycles[1]['steps'][0]['url'])->toBe('/pp/PP01/2')
         ->and($cycles[2]['number'])->toBe(3)
         ->and($cycles[2]['status'])->toBe('active')
-        ->and($cycles[2]['steps'])->toHaveCount(7)
+        ->and($cycles[2]['steps'])->toHaveCount(6)
         ->and($cycles[2]['steps'][0]['url'])->toBe('/pp/PP01/3');
 });
 
@@ -451,12 +452,12 @@ test('stepper: completed workflow returns single cycle with completed status', f
 
     $cycles = $this->engine->getStepperData($this->definition, $history, stubUrlResolver());
 
+    // PP07 excluded from main cycle — stepper shows 6 steps (PP01-PP06)
     expect($cycles)->toHaveCount(1)
         ->and($cycles[0]['status'])->toBe('completed')
+        ->and($cycles[0]['steps'])->toHaveCount(6)
         ->and($cycles[0]['steps'][5]['code'])->toBe('PP06')
-        ->and($cycles[0]['steps'][5]['status'])->toBe('completed')
-        ->and($cycles[0]['steps'][6]['code'])->toBe('PP07')
-        ->and($cycles[0]['steps'][6]['status'])->toBe('active');
+        ->and($cycles[0]['steps'][5]['status'])->toBe('completed');
 });
 
 test('stepper: step labels come from definition', function () {
