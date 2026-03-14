@@ -606,7 +606,6 @@ it('returns 409 when expected_updated_at is stale on PP04 draft', function () {
     $pp04->touch();
 
     $this->post(route('admin.workflows.pp.pp04.draft', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
-        'attach_file_ids' => [],
         'expected_updated_at' => $staleTimestamp,
     ])->assertStatus(409);
 });
@@ -618,16 +617,15 @@ it('submits PP04 with notes and records them in history', function () {
     [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
 
     $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
-        'attach_file_ids' => [],
         'expected_updated_at' => $pp04->updated_at->toIso8601String(),
         'notes' => 'Tidak ada dokumen SOP',
     ])->assertRedirect();
 
     $workflow->refresh();
-    $lastEntry = collect($workflow->history)->last();
-    expect($lastEntry['action'])->toBe('submitted')
-        ->and($lastEntry['step'])->toBe('PP04')
-        ->and($lastEntry['notes'])->toBe('Tidak ada dokumen SOP');
+    // pp04Submit records PP04 submitted + PP05 created, so check second-to-last
+    $pp04Entry = collect($workflow->history)->last(fn ($e) => $e['step'] === 'PP04' && $e['action'] === 'submitted');
+    expect($pp04Entry)->not->toBeNull();
+    expect($pp04Entry['notes'])->toBe('Tidak ada dokumen SOP');
 });
 
 it('submits PP04 with 0 files successfully', function () {
@@ -637,7 +635,6 @@ it('submits PP04 with 0 files successfully', function () {
     [$workflow, $pp04] = setupPp04Workflow($user, $role, $workspace);
 
     $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
-        'attach_file_ids' => [],
         'expected_updated_at' => $pp04->updated_at->toIso8601String(),
     ])->assertRedirect();
 
@@ -657,7 +654,7 @@ it('sets is_workspace_public on attached files when PP04 is submitted', function
     ]);
 
     $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
-        'attach_file_ids' => [$file->id],
+        'keep_file_ids' => [$file->id],
         'expected_updated_at' => $pp04->updated_at->toIso8601String(),
     ])->assertRedirect();
 
@@ -678,7 +675,7 @@ it('drafts PP04 with file attachments and records history', function () {
     ]);
 
     $this->post(route('admin.workflows.pp.pp04.draft', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
-        'attach_file_ids' => [$file->id],
+        'keep_file_ids' => [$file->id],
         'expected_updated_at' => $pp04->updated_at->toIso8601String(),
         'notes' => 'Draft awal',
     ])->assertRedirect();
