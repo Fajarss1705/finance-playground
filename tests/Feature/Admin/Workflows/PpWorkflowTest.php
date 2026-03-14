@@ -1875,3 +1875,147 @@ it('returns 403 when commenting on workflow from different workspace', function 
         'notes' => 'Cross-workspace comment attempt',
     ])->assertStatus(403);
 });
+
+// --- Rejection Notes UX ---
+
+it('passes rejection notes to PP01 after PP05 rejection', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.show',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.show',
+        'admin.workflows.pp.pp05.reject',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    $team = Team::factory()->for($role->team->organization)->create();
+
+    $this->post(route('admin.workflows.pp.create'));
+    $workflow = PpWorkflow::first();
+    $pp01 = Pp01Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $this->post(route('admin.workflows.pp.pp01.submit', ['ppWorkflow' => $workflow, 'pp01Data' => $pp01]), [
+        'tahun' => 2027,
+        'tanggal_mulai_pra_raker' => '2027-01-15',
+        'tanggal_penetapan_program' => '2027-03-01',
+        'kode_bidang_pelayanan' => [['kode' => '01', 'nama' => 'Kegiatan', 'catatan' => null]],
+        'kode_sub_bidang_pelayanan' => [['kode' => '01A', 'nama' => 'Sub', 'catatan' => null]],
+        'kode_kategori_pelayanan' => [['kode' => 'K1', 'nama' => 'Kat', 'catatan' => null]],
+        'kode_jenis_program' => [['kode' => 'R', 'nama' => 'Rutin', 'catatan' => null]],
+        'expected_updated_at' => $pp01->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $workflow->refresh();
+    $pp02 = $workflow->pp02Data()->latest()->first();
+    $this->post(route('admin.workflows.pp.pp02.submit', ['ppWorkflow' => $workflow, 'pp02Data' => $pp02]), [
+        'item_kuisioner' => [['kode' => 'Q1', 'pertanyaan' => 'Test?', 'tipe' => 'Kualitatif', 'satuan' => null]],
+        'expected_updated_at' => $pp02->updated_at->toIso8601String(),
+    ]);
+
+    $workflow->refresh();
+    $pp03 = $workflow->pp03Data()->latest()->first();
+    $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
+        ]],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ]);
+
+    $workflow->refresh();
+    $pp04 = $workflow->pp04Data()->latest()->first();
+    $this->post(route('admin.workflows.pp.pp04.submit', ['ppWorkflow' => $workflow, 'pp04Data' => $pp04]), [
+        'expected_updated_at' => $pp04->updated_at->toIso8601String(),
+    ]);
+
+    // PP05 Reject with notes
+    $workflow->refresh();
+    $this->post(route('admin.workflows.pp.pp05.reject', ['ppWorkflow' => $workflow]), [
+        'notes' => 'Kode bidang perlu ditambah, plafon terlalu rendah',
+    ]);
+
+    // Visit PP01 — should get rejectionNotes prop
+    $workflow->refresh();
+    $newPp01 = $workflow->pp01Data()->latest('id')->first();
+
+    $response = $this->get(route('admin.workflows.pp.pp01.show', ['ppWorkflow' => $workflow, 'pp01Data' => $newPp01]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp01')
+            ->where('isRejectionReentry', true)
+            ->has('rejectionNotes')
+            ->where('rejectionNotes.notes', 'Kode bidang perlu ditambah, plafon terlalu rendah')
+            ->where('rejectionNotes.by', $user->name)
+        );
+});
+
+// --- Anggaran Filter ---
+
+it('filters index by anggaran bracket', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.index');
+    activatePpSession($this, $user, $role, $workspace);
+
+    // Create a workflow with PP06 that has anggaran
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+    $pp06 = \App\Models\Pp\Pp06PeriodeTahunan::create([
+        'pp_workflow_id' => $workflow->id,
+        'revision' => 0,
+        'tahun' => 2027,
+        'tanggal_mulai_pra_raker' => '2026-10-15',
+        'tanggal_penetapan_program' => '2026-11-30',
+        'pp01_created_by_user_name' => 'Test',
+        'pp01_created_by_role_name' => 'Role',
+        'pp01_created_by_organization_name' => 'Org',
+        'pp01_created_by_workspace_name' => 'WS',
+        'pp01_created_at' => now(),
+        'pp02_created_by_user_name' => 'Test',
+        'pp02_created_by_role_name' => 'Role',
+        'pp02_created_by_organization_name' => 'Org',
+        'pp02_created_by_workspace_name' => 'WS',
+        'pp02_created_at' => now(),
+        'pp03_created_by_user_name' => 'Test',
+        'pp03_created_by_role_name' => 'Role',
+        'pp03_created_by_organization_name' => 'Org',
+        'pp03_created_by_workspace_name' => 'WS',
+        'pp03_created_at' => now(),
+        'pp04_created_by_user_name' => 'Test',
+        'pp04_created_by_role_name' => 'Role',
+        'pp04_created_by_organization_name' => 'Org',
+        'pp04_created_by_workspace_name' => 'WS',
+        'pp04_created_at' => now(),
+        'pp05_created_by_user_name' => 'Test',
+        'pp05_created_by_role_name' => 'Role',
+        'pp05_created_by_organization_name' => 'Org',
+        'pp05_created_by_workspace_name' => 'WS',
+        'pp05_created_at' => now(),
+    ]);
+
+    $team = Team::factory()->for($role->team->organization)->create();
+    \App\Models\Pp\Pp06ItemPlafonAnggaran::create([
+        'pp06_periode_tahunan_id' => $pp06->id,
+        'team_id' => $team->id,
+        'kode_team' => 'KA',
+        'plafon_anggaran' => 200000000,
+        'nama_bank' => 'BCA',
+        'nama_rekening' => 'Test',
+        'nomor_rekening' => '123',
+    ]);
+
+    // Filter: 100-500 jt bracket — should include the workflow (200 jt)
+    $response = $this->get('/admin/workflows/pp?anggaran=100-500');
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('workflows.data', 1)
+        );
+
+    // Filter: lt100 bracket — should exclude (200 jt > 100 jt)
+    $response = $this->get('/admin/workflows/pp?anggaran=lt100');
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('workflows.data', 0)
+        );
+});

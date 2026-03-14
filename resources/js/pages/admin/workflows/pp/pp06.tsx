@@ -1,4 +1,5 @@
 import { Head, router } from '@inertiajs/react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,7 @@ type Pp06 = {
     item_kuisioner: KuisionerItem[];
     item_plafon_anggaran: PlafonItem[];
     item_dokumen_sop: DokumenItem[];
+    verification_code: string | null;
 };
 
 type Revision = { id: number; revision: number; tahun: number; created_at: string };
@@ -254,6 +256,22 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                     </p>
                 </SectionCard>
 
+                {/* Kode Verifikasi */}
+                {pp06.verification_code && <VerificationCodeBox code={pp06.verification_code} />}
+
+                {/* Unduh */}
+                <div className="flex gap-2">
+                    <a href={`/admin/workflows/pp/${workflow.id}/pp06/export/pdf?revision=${pp06.revision}`}>
+                        <Button variant="default" size="sm">Unduh PDF</Button>
+                    </a>
+                    <a href={`/admin/workflows/pp/${workflow.id}/pp06/export/excel?revision=${pp06.revision}`}>
+                        <Button variant="secondary" size="sm">Unduh Excel</Button>
+                    </a>
+                    <a href={`/admin/workflows/pp/${workflow.id}/pp06/export/zip`}>
+                        <Button variant="outline" size="sm">Unduh Semua (ZIP)</Button>
+                    </a>
+                </div>
+
                 {/* Aksi */}
                 {canRevise && (
                     <div className="flex gap-2">
@@ -270,6 +288,33 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                 )}
             </div>
         </AppLayout>
+    );
+}
+
+function VerificationCodeBox({ code }: { code: string }) {
+    const [copied, setCopied] = useState(false);
+
+    function handleCopy() {
+        navigator.clipboard.writeText(code);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }
+
+    return (
+        <SectionCard title="Kode Verifikasi">
+            <div className="flex items-center gap-3">
+                <code className="rounded bg-muted px-3 py-1.5 font-mono text-lg tracking-widest">{code}</code>
+                <Button variant="outline" size="sm" onClick={handleCopy}>
+                    {copied ? 'Tersalin!' : 'Salin'}
+                </Button>
+                <a href={`/verify/${code}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">
+                    Verifikasi
+                </a>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+                Kode ini digunakan untuk memverifikasi keaslian dokumen. Data yang berubah akan menghasilkan kode berbeda.
+            </p>
+        </SectionCard>
     );
 }
 

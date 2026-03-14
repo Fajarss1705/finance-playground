@@ -46,6 +46,7 @@ type Props = {
     canTerminate: boolean;
     canComment: boolean;
     isRejectionReentry: boolean;
+    rejectionNotes: { notes: string; by: string | null; at: string | null } | null;
     teams: Team[];
     actionRoles: ActionRole[];
     activeRoleName: string | null;
@@ -67,7 +68,7 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, teams, actionRoles, activeRoleName }: Props) {
+export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, canTerminate, canComment, isRejectionReentry, rejectionNotes, teams, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
@@ -190,7 +191,15 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 {isRejectionReentry && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                        Step ini dikembalikan dari PP05. Data dari pengisian sebelumnya sudah dimuat ulang.
+                        <p className="font-medium">Step ini dikembalikan dari PP05. Data dari pengisian sebelumnya sudah dimuat ulang.</p>
+                        {rejectionNotes && (
+                            <div className="mt-2 rounded border border-amber-200 bg-amber-100/50 px-3 py-2 dark:border-amber-600 dark:bg-amber-900/30">
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    Catatan penolakan{rejectionNotes.by ? ` dari ${rejectionNotes.by}` : ''}:
+                                </p>
+                                <p className="mt-0.5">{rejectionNotes.notes}</p>
+                            </div>
+                        )}
                     </div>
                 )}
 

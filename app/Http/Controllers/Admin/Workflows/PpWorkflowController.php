@@ -68,15 +68,25 @@ class PpWorkflowController extends Controller
         }
 
         $statusFilter = $request->input('status');
+        $anggaranFilter = $request->input('anggaran');
         $userCache = [];
         $roleCache = [];
 
-        // When status filter is active, we must load all then filter (status is computed from JSON history).
+        // When computed filters are active, we must load all then filter (status/anggaran are computed from JSON/relations).
         // PP workflows per workspace are small (a few per year), so this is fine.
-        if ($statusFilter) {
+        if ($statusFilter || $anggaranFilter) {
             $allWorkflows = $query->orderByDesc('created_at')->get();
             $transformed = $allWorkflows->map(fn (PpWorkflow $wf) => $this->transformWorkflowForIndex($wf, $definition, $userCache, $roleCache));
-            $filtered = $transformed->filter(fn ($item) => $item['status'] === $statusFilter)->values();
+
+            if ($statusFilter) {
+                $transformed = $transformed->filter(fn ($item) => $item['status'] === $statusFilter);
+            }
+
+            if ($anggaranFilter) {
+                $transformed = $this->applyAnggaranFilter($transformed, $anggaranFilter);
+            }
+
+            $filtered = $transformed->values();
 
             $page = (int) $request->input('page', 1);
             $perPage = 15;
@@ -112,6 +122,7 @@ class PpWorkflowController extends Controller
             'filters' => [
                 'status' => $request->input('status'),
                 'tahun' => $request->input('tahun'),
+                'anggaran' => $request->input('anggaran'),
                 'trash' => $request->boolean('trash'),
             ],
             'availableTahun' => $availableTahun,
@@ -319,7 +330,8 @@ class PpWorkflowController extends Controller
             'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp01.submit', $permissions),
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
-            'isRejectionReentry' => $statuses['PP01']['cycle'] > 1 && $statuses['PP01']['status'] === 'active',
+            'isRejectionReentry' => $isRejection = $statuses['PP01']['cycle'] > 1 && $statuses['PP01']['status'] === 'active',
+            'rejectionNotes' => $isRejection ? $this->getLatestRejectionNotes($history) : null,
             'actionRoles' => $this->resolveActionRoles([
                 'admin.workflows.pp.pp01.draft' => ['Simpan Draft', false],
                 'admin.workflows.pp.pp01.submit' => ['Submit', true],
@@ -498,7 +510,8 @@ class PpWorkflowController extends Controller
             'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp02.submit', $permissions),
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
-            'isRejectionReentry' => $statuses['PP02']['cycle'] > 1 && $statuses['PP02']['status'] === 'active',
+            'isRejectionReentry' => $isRejection = $statuses['PP02']['cycle'] > 1 && $statuses['PP02']['status'] === 'active',
+            'rejectionNotes' => $isRejection ? $this->getLatestRejectionNotes($history) : null,
             'actionRoles' => $this->resolveActionRoles([
                 'admin.workflows.pp.pp02.draft' => ['Simpan Draft', false],
                 'admin.workflows.pp.pp02.submit' => ['Submit', true],
@@ -663,7 +676,8 @@ class PpWorkflowController extends Controller
             'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp03.submit', $permissions),
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
-            'isRejectionReentry' => $statuses['PP03']['cycle'] > 1 && $statuses['PP03']['status'] === 'active',
+            'isRejectionReentry' => $isRejection = $statuses['PP03']['cycle'] > 1 && $statuses['PP03']['status'] === 'active',
+            'rejectionNotes' => $isRejection ? $this->getLatestRejectionNotes($history) : null,
             'teams' => $this->getWorkspaceTeams($ppWorkflow->workspace_id),
             'actionRoles' => $this->resolveActionRoles([
                 'admin.workflows.pp.pp03.draft' => ['Simpan Draft', false],
@@ -833,7 +847,8 @@ class PpWorkflowController extends Controller
             'canSubmit' => $isEditable && in_array('admin.workflows.pp.pp04.submit', $permissions),
             'canTerminate' => $isWorkflowActive && in_array('admin.workflows.pp.terminate', $permissions),
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
-            'isRejectionReentry' => $statuses['PP04']['cycle'] > 1 && $statuses['PP04']['status'] === 'active',
+            'isRejectionReentry' => $isRejection = $statuses['PP04']['cycle'] > 1 && $statuses['PP04']['status'] === 'active',
+            'rejectionNotes' => $isRejection ? $this->getLatestRejectionNotes($history) : null,
             'actionRoles' => $this->resolveActionRoles([
                 'admin.workflows.pp.pp04.draft' => ['Simpan Draft', false],
                 'admin.workflows.pp.pp04.submit' => ['Submit', true],
@@ -1063,7 +1078,9 @@ class PpWorkflowController extends Controller
             $sessionContext,
         );
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $reviewed, $validated, $sessionContext, $fileIds) {
+        $compileService = app(PpCompileService::class);
+
+        $pp06 = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $reviewed, $validated, $sessionContext, $fileIds, $compileService) {
             $this->engine->recordAction(
                 workflow: $ppWorkflow,
                 step: 'PP05',
@@ -1076,7 +1093,6 @@ class PpWorkflowController extends Controller
             );
 
             // Compile PP06
-            $compileService = app(PpCompileService::class);
             $pp06 = $compileService->compile($ppWorkflow);
 
             $this->engine->recordAction(
@@ -1089,7 +1105,12 @@ class PpWorkflowController extends Controller
                 dataId: $pp06->id,
                 extra: ['revision' => 0],
             );
+
+            return $pp06;
         });
+
+        // Generate export files (outside transaction — failures are non-blocking)
+        $compileService->generateExportFiles($pp06, $request->user()->id, $ppWorkflow->workspace_id);
 
         $this->notifier->notify($ppWorkflow, 'pp05.approved', [
             'actor_name' => $request->user()->name,
@@ -1224,6 +1245,134 @@ class PpWorkflowController extends Controller
             'canRevise' => $pp06 !== null && $workflowStatus === 'completed',
             'activeDraftId' => $activeDraft?->id,
             'canComment' => in_array('admin.workflows.pp.comment', $permissions),
+        ]);
+    }
+
+    public function pp06ExportPdf(PpWorkflow $ppWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($ppWorkflow);
+
+        $revision = request()->query('revision');
+        $pp06 = $revision !== null
+            ? $ppWorkflow->pp06PeriodeTahunan()->where('revision', (int) $revision)->first()
+            : $ppWorkflow->latestPp06();
+
+        if (! $pp06) {
+            return back()->withErrors(['export' => 'PP06 belum dikompilasi.']);
+        }
+
+        // Find existing export file
+        $file = \App\Models\File::where('attachable_type', \App\Models\Pp\Pp06PeriodeTahunan::class)
+            ->where('attachable_id', $pp06->id)
+            ->where('source_route', 'pp06.export.pdf')
+            ->first();
+
+        if ($file && $file->path && \Illuminate\Support\Facades\Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        // Regenerate on-demand if file doesn't exist
+        $compileService = app(PpCompileService::class);
+        $exportResult = $compileService->generateExportFiles($pp06, auth()->id(), $ppWorkflow->workspace_id);
+
+        if (! $exportResult['pdf_file_id']) {
+            return back()->withErrors(['export' => 'Gagal membuat file PDF.']);
+        }
+
+        $file = \App\Models\File::find($exportResult['pdf_file_id']);
+
+        return response()->download(
+            \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+            $file->original_filename,
+            ['Content-Type' => $file->mime_type],
+        );
+    }
+
+    public function pp06ExportExcel(PpWorkflow $ppWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|\Illuminate\Http\RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($ppWorkflow);
+
+        $revision = request()->query('revision');
+        $pp06 = $revision !== null
+            ? $ppWorkflow->pp06PeriodeTahunan()->where('revision', (int) $revision)->first()
+            : $ppWorkflow->latestPp06();
+
+        if (! $pp06) {
+            return back()->withErrors(['export' => 'PP06 belum dikompilasi.']);
+        }
+
+        // Find existing export file
+        $file = \App\Models\File::where('attachable_type', \App\Models\Pp\Pp06PeriodeTahunan::class)
+            ->where('attachable_id', $pp06->id)
+            ->where('source_route', 'pp06.export.excel')
+            ->first();
+
+        if ($file && $file->path && \Illuminate\Support\Facades\Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        // Regenerate on-demand if file doesn't exist
+        $compileService = app(PpCompileService::class);
+        $exportResult = $compileService->generateExportFiles($pp06, auth()->id(), $ppWorkflow->workspace_id);
+
+        if (! $exportResult['excel_file_id']) {
+            return back()->withErrors(['export' => 'Gagal membuat file Excel.']);
+        }
+
+        $file = \App\Models\File::find($exportResult['excel_file_id']);
+
+        return response()->download(
+            \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+            $file->original_filename,
+            ['Content-Type' => $file->mime_type],
+        );
+    }
+
+    public function pp06ExportZip(PpWorkflow $ppWorkflow): \Symfony\Component\HttpFoundation\StreamedResponse|\Illuminate\Http\RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($ppWorkflow);
+
+        $revisions = $ppWorkflow->pp06PeriodeTahunan()->orderBy('revision')->get();
+
+        if ($revisions->isEmpty()) {
+            return back()->withErrors(['export' => 'PP06 belum dikompilasi.']);
+        }
+
+        $files = \App\Models\File::where('attachable_type', \App\Models\Pp\Pp06PeriodeTahunan::class)
+            ->whereIn('attachable_id', $revisions->pluck('id'))
+            ->whereNotNull('path')
+            ->get();
+
+        if ($files->isEmpty()) {
+            return back()->withErrors(['export' => 'Tidak ada file ekspor yang tersedia.']);
+        }
+
+        $zipFilename = "PP06-PeriodeTahunan-{$ppWorkflow->id}.zip";
+
+        return response()->streamDownload(function () use ($files) {
+            $zip = new \ZipStream\ZipStream(
+                outputStream: fopen('php://output', 'wb'),
+                sendHttpHeaders: false,
+            );
+
+            foreach ($files as $file) {
+                $disk = \Illuminate\Support\Facades\Storage::disk($file->disk);
+                if ($disk->exists($file->path)) {
+                    $zip->addFileFromPath($file->original_filename, $disk->path($file->path));
+                }
+            }
+
+            $zip->finish();
+        }, $zipFilename, [
+            'Content-Type' => 'application/zip',
         ]);
     }
 
@@ -1495,14 +1644,24 @@ class PpWorkflowController extends Controller
             $sessionContext,
         );
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $pp07Data, $draftData, $newRevision, $authorOverrides, $validated, $sessionContext, $commentFileIds) {
+        // Compute changelog diff against previous PP06 revision
+        $compileService = app(PpCompileService::class);
+        $changelogDiff = $previousPp06
+            ? $compileService->computeDiff($previousPp06->load([
+                'kodeBidangPelayanan', 'kodeSubBidangPelayanan',
+                'kodeKategoriPelayanan', 'kodeJenisProgram',
+                'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop',
+            ]), $draftData)
+            : [];
+
+        $pp06 = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $ppWorkflow, $pp07Data, $draftData, $newRevision, $authorOverrides, $validated, $sessionContext, $commentFileIds, $compileService, $changelogDiff) {
             // Save final draft_data and mark as submitted
             $pp07Data->update([
                 'draft_data' => $draftData,
                 'submitted_at' => now(),
             ]);
 
-            // Record PP07 submitted
+            // Record PP07 submitted (with changelog diff)
             $this->engine->recordAction(
                 workflow: $ppWorkflow,
                 step: 'PP07',
@@ -1513,11 +1672,10 @@ class PpWorkflowController extends Controller
                 dataId: $pp07Data->id,
                 notes: $validated['notes'] ?? null,
                 files: ! empty($commentFileIds) ? $commentFileIds : null,
-                extra: ['revision' => $newRevision],
+                extra: ['revision' => $newRevision, 'changes' => $changelogDiff],
             );
 
             // Compile new PP06 revision
-            $compileService = app(PpCompileService::class);
             $pp06 = $compileService->compileFromDraft($ppWorkflow, $draftData, $newRevision, $authorOverrides);
 
             // Record PP06 completed
@@ -1538,7 +1696,12 @@ class PpWorkflowController extends Controller
                     ],
                 ],
             );
+
+            return $pp06;
         });
+
+        // Generate export files (outside transaction — failures are non-blocking)
+        $compileService->generateExportFiles($pp06, $request->user()->id, $ppWorkflow->workspace_id);
 
         $this->notifier->notify($ppWorkflow, 'pp07.submitted', [
             'actor_name' => $request->user()->name,
@@ -1856,6 +2019,51 @@ class PpWorkflowController extends Controller
         }
 
         return $map;
+    }
+
+    /**
+     * Filter transformed workflow rows by anggaran bracket.
+     *
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $items
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function applyAnggaranFilter(\Illuminate\Support\Collection $items, string $bracket): \Illuminate\Support\Collection
+    {
+        return match ($bracket) {
+            'none' => $items->filter(fn ($i) => $i['total_anggaran'] === null),
+            'lt100' => $items->filter(fn ($i) => $i['total_anggaran'] !== null && $i['total_anggaran'] < 100_000_000),
+            '100-500' => $items->filter(fn ($i) => $i['total_anggaran'] !== null && $i['total_anggaran'] >= 100_000_000 && $i['total_anggaran'] < 500_000_000),
+            '500-1000' => $items->filter(fn ($i) => $i['total_anggaran'] !== null && $i['total_anggaran'] >= 500_000_000 && $i['total_anggaran'] < 1_000_000_000),
+            'gt1000' => $items->filter(fn ($i) => $i['total_anggaran'] !== null && $i['total_anggaran'] >= 1_000_000_000),
+            default => $items,
+        };
+    }
+
+    /**
+     * Extract the latest PP05 rejection notes from workflow history.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @return array{notes: string, by: string|null, at: string|null}|null
+     */
+    private function getLatestRejectionNotes(array $history): ?array
+    {
+        $rejection = collect($history)
+            ->last(fn ($e) => ($e['step'] ?? '') === 'PP05' && ($e['action'] ?? '') === 'rejected');
+
+        if (! $rejection || empty($rejection['notes'])) {
+            return null;
+        }
+
+        $byName = null;
+        if (isset($rejection['by'])) {
+            $byName = \App\Models\User::find($rejection['by'])?->name;
+        }
+
+        return [
+            'notes' => $rejection['notes'],
+            'by' => $byName,
+            'at' => $rejection['at'] ?? null,
+        ];
     }
 
     /** @return list<array{id: int, name: string}> */

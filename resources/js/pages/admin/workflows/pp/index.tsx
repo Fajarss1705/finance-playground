@@ -28,6 +28,7 @@ type Workflow = {
 type Filters = {
     status: string | null;
     tahun: string | null;
+    anggaran: string | null;
     trash: boolean;
 };
 
@@ -120,6 +121,21 @@ export default function PpIndex({ workflows, filters, availableTahun, canCreate 
                                     {t}
                                 </option>
                             ))}
+                        </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-muted-foreground">Anggaran:</label>
+                        <select
+                            value={filters.anggaran ?? ''}
+                            onChange={(e) => applyFilter('anggaran', e.target.value)}
+                            className="h-8 rounded-md border bg-background px-2 text-sm"
+                        >
+                            <option value="">Semua</option>
+                            <option value="none">Belum ada</option>
+                            <option value="lt100">&lt; 100 jt</option>
+                            <option value="100-500">100–500 jt</option>
+                            <option value="500-1000">500 jt–1 M</option>
+                            <option value="gt1000">&gt; 1 M</option>
                         </select>
                     </div>
                     <div className="ml-auto">

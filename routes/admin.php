@@ -81,6 +81,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
             // PP06
             Route::get('/{ppWorkflow}/pp06', [PpWorkflowController::class, 'pp06Show'])->name('pp06.show');
+            Route::get('/{ppWorkflow}/pp06/export/pdf', [PpWorkflowController::class, 'pp06ExportPdf'])->name('pp06.export.pdf');
+            Route::get('/{ppWorkflow}/pp06/export/excel', [PpWorkflowController::class, 'pp06ExportExcel'])->name('pp06.export.excel');
+            Route::get('/{ppWorkflow}/pp06/export/zip', [PpWorkflowController::class, 'pp06ExportZip'])->name('pp06.export.zip');
 
             // PP07
             Route::post('/{ppWorkflow}/pp07/create', [PpWorkflowController::class, 'pp07Create'])->name('pp07.create');
