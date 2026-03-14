@@ -83,9 +83,8 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
     function stepUrlResolver(entry: HistoryEntry): string | null {
         if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
         const step = entry.step;
-        if (step === 'PP05' || step === 'PP06') {
-            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
-        }
+        if (step === 'PP05') return `/admin/workflows/pp/${workflow.id}/pp05`;
+        if (step === 'PP06') return `/admin/workflows/pp/${workflow.id}/pp06${entry.revision !== undefined ? `?revision=${entry.revision}` : ''}`;
         if (entry.id && entry.table) {
             return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
         }
@@ -119,6 +118,7 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp06"
                     canComment={canComment}
+                    finalSteps={['PP06']}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
@@ -128,13 +128,14 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                     <SectionCard title={`Riwayat Revisi (${allRevisions.length})`}>
                         <div className="flex flex-wrap gap-2">
                             {allRevisions.map((rev) => (
-                                <Badge
-                                    key={rev.id}
-                                    variant={rev.id === pp06.id ? 'default' : 'outline'}
-                                    className="cursor-default"
-                                >
-                                    Rev {rev.revision} — {formatDate(rev.created_at)}
-                                </Badge>
+                                <a key={rev.id} href={`/admin/workflows/pp/${workflow.id}/pp06?revision=${rev.revision}`}>
+                                    <Badge
+                                        variant={rev.id === pp06.id ? 'default' : 'outline'}
+                                        className={rev.id !== pp06.id ? 'cursor-pointer hover:bg-muted' : ''}
+                                    >
+                                        Rev {rev.revision} — {formatDate(rev.created_at)}
+                                    </Badge>
+                                </a>
                             ))}
                         </div>
                     </SectionCard>
@@ -144,8 +145,8 @@ export default function Pp06({ workflow, pp06, allRevisions, canRevise, activeDr
                 <SectionCard title="Informasi Periode">
                     <div className="grid gap-2 text-sm sm:grid-cols-3">
                         <div><span className="text-muted-foreground">Tahun Periode:</span> {pp06.tahun}</div>
-                        <div><span className="text-muted-foreground">Mulai Pra-Raker:</span> {pp06.tanggal_mulai_pra_raker}</div>
-                        <div><span className="text-muted-foreground">Penetapan Program:</span> {pp06.tanggal_penetapan_program}</div>
+                        <div><span className="text-muted-foreground">Mulai Pra-Raker:</span> {formatDate(pp06.tanggal_mulai_pra_raker)}</div>
+                        <div><span className="text-muted-foreground">Penetapan Program:</span> {formatDate(pp06.tanggal_penetapan_program)}</div>
                     </div>
                     <AuthorLine name={pp06.pp01_created_by_user_name} role={pp06.pp01_created_by_role_name} date={pp06.pp01_created_at} />
                 </SectionCard>

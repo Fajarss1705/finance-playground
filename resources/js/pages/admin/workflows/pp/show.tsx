@@ -190,12 +190,12 @@ export default function PpShow({ workflow, informasi, dataTerbaru, canTerminate,
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="show"
                     canComment={canComment}
+                    finalSteps={['PP06']}
                     stepUrlResolver={(entry) => {
                         if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
                         const step = entry.step;
-                        if (step === 'PP05' || step === 'PP06') {
-                            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
-                        }
+                        if (step === 'PP05') return `/admin/workflows/pp/${workflow.id}/pp05`;
+                        if (step === 'PP06') return `/admin/workflows/pp/${workflow.id}/pp06${entry.revision !== undefined ? `?revision=${entry.revision}` : ''}`;
                         if (entry.id && entry.table) {
                             return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
                         }

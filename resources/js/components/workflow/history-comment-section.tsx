@@ -41,6 +41,7 @@ type Props = {
     canComment?: boolean;
     stepUrlResolver?: (entry: HistoryEntry) => string | null;
     defaultOpen?: boolean;
+    finalSteps?: string[];
 };
 
 const actionLabels: Record<string, string> = {
@@ -67,8 +68,13 @@ function getBadgeText(entry: HistoryEntry): string {
 
     let text: string;
     if (action === 'created') {
-        // User-created = "Workflow dibuat"; system-created = "PP02 dibuat"
-        text = entry.by != null ? 'Workflow dibuat' : `${step} dibuat`;
+        if (entry.by == null) {
+            text = `${step} dibuat`;
+        } else if (step === 'PP07') {
+            text = 'Revisi dibuat';
+        } else {
+            text = 'Workflow dibuat';
+        }
     } else if (workflowLevelActions.has(action)) {
         text = actionLabels[action] ?? action;
     } else if (action === 'commented') {
@@ -80,7 +86,7 @@ function getBadgeText(entry: HistoryEntry): string {
         text = `${step} ${actionLabels[action] ?? action}`;
     }
 
-    if (revision !== undefined && revision > 0) {
+    if (revision !== undefined) {
         text += ` (Revisi ${revision})`;
     }
 
@@ -94,7 +100,7 @@ const badgeColorMap: Record<string, string> = {
     drafted: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
     rejected: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
     terminated: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
-    commented: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
+    commented: 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
 };
 
 const defaultBadgeColor = 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/30 dark:text-slate-300 dark:border-slate-700';
@@ -106,7 +112,7 @@ const dotColor: Record<string, string> = {
     drafted: 'bg-blue-500',
     rejected: 'bg-red-500',
     terminated: 'bg-red-500',
-    commented: 'bg-amber-500',
+    commented: 'bg-purple-500',
     created: 'bg-slate-400',
     file_uploaded: 'bg-slate-400',
     skipped: 'bg-slate-400',
@@ -141,6 +147,7 @@ export default function HistoryCommentSection({
     canComment = true,
     stepUrlResolver,
     defaultOpen = true,
+    finalSteps = [],
 }: Props) {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     const [notes, setNotes] = useState('');
@@ -209,10 +216,15 @@ export default function HistoryCommentSection({
                         ) : (
                             <div className="space-y-0">
                                 {entries.map((entry, i) => {
-                                    const dot = dotColor[entry.action] || 'bg-slate-400';
+                                    const isFinalCompleted = finalSteps.includes(entry.step) && entry.action === 'completed';
+                                    const dot = isFinalCompleted
+                                        ? 'bg-amber-500'
+                                        : (dotColor[entry.action] || 'bg-slate-400');
                                     const url = stepUrlResolver?.(entry) ?? null;
                                     const badgeText = getBadgeText(entry);
-                                    const badgeColor = badgeColorMap[entry.action] ?? defaultBadgeColor;
+                                    const badgeColor = isFinalCompleted
+                                        ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800 font-semibold'
+                                        : (badgeColorMap[entry.action] ?? defaultBadgeColor);
 
                                     const userParts: string[] = [entry.by_name];
                                     if (entry.by != null) {

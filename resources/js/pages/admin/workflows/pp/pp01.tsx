@@ -112,9 +112,8 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
     function stepUrlResolver(entry: HistoryEntry): string | null {
         if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
         const step = entry.step;
-        if (step === 'PP05' || step === 'PP06') {
-            return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
-        }
+        if (step === 'PP05') return `/admin/workflows/pp/${workflow.id}/pp05`;
+        if (step === 'PP06') return `/admin/workflows/pp/${workflow.id}/pp06${entry.revision !== undefined ? `?revision=${entry.revision}` : ''}`;
         if (entry.id && entry.table) {
             return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
         }
@@ -158,6 +157,7 @@ export default function Pp01({ workflow, stepData, mode, canDraft, canSubmit, ca
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp01"
                     canComment={canComment}
+                    finalSteps={['PP06']}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />

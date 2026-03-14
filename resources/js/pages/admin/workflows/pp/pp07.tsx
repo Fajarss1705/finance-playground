@@ -1,6 +1,6 @@
 import { Head, usePage, router } from '@inertiajs/react';
-import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Download, Plus, Trash2, Upload } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ type PlafonItem = {
     catatan: string | null;
 };
 type DokumenItem = { file_id: number };
+type DokumenFile = { file_id: number; uuid: string; original_filename: string; size: number };
 
 type DraftData = {
     tahun: number | null;
@@ -62,6 +63,7 @@ type Props = {
     canSubmit: boolean;
     canComment: boolean;
     teams: Team[];
+    dokumenFiles: DokumenFile[];
     actionRoles: ActionRole[];
     activeRoleName: string | null;
 };
@@ -91,11 +93,23 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams, actionRoles, activeRoleName }: Props) {
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type ExistingFile = { type: 'existing'; file_id: number; uuid: string; name: string; size: number };
+type NewFile = { type: 'new'; file: File; name: string; size: number; key: string };
+type FileEntry = ExistingFile | NewFile;
+
+export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams, dokumenFiles, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
     const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [dragOver, setDragOver] = useState(false);
     const d = stepData.draft_data;
 
     const [draft, setDraftState] = useState<DraftData>({
@@ -110,6 +124,10 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
         item_plafon_anggaran: d.item_plafon_anggaran?.length > 0 ? d.item_plafon_anggaran.map((item) => ({ ...item, catatan: item.catatan ?? '' })) : [],
         item_dokumen_sop: d.item_dokumen_sop ?? [],
     });
+
+    const [fileEntries, setFileEntries] = useState<FileEntry[]>(
+        dokumenFiles.map((f) => ({ type: 'existing' as const, file_id: f.file_id, uuid: f.uuid, name: f.original_filename, size: f.size })),
+    );
 
     const usedTeamIds = draft.item_plafon_anggaran.map((item) => item.team_id);
     const totalPlafon = draft.item_plafon_anggaran.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
@@ -185,20 +203,48 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
         setDraft('item_plafon_anggaran', draft.item_plafon_anggaran.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
-    function buildFormData(notes: string, files: File[]) {
-        return {
-            draft_data: draft,
-            expected_updated_at: stepData.updated_at,
-            notes: notes || undefined,
-            ...(files.length > 0 ? { files } : {}),
-        };
+    function addFiles(newFiles: FileList | File[]) {
+        const entries: FileEntry[] = Array.from(newFiles).map((file) => ({
+            type: 'new' as const,
+            file,
+            name: file.name,
+            size: file.size,
+            key: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+        }));
+        setFileEntries((prev) => [...prev, ...entries]);
     }
 
-    function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
+    function removeFileEntry(index: number) {
+        setFileEntries((prev) => prev.filter((_, i) => i !== index));
+    }
+
+    function handleDrop(e: React.DragEvent) {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files.length > 0) {
+            addFiles(e.dataTransfer.files);
+        }
+    }
+
+    function handleAction(action: 'draft' | 'submit', notes: string, commentFiles: File[]) {
         setProcessing(true);
         const url = `/admin/workflows/pp/${workflow.id}/pp07/${stepData.id}/${action}`;
-        router.post(url, buildFormData(notes, files), {
-            forceFormData: files.length > 0,
+
+        const keepFileIds = fileEntries.filter((e): e is ExistingFile => e.type === 'existing').map((e) => e.file_id);
+        const newDokumenFiles = fileEntries.filter((e): e is NewFile => e.type === 'new').map((e) => e.file);
+
+        // Update draft_data with current file state
+        const updatedDraft = { ...draft, item_dokumen_sop: keepFileIds.map((id) => ({ file_id: id })) };
+
+        router.post(url, {
+            draft_data: updatedDraft,
+            keep_file_ids: keepFileIds,
+            dokumen_files: newDokumenFiles,
+            expected_updated_at: stepData.updated_at,
+            notes: notes || undefined,
+            ...(commentFiles.length > 0 ? { files: commentFiles } : {}),
+        }, {
+            forceFormData: true,
             onFinish: () => setProcessing(false),
         });
     }
@@ -206,7 +252,8 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
     function stepUrlResolver(entry: HistoryEntry): string | null {
         if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
         const step = entry.step;
-        if (step === 'PP05' || step === 'PP06') return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}`;
+        if (step === 'PP05') return `/admin/workflows/pp/${workflow.id}/pp05`;
+        if (step === 'PP06') return `/admin/workflows/pp/${workflow.id}/pp06${entry.revision !== undefined ? `?revision=${entry.revision}` : ''}`;
         if (entry.id && entry.table) return `/admin/workflows/pp/${workflow.id}/${step.toLowerCase()}/${entry.id}`;
         return null;
     }
@@ -243,6 +290,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                     commentUrl={`/admin/workflows/pp/${workflow.id}/comment`}
                     commentSource="pp07"
                     canComment={canComment}
+                    finalSteps={['PP06']}
                     stepUrlResolver={stepUrlResolver}
                     defaultOpen={false}
                 />
@@ -478,13 +526,83 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
 
                 {/* Dokumen SOP */}
                 <SectionCard title="Dokumen SOP">
-                    {draft.item_dokumen_sop.length === 0 ? (
-                        <p className="py-4 text-center text-sm text-destructive">Tidak ada dokumen dilampirkan.</p>
-                    ) : (
-                        <p className="text-sm text-destructive">{draft.item_dokumen_sop.length} file dari revisi sebelumnya.</p>
+                    {fileEntries.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="px-3 py-2 text-left font-medium w-12">#</th>
+                                        <th className="px-3 py-2 text-left font-medium">Nama File</th>
+                                        <th className="px-3 py-2 text-right font-medium w-24">Ukuran</th>
+                                        {!isReadonly && <th className="px-3 py-2 w-12" />}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {fileEntries.map((entry, i) => (
+                                        <tr key={entry.type === 'existing' ? `e-${entry.file_id}` : entry.key} className="border-b last:border-0">
+                                            <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                                            <td className="px-3 py-2">
+                                                {entry.type === 'existing' ? (
+                                                    <a href={`/files/${entry.uuid}/download`} className="inline-flex items-center gap-1 text-blue-700 underline decoration-blue-300 hover:text-blue-900 dark:text-blue-300 dark:hover:text-blue-100">
+                                                        <Download className="h-3 w-3 shrink-0" />
+                                                        {entry.name}
+                                                    </a>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {entry.name}
+                                                        <Badge className="ml-1 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">Baru</Badge>
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-right text-muted-foreground">
+                                                {entry.size > 0 ? formatFileSize(entry.size) : '—'}
+                                            </td>
+                                            {!isReadonly && (
+                                                <td className="px-3 py-2">
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => removeFileEntry(i)}>
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     )}
+
                     {!isReadonly && (
-                        <p className="mt-2 text-xs text-destructive">(Prototype: file upload/de-attach dilewati)</p>
+                        <div
+                            className={`mt-3 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'}`}
+                            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                            onDragLeave={() => setDragOver(false)}
+                            onDrop={handleDrop}
+                        >
+                            <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
+                            <p className="text-sm text-muted-foreground">
+                                Drag & drop file di sini, atau{' '}
+                                <button type="button" className="text-primary underline" onClick={() => fileInputRef.current?.click()}>
+                                    pilih file
+                                </button>
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">Maks. 50MB per file</p>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                    if (e.target.files && e.target.files.length > 0) {
+                                        addFiles(e.target.files);
+                                        e.target.value = '';
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
+
+                    {isReadonly && fileEntries.length === 0 && (
+                        <p className="py-4 text-center text-sm text-muted-foreground">Tidak ada dokumen dilampirkan.</p>
                     )}
                 </SectionCard>
 
