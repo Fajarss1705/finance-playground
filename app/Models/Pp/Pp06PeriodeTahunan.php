@@ -46,6 +46,7 @@ class Pp06PeriodeTahunan extends Model
         'tahun',
         'tanggal_mulai_pra_raker',
         'tanggal_penetapan_program',
+        'verification_code',
     ];
 
     /** @return array<string, string> */

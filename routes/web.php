@@ -4,12 +4,15 @@ use App\Http\Controllers\FileController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SwitcherController;
 use App\Http\Controllers\Team\TeamDashboardController;
+use App\Http\Controllers\VerifyController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
 Route::inertia('/', 'welcome', [
     'canRegister' => Features::enabled(Features::registration()),
 ])->name('home');
+
+Route::get('verify/{code}', VerifyController::class)->name('verify');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('role-selector', [SwitcherController::class, 'index'])->name('role-selector.index');
