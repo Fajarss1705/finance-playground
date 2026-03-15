@@ -129,7 +129,6 @@ function setupEvaluatorUser($organization, $workspace): array
         'admin.workflows.pp.pp04.submit',
         'admin.workflows.pp.pp05.show',
         'admin.workflows.pp.pp06.show',
-        'admin.workflows.pp.pp06.download',
         'admin.workflows.pp.pp07.create',
         'admin.workflows.pp.pp07.show',
         'admin.workflows.pp.pp07.draft',
