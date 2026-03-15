@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, BookOpen, Building2, CalendarDays, ClipboardList, FileText, Folder, FolderOpen, Layers, LayoutGrid, Settings, Shield, UserCog, Users } from 'lucide-react';
+import { Bell, BookOpen, Building2, CalendarDays, ClipboardList, FileText, Folder, FolderOpen, Layers, LayoutGrid, NotebookPen, Settings, Shield, ShieldCheck, UserCog, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -20,7 +20,8 @@ import { index as adminRolesIndex } from '@/routes/admin/roles';
 import { index as adminTeamsIndex } from '@/routes/admin/teams';
 import { index as adminUsersIndex } from '@/routes/admin/users';
 import { index as adminWorkspacesIndex } from '@/routes/admin/workspaces';
-import { files as personalFiles, index as personalIndex, notifications as personalNotifications } from '@/routes/personal';
+import { index as adminPpIndex } from '@/routes/admin/workflows/pp';
+import { files as personalFiles, index as personalIndex, notifications as personalNotifications, verify as personalVerify } from '@/routes/personal';
 import { index as teamIndex } from '@/routes/team';
 import { index as teamFilesIndex } from '@/routes/team/files';
 import type { Auth, NavItem } from '@/types';
@@ -43,6 +44,12 @@ const personalNavItems: NavItem[] = [
         href: personalNotifications(),
         icon: Bell,
         permission: 'personal.notifications',
+    },
+    {
+        title: 'Verifikasi Dokumen',
+        href: personalVerify(),
+        icon: ShieldCheck,
+        permission: 'personal.verify',
     },
 ];
 
@@ -123,6 +130,13 @@ const adminNavItems: NavItem[] = [
         href: adminNotificationsIndex(),
         icon: Bell,
         permission: 'admin.notifications.index',
+    },
+    {
+        title: '(PP) Semua Periode',
+        href: adminPpIndex().url,
+        icon: NotebookPen,
+        permission: 'admin.workflows.pp.index',
+        emphasis: true,
     },
     {
         title: 'Semua Anggaran Bulanan',

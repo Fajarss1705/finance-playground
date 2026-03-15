@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            DemoWorkflowPrototype20260305Seeder::class,
+            FeatureTestPpPrototype20260307Seeder::class,
         ]);
     }
 }

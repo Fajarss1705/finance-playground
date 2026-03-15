@@ -4,6 +4,7 @@ use App\Http\Controllers\FileController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SwitcherController;
 use App\Http\Controllers\Team\TeamDashboardController;
+use App\Http\Controllers\VerifyController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
@@ -12,6 +13,7 @@ Route::inertia('/', 'welcome', [
 ])->name('home');
 
 Route::middleware(['auth'])->group(function () {
+    Route::get('verify/{code}', VerifyController::class)->name('verify');
     Route::get('role-selector', [SwitcherController::class, 'index'])->name('role-selector.index');
     Route::post('role-selector', [SwitcherController::class, 'store'])->name('role-selector.store');
     Route::inertia('no-access', 'no-access')->name('no-access');
@@ -32,6 +34,7 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     // Personal scope
     Route::prefix('personal')->name('personal.')->group(function () {
         Route::inertia('/', 'personal/index')->name('index');
+        Route::inertia('verify', 'personal/verify')->name('verify');
         Route::get('files', [FileController::class, 'personal'])->name('files');
         Route::get('notifications', [NotificationController::class, 'personal'])->name('notifications');
         Route::patch('notifications/mark-all-read', [NotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -19,6 +19,8 @@ type ActionConfirmDialogProps = {
     confirmLabel?: string;
     variant?: 'default' | 'destructive';
     requireNotes?: boolean;
+    processing?: boolean;
+    onConfirm?: (data: { notes: string; files: File[] }) => void;
 };
 
 export default function ActionConfirmDialog({
@@ -28,14 +30,25 @@ export default function ActionConfirmDialog({
     confirmLabel = 'Konfirmasi',
     variant = 'default',
     requireNotes = false,
+    processing = false,
+    onConfirm,
 }: ActionConfirmDialogProps) {
+    const [open, setOpen] = useState(false);
     const [notes, setNotes] = useState('');
     const [files, setFiles] = useState<File[]>([]);
 
     const canConfirm = !requireNotes || notes.trim().length > 0;
 
+    function handleConfirm() {
+        if (!canConfirm) return;
+        onConfirm?.({ notes, files });
+        setOpen(false);
+        setNotes('');
+        setFiles([]);
+    }
+
     return (
-        <Dialog>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setNotes(''); setFiles([]); } }}>
             <DialogTrigger asChild>{trigger}</DialogTrigger>
             <DialogContent>
                 <DialogTitle>{title}</DialogTitle>
@@ -76,18 +89,19 @@ export default function ActionConfirmDialog({
                             }}
                         />
                         {files.length > 0 && (
-                            <div className="space-y-1">
+                            <div className="flex flex-wrap gap-1.5">
                                 {files.map((f, i) => (
-                                    <div key={i} className="flex items-center justify-between rounded border px-2 py-1 text-xs">
-                                        <span className="truncate">{f.name}</span>
+                                    <span key={i} className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                        <Paperclip className="h-3 w-3 shrink-0" />
+                                        <span className="break-all">{f.name}</span>
                                         <button
                                             type="button"
                                             onClick={() => setFiles((prev) => prev.filter((_, fi) => fi !== i))}
-                                            className="ml-2 text-muted-foreground hover:text-destructive"
+                                            className="ml-0.5 hover:text-destructive"
                                         >
-                                            &times;
+                                            <X className="h-3 w-3" />
                                         </button>
-                                    </div>
+                                    </span>
                                 ))}
                             </div>
                         )}
@@ -98,8 +112,12 @@ export default function ActionConfirmDialog({
                     <DialogClose asChild>
                         <Button variant="secondary">Batal</Button>
                     </DialogClose>
-                    <Button variant={variant === 'destructive' ? 'destructive' : 'default'} disabled={!canConfirm}>
-                        {confirmLabel}
+                    <Button
+                        variant={variant === 'destructive' ? 'destructive' : 'default'}
+                        disabled={!canConfirm || processing}
+                        onClick={handleConfirm}
+                    >
+                        {processing ? 'Memproses...' : confirmLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>
