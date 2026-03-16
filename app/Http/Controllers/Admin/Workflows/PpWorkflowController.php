@@ -1595,6 +1595,21 @@ class PpWorkflowController extends Controller
             'size' => $f->size,
         ])->values()->all();
 
+        // Existing kode values from latest PP06 — immutable in PP07
+        $latestPp06 = $ppWorkflow->latestPp06();
+        $existingKodes = [];
+        if ($latestPp06) {
+            $latestPp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran']);
+            $existingKodes = [
+                'kode_bidang_pelayanan' => $latestPp06->kodeBidangPelayanan->pluck('kode')->values()->all(),
+                'kode_sub_bidang_pelayanan' => $latestPp06->kodeSubBidangPelayanan->pluck('kode')->values()->all(),
+                'kode_kategori_pelayanan' => $latestPp06->kodeKategoriPelayanan->pluck('kode')->values()->all(),
+                'kode_jenis_program' => $latestPp06->kodeJenisProgram->pluck('kode')->values()->all(),
+                'item_kuisioner' => $latestPp06->itemKuisioner->pluck('kode')->values()->all(),
+                'item_plafon_anggaran' => $latestPp06->itemPlafonAnggaran->pluck('kode_team')->values()->all(),
+            ];
+        }
+
         return Inertia::render('admin/workflows/pp/pp07', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'stepData' => [
@@ -1604,6 +1619,7 @@ class PpWorkflowController extends Controller
                 'updated_at' => $pp07Data->updated_at->toIso8601String(),
             ],
             'dokumenFiles' => $dokumenFiles,
+            'existingKodes' => $existingKodes,
             'mode' => $mode,
             'canDraft' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.draft', $permissions),
             'canSubmit' => ! $isSubmitted && in_array('admin.workflows.pp.pp07.submit', $permissions),
@@ -1693,6 +1709,48 @@ class PpWorkflowController extends Controller
         $this->checkOptimisticLock($pp07Data, $validated['expected_updated_at']);
 
         $draftData = $validated['draft_data'];
+
+        // Enforce PP06 immutability rules — existing kode values cannot be changed or deleted
+        $latestPp06 = $ppWorkflow->latestPp06();
+        if ($latestPp06) {
+            // Tahun is immutable
+            if ((int) $draftData['tahun'] !== $latestPp06->tahun) {
+                return back()->withErrors(['draft_data.tahun' => 'Tahun tidak boleh diubah dalam revisi.']);
+            }
+
+            $latestPp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran']);
+
+            // Plafon team_id is immutable — existing teams cannot be reassigned
+            $existingPlafonMap = $latestPp06->itemPlafonAnggaran->pluck('team_id', 'kode_team')->all();
+            foreach ($draftData['item_plafon_anggaran'] ?? [] as $item) {
+                $kodeTeam = $item['kode_team'] ?? '';
+                if (isset($existingPlafonMap[$kodeTeam]) && (int) ($item['team_id'] ?? 0) !== $existingPlafonMap[$kodeTeam]) {
+                    return back()->withErrors(['draft_data.item_plafon_anggaran' => "Tim untuk plafon {$kodeTeam} tidak boleh diubah."]);
+                }
+            }
+
+            $immutableChecks = [
+                ['kode_bidang_pelayanan', $latestPp06->kodeBidangPelayanan->pluck('kode')->all(), 'kode', 'Kode Bidang Pelayanan'],
+                ['kode_sub_bidang_pelayanan', $latestPp06->kodeSubBidangPelayanan->pluck('kode')->all(), 'kode', 'Kode Sub Bidang Pelayanan'],
+                ['kode_kategori_pelayanan', $latestPp06->kodeKategoriPelayanan->pluck('kode')->all(), 'kode', 'Kode Kategori Pelayanan'],
+                ['kode_jenis_program', $latestPp06->kodeJenisProgram->pluck('kode')->all(), 'kode', 'Kode Jenis Program'],
+                ['item_kuisioner', $latestPp06->itemKuisioner->pluck('kode')->all(), 'kode', 'Kuisioner'],
+                ['item_plafon_anggaran', $latestPp06->itemPlafonAnggaran->pluck('kode_team')->all(), 'kode_team', 'Plafon Anggaran'],
+            ];
+
+            $errors = [];
+            foreach ($immutableChecks as [$field, $existingKodes, $kodeKey, $label]) {
+                $submittedKodes = collect($draftData[$field] ?? [])->pluck($kodeKey)->all();
+                $missing = array_diff($existingKodes, $submittedKodes);
+                if (! empty($missing)) {
+                    $errors["draft_data.{$field}"] = "{$label} yang sudah ada tidak boleh dihapus: ".implode(', ', $missing);
+                }
+            }
+
+            if (! empty($errors)) {
+                return back()->withErrors($errors);
+            }
+        }
 
         // Unique tahun check (PP07 may change tahun)
         $existingPp = PpWorkflow::query()

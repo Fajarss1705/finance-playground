@@ -1,6 +1,6 @@
 import { Head, usePage, router } from '@inertiajs/react';
 import { useRef, useState } from 'react';
-import { Download, Plus, Trash2, Upload } from 'lucide-react';
+import { Download, Lock, Plus, Trash2, Upload } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +55,15 @@ type StepData = {
 type Team = { id: number; name: string };
 type Workflow = { id: number; label: string; history: HistoryEntry[] };
 
+type ExistingKodes = {
+    kode_bidang_pelayanan: string[];
+    kode_sub_bidang_pelayanan: string[];
+    kode_kategori_pelayanan: string[];
+    kode_jenis_program: string[];
+    item_kuisioner: string[];
+    item_plafon_anggaran: string[];
+};
+
 type Props = {
     workflow: Workflow;
     stepData: StepData;
@@ -64,6 +73,7 @@ type Props = {
     canComment: boolean;
     teams: Team[];
     dokumenFiles: DokumenFile[];
+    existingKodes: ExistingKodes;
     actionRoles: ActionRole[];
     activeRoleName: string | null;
 };
@@ -103,7 +113,7 @@ type ExistingFile = { type: 'existing'; file_id: number; uuid: string; name: str
 type NewFile = { type: 'new'; file: File; name: string; size: number; key: string };
 type FileEntry = ExistingFile | NewFile;
 
-export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams, dokumenFiles, actionRoles, activeRoleName }: Props) {
+export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, canComment, teams, dokumenFiles, existingKodes, actionRoles, activeRoleName }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
@@ -129,7 +139,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
         dokumenFiles.map((f) => ({ type: 'existing' as const, file_id: f.file_id, uuid: f.uuid, name: f.original_filename, size: f.size })),
     );
 
-    const usedTeamIds = draft.item_plafon_anggaran.map((item) => item.team_id);
+    const usedTeamIds = draft.item_plafon_anggaran.map((item) => Number(item.team_id));
     const totalPlafon = draft.item_plafon_anggaran.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -150,7 +160,20 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
         setDraft(field, [...draft[field], { kode: nextKode(kodePrefixMap[field], draft[field]), nama: '', catatan: '' }]);
     }
 
+    function isExistingKode(field: KodeField, kode: string): boolean {
+        return (existingKodes?.[field] ?? []).includes(kode);
+    }
+
+    function isExistingKuisioner(kode: string): boolean {
+        return (existingKodes?.item_kuisioner ?? []).includes(kode);
+    }
+
+    function isExistingPlafon(kodeTeam: string): boolean {
+        return (existingKodes?.item_plafon_anggaran ?? []).includes(kodeTeam);
+    }
+
     function removeKodeRow(field: KodeField, index: number) {
+        if (isExistingKode(field, draft[field][index].kode)) return;
         setDraft(field, draft[field].filter((_, i) => i !== index));
     }
 
@@ -164,6 +187,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
     }
 
     function removeKuisionerRow(index: number) {
+        if (isExistingKuisioner(draft.item_kuisioner[index].kode)) return;
         setDraft('item_kuisioner', draft.item_kuisioner.filter((_, i) => i !== index));
     }
 
@@ -196,6 +220,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
     }
 
     function removePlafonRow(index: number) {
+        if (isExistingPlafon(draft.item_plafon_anggaran[index].kode_team)) return;
         setDraft('item_plafon_anggaran', draft.item_plafon_anggaran.filter((_, i) => i !== index));
     }
 
@@ -300,14 +325,17 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium">Tahun <span className="text-destructive">*</span></label>
-                            <Input
-                                type="number"
-                                value={draft.tahun ?? ''}
-                                onChange={(e) => setDraft('tahun', e.target.value === '' ? null : Number(e.target.value))}
-                                disabled={isReadonly}
-                                min={2020}
-                                max={2099}
-                            />
+                            <div className="flex items-center gap-1">
+                                {!isReadonly && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                                <Input
+                                    type="number"
+                                    value={draft.tahun ?? ''}
+                                    onChange={(e) => setDraft('tahun', e.target.value === '' ? null : Number(e.target.value))}
+                                    disabled
+                                    min={2020}
+                                    max={2099}
+                                />
+                            </div>
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium">Tanggal Mulai Pra-Raker <span className="text-destructive">*</span></label>
@@ -340,33 +368,41 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                             <table className="min-w-200 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
-                                        <th className="px-3 py-2 text-left font-medium w-24">Kode <span className="text-destructive">*</span></th>
+                                        <th className="px-3 py-2 text-left font-medium w-32">Kode <span className="text-destructive">*</span></th>
                                         {!isReadonly && <th className="px-3 py-2 w-12" />}
                                         <th className="px-3 py-2 text-left font-medium">Nama <span className="text-destructive">*</span></th>
                                         <th className="px-3 py-2 text-left font-medium w-48">Catatan</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {draft[field].map((item, i) => (
-                                        <tr key={i} className="border-b last:border-0">
-                                            <td className="px-3 py-1.5">
-                                                <Input value={item.kode} onChange={(e) => updateKodeRow(field, i, 'kode', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
-                                            </td>
-                                            {!isReadonly && (
+                                    {draft[field].map((item, i) => {
+                                        const locked = isExistingKode(field, item.kode);
+                                        return (
+                                            <tr key={i} className={`border-b last:border-0 ${locked && !isReadonly ? 'bg-muted/30' : ''}`}>
                                                 <td className="px-3 py-1.5">
-                                                    <Button variant="ghost" size="sm" onClick={() => removeKodeRow(field, i)} className="h-8 w-8 p-0">
-                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                    </Button>
+                                                    <div className="flex items-center gap-1">
+                                                        {locked && !isReadonly && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                                                        <Input value={item.kode} onChange={(e) => updateKodeRow(field, i, 'kode', e.target.value)} disabled={isReadonly || locked} className="h-8" maxLength={10} />
+                                                    </div>
                                                 </td>
-                                            )}
-                                            <td className="px-3 py-1.5">
-                                                <Input value={item.nama} onChange={(e) => updateKodeRow(field, i, 'nama', e.target.value)} disabled={isReadonly} className="h-8" />
-                                            </td>
-                                            <td className="px-3 py-1.5 align-top">
-                                                <Textarea value={item.catatan ?? ''} onChange={(e) => updateKodeRow(field, i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                {!isReadonly && (
+                                                    <td className="px-3 py-1.5">
+                                                        {!locked && (
+                                                            <Button variant="ghost" size="sm" onClick={() => removeKodeRow(field, i)} className="h-8 w-8 p-0">
+                                                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                            </Button>
+                                                        )}
+                                                    </td>
+                                                )}
+                                                <td className="px-3 py-1.5">
+                                                    <Input value={item.nama} onChange={(e) => updateKodeRow(field, i, 'nama', e.target.value)} disabled={isReadonly} className="h-8" />
+                                                </td>
+                                                <td className="px-3 py-1.5 align-top">
+                                                    <Textarea value={item.catatan ?? ''} onChange={(e) => updateKodeRow(field, i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -384,7 +420,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <table className="min-w-200 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium w-28">Kode <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
                                     <th className="px-3 py-2 text-left font-medium">Pertanyaan <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-left font-medium w-36">Tipe</th>
@@ -392,16 +428,23 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 </tr>
                             </thead>
                             <tbody>
-                                {draft.item_kuisioner.map((item, i) => (
-                                    <tr key={i} className="border-b last:border-0">
+                                {draft.item_kuisioner.map((item, i) => {
+                                    const locked = isExistingKuisioner(item.kode);
+                                    return (
+                                    <tr key={i} className={`border-b last:border-0 ${locked && !isReadonly ? 'bg-muted/30' : ''}`}>
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.kode} onChange={(e) => updateKuisionerRow(i, 'kode', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
+                                            <div className="flex items-center gap-1">
+                                                {locked && !isReadonly && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                                                <Input value={item.kode} onChange={(e) => updateKuisionerRow(i, 'kode', e.target.value)} disabled={isReadonly || locked} className="h-8" maxLength={10} />
+                                            </div>
                                         </td>
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
-                                                <Button variant="ghost" size="sm" onClick={() => removeKuisionerRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                </Button>
+                                                {!locked && (
+                                                    <Button variant="ghost" size="sm" onClick={() => removeKuisionerRow(i)} className="h-8 w-8 p-0">
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                )}
                                             </td>
                                         )}
                                         <td className="px-3 py-1.5">
@@ -437,7 +480,8 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             />
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -454,7 +498,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <table className="min-w-300 w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-muted/50">
-                                    <th className="px-3 py-2 text-left font-medium w-20">Kode Tim <span className="text-destructive">*</span></th>
+                                    <th className="px-3 py-2 text-left font-medium w-28">Kode Tim <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
                                     <th className="px-3 py-2 text-left font-medium w-56">Tim <span className="text-destructive">*</span></th>
                                     <th className="px-3 py-2 text-right font-medium w-44">Plafon <span className="text-destructive">*</span></th>
@@ -465,30 +509,41 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 </tr>
                             </thead>
                             <tbody>
-                                {draft.item_plafon_anggaran.map((item, i) => (
-                                    <tr key={i} className="border-b last:border-0">
+                                {draft.item_plafon_anggaran.map((item, i) => {
+                                    const locked = isExistingPlafon(item.kode_team);
+                                    return (
+                                    <tr key={i} className={`border-b last:border-0 ${locked && !isReadonly ? 'bg-muted/30' : ''}`}>
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.kode_team} onChange={(e) => updatePlafonRow(i, 'kode_team', e.target.value)} disabled={isReadonly} className="h-8" maxLength={10} />
+                                            <div className="flex items-center gap-1">
+                                                {locked && !isReadonly && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                                                <Input value={item.kode_team} onChange={(e) => updatePlafonRow(i, 'kode_team', e.target.value)} disabled={isReadonly || locked} className="h-8" maxLength={10} />
+                                            </div>
                                         </td>
                                         {!isReadonly && (
                                             <td className="px-3 py-1.5">
-                                                <Button variant="ghost" size="sm" onClick={() => removePlafonRow(i)} className="h-8 w-8 p-0">
-                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                </Button>
+                                                {!locked && (
+                                                    <Button variant="ghost" size="sm" onClick={() => removePlafonRow(i)} className="h-8 w-8 p-0">
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                )}
                                             </td>
                                         )}
                                         <td className="px-3 py-1.5">
-                                            <select
-                                                value={item.team_id}
-                                                onChange={(e) => updatePlafonRow(i, 'team_id', parseInt(e.target.value))}
-                                                disabled={isReadonly}
-                                                className="h-8 w-full rounded-md border bg-background px-2 text-sm"
-                                            >
-                                                <option value={0}>Pilih tim...</option>
-                                                {teams.filter((t) => t.id === item.team_id || !usedTeamIds.includes(t.id)).map((t) => (
-                                                    <option key={t.id} value={t.id}>{t.name}</option>
-                                                ))}
-                                            </select>
+                                            {locked && !isReadonly ? (
+                                                <div className="flex h-8 items-center px-2 text-sm">{teams.find((t) => t.id === Number(item.team_id))?.name ?? '—'}</div>
+                                            ) : (
+                                                <select
+                                                    value={item.team_id}
+                                                    onChange={(e) => updatePlafonRow(i, 'team_id', parseInt(e.target.value))}
+                                                    disabled={isReadonly}
+                                                    className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+                                                >
+                                                    <option value={0}>Pilih tim...</option>
+                                                    {teams.filter((t) => t.id === item.team_id || !usedTeamIds.includes(t.id)).map((t) => (
+                                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                                    ))}
+                                                </select>
+                                            )}
                                         </td>
                                         <td className="px-3 py-1.5">
                                             <RupiahInput value={item.plafon_anggaran} onChange={(v) => updatePlafonRow(i, 'plafon_anggaran', v)} disabled={isReadonly} className="h-8" min={0} />
@@ -506,7 +561,8 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             <Textarea value={item.catatan ?? ''} onChange={(e) => updatePlafonRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                             <tfoot>
                                 <tr className="border-t bg-muted/30">
