@@ -26,9 +26,26 @@ const actionConfig: Record<string, { label: string; className: string }> = {
     completed: { label: 'Selesai', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
 };
 
-function parseStep(table?: string): string | null {
+const stepNames: Record<string, string> = {
+    PP01: 'Program Kerja',
+    PP02: 'Review Narasi',
+    PP03: 'Plafon Anggaran',
+    PP04: 'Review Anggaran',
+    PP05: 'Sidang Pleno',
+    PP06: 'Program Tahunan',
+    PP07: 'Revisi',
+    PK01: 'Program Kegiatan',
+    PK02A: 'Approval Narasi',
+    PK02B: 'Approval Anggaran',
+    PK03: 'RAKER',
+    PK04: 'Program Tahunan',
+    PK05: 'Revisi',
+};
+
+function parseStep(table?: string): { code: string; name: string } | null {
     if (!table) return null;
-    return table.replace('_data', '').toUpperCase();
+    const code = table.replace('_data', '').replace(/_/g, '').toUpperCase();
+    return { code, name: stepNames[code] ?? code };
 }
 
 function formatDate(dateStr: string): string {
@@ -111,12 +128,15 @@ export default function HistoryTimeline({ entries }: { entries: HistoryEntry[] }
                                             <div className="flex flex-wrap items-center gap-1.5">
                                                 {step && (
                                                     <Badge className="bg-foreground text-background font-mono text-[10px] px-1.5 py-0 hover:bg-foreground/90">
-                                                        {step}
+                                                        {step.code}
                                                     </Badge>
                                                 )}
                                                 <Badge className={`text-[10px] px-1.5 py-0 ${config.className}`}>
                                                     {config.label}
                                                 </Badge>
+                                                {step && (
+                                                    <span className="text-xs text-muted-foreground">{step.name}</span>
+                                                )}
                                             </div>
                                             <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs">
                                                 <span className="font-medium">{entry.by}</span>

@@ -1688,11 +1688,13 @@ class PkWorkflowController extends Controller
             return null;
         });
 
-        // Inject step roles for tooltips
-        $stepRoleMap = $this->resolveStepRolesForShow();
+        // Inject step roles + parallel group info for tooltips and fork/join rendering
+        $stepRoleMap = $this->resolveStepRolesForShow($pkWorkflow->team_id);
+        $parallelSteps = ['PK02A', 'PK02B']; // Steps that run in parallel
         foreach ($stepperCycles as &$cycle) {
             foreach ($cycle['steps'] as &$step) {
                 $step['roles'] = $stepRoleMap[$step['code']] ?? [];
+                $step['parallelGroup'] = in_array($step['code'], $parallelSteps) ? 'pk02' : null;
             }
         }
         unset($cycle, $step);
@@ -3218,7 +3220,7 @@ class PkWorkflowController extends Controller
      *
      * @return array<string, list<string>>
      */
-    private function resolveStepRolesForShow(): array
+    private function resolveStepRolesForShow(?int $teamId = null): array
     {
         $stepPermissions = [
             'PK01' => 'team.workflows.pk.pk01.submit',
@@ -3228,6 +3230,9 @@ class PkWorkflowController extends Controller
             'PK04' => null,
             'PK05' => 'admin.workflows.pk.pk05.submit',
         ];
+
+        // Team-scoped steps: only show roles from the PK's owning team
+        $teamScopedSteps = ['PK01'];
 
         $permNames = array_filter(array_values($stepPermissions));
         $permissions = Permission::whereIn('name', $permNames)
@@ -3248,7 +3253,14 @@ class PkWorkflowController extends Controller
             $roles = [];
 
             if ($perm) {
-                foreach ($perm->roles->sortBy(fn (Role $r) => $r->team ? "{$r->name} ({$r->team->name})" : $r->name) as $role) {
+                $filteredRoles = $perm->roles;
+
+                // For team-scoped steps, only show roles from the PK's owning team
+                if (in_array($step, $teamScopedSteps) && $teamId) {
+                    $filteredRoles = $filteredRoles->filter(fn (Role $r) => $r->team_id === $teamId);
+                }
+
+                foreach ($filteredRoles->sortBy('name') as $role) {
                     $roles[] = $role->team ? "{$role->name} ({$role->team->name})" : $role->name;
                 }
             }

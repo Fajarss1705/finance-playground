@@ -105,6 +105,22 @@ const badgeColorMap: Record<string, string> = {
 
 const defaultBadgeColor = 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/30 dark:text-slate-300 dark:border-slate-700';
 
+const stepNames: Record<string, string> = {
+    PP01: 'Program Kerja',
+    PP02: 'Review Narasi',
+    PP03: 'Plafon Anggaran',
+    PP04: 'Review Anggaran',
+    PP05: 'Sidang Pleno',
+    PP06: 'Program Tahunan',
+    PP07: 'Revisi',
+    PK01: 'Program Kegiatan',
+    PK02A: 'Approval Narasi',
+    PK02B: 'Approval Anggaran',
+    PK03: 'RAKER',
+    PK04: 'Program Tahunan',
+    PK05: 'Revisi',
+};
+
 const dotColor: Record<string, string> = {
     submitted: 'bg-green-500',
     approved: 'bg-green-500',
@@ -240,18 +256,23 @@ export default function HistoryCommentSection({
                                                 {i < entries.length - 1 && <div className="w-px flex-1 bg-border" />}
                                             </div>
                                             <div className="flex-1 pb-4">
-                                                {/* Badge */}
-                                                {url ? (
-                                                    <Link href={url} onClick={(e) => e.stopPropagation()}>
-                                                        <Badge className={`cursor-pointer ${badgeColor}`}>
+                                                {/* Badge + step name */}
+                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                    {url ? (
+                                                        <Link href={url} onClick={(e) => e.stopPropagation()}>
+                                                            <Badge className={`cursor-pointer ${badgeColor}`}>
+                                                                {badgeText}
+                                                            </Badge>
+                                                        </Link>
+                                                    ) : (
+                                                        <Badge className={badgeColor}>
                                                             {badgeText}
                                                         </Badge>
-                                                    </Link>
-                                                ) : (
-                                                    <Badge className={badgeColor}>
-                                                        {badgeText}
-                                                    </Badge>
-                                                )}
+                                                    )}
+                                                    {entry.step && stepNames[entry.step] && !workflowLevelActions.has(entry.action) && (
+                                                        <span className="text-xs text-muted-foreground">{stepNames[entry.step]}</span>
+                                                    )}
+                                                </div>
 
                                                 {/* User line */}
                                                 <p className="mt-1 text-sm text-muted-foreground">

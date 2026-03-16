@@ -13,6 +13,7 @@ export type StepperStep = {
     url: string | null;
     roles?: string[];
     stepType?: 'form' | 'approval' | 'final' | 'revision';
+    parallelGroup?: string | null;
 };
 
 export type StepperCycle = {
@@ -48,13 +49,16 @@ const cycleStatusLabels: Record<string, string> = {
 function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: number; activeRoleName?: string | null }) {
     const roles = step.roles ?? [];
     const hasAccess = activeRoleName ? roles.includes(activeRoleName) : false;
+    const isYourTurn = step.status === 'active' && hasAccess;
     const isFinal = step.stepType === 'final';
 
     const dotColor = isFinal && (step.status === 'completed' || step.status === 'active')
         ? step.status === 'completed'
             ? 'bg-amber-500 text-white'
             : 'bg-amber-500 text-white ring-2 ring-amber-300 dark:ring-amber-700'
-        : statusColors[step.status];
+        : isYourTurn
+            ? 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-1 ring-offset-background dark:ring-blue-500'
+            : statusColors[step.status];
 
     const dot = (
         <div
@@ -89,8 +93,14 @@ function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: nu
 
     const wrappedDot = step.url ? <Link href={step.url}>{dot}</Link> : dot;
 
+    const turnLabel = step.status === 'active' && activeRoleName
+        ? hasAccess
+            ? <span className="whitespace-nowrap rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">Giliran Anda</span>
+            : <span className="whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">Bukan giliran Anda</span>
+        : null;
+
     return (
-        <div className="flex flex-col items-center gap-1">
+        <div className="relative flex flex-col items-center gap-1">
             {roles.length > 0 ? (
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -131,25 +141,229 @@ function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: nu
             )}>
                 {step.code}
             </span>
+            {turnLabel && (
+                <span className="absolute -bottom-4 left-1/2 -translate-x-1/2">
+                    {turnLabel}
+                </span>
+            )}
         </div>
     );
 }
 
-function StepRow({ steps, activeRoleName }: { steps: StepperStep[]; activeRoleName?: string | null }) {
+/** Resolve line color, with special amber for final steps */
+function resolveLineColor(step: StepperStep): string {
+    const isFinal = step.stepType === 'final';
+    if (isFinal && (step.status === 'completed' || step.status === 'active')) return 'bg-amber-500';
+    return lineColors[step.status];
+}
+
+/** Horizontal connector line */
+function HLine({ className, style }: { className: string; style?: React.CSSProperties }) {
+    return <div className={cn('mx-1 h-0.5 w-6 shrink-0', className)} style={style} />;
+}
+
+/** Map bg-* classes to stroke color CSS values for SVG */
+const strokeColorMap: Record<string, string> = {
+    'bg-green-500': 'var(--color-green-500)',
+    'bg-blue-500': 'var(--color-blue-500)',
+    'bg-muted': 'var(--color-muted)',
+    'bg-red-500': 'var(--color-red-500)',
+    'bg-amber-500': 'var(--color-amber-500)',
+    'bg-gray-300 dark:bg-gray-700': 'var(--color-gray-300)',
+};
+
+function bgToStroke(bgClass: string): string {
+    return strokeColorMap[bgClass] ?? 'var(--color-muted)';
+}
+
+/**
+ * SVG fork/join bracket with curved corners.
+ * Fork renders ╮╯ shape, join renders ╭╰ shape.
+ */
+function Bracket({ color, side, count, rowHeight, gap }: {
+    color: string;
+    side: 'fork' | 'join';
+    count: number;
+    rowHeight: number;
+    gap: number;
+}) {
+    const stroke = bgToStroke(color);
+    const totalHeight = count * rowHeight + (count - 1) * gap;
+    const width = 16;
+    const strokeW = 2;
+    const r = 8; // curve radius
+
+    // Y positions at dot center for each row (offset up for label below dot)
+    const labelOffset = 10;
+    const armYs = Array.from({ length: count }, (_, i) => {
+        const rowTop = i * (rowHeight + gap);
+        return rowTop + rowHeight / 2 - labelOffset;
+    });
+
+    const topY = armYs[0];
+    const bottomY = armYs[armYs.length - 1];
+
+    // Build a single curved bracket path
+    // Fork (right-facing): arms come from right, curve into vertical bar on left
+    //   (w, topY) ──── (r, topY) ╮
+    //                             │
+    //   (w, botY) ──── (r, botY) ╯
+    //
+    // Join (left-facing): mirror
+    //   ╭ (w-r, topY) ──── (0, topY)
+    //   │
+    //   ╰ (w-r, botY) ──── (0, botY)
+
+    let d: string;
+    if (side === 'fork') {
+        d = [
+            `M ${width} ${topY}`,
+            `H ${r}`,
+            `Q 0 ${topY} 0 ${topY + r}`,
+            `V ${bottomY - r}`,
+            `Q 0 ${bottomY} ${r} ${bottomY}`,
+            `H ${width}`,
+        ].join(' ');
+    } else {
+        d = [
+            `M 0 ${topY}`,
+            `H ${width - r}`,
+            `Q ${width} ${topY} ${width} ${topY + r}`,
+            `V ${bottomY - r}`,
+            `Q ${width} ${bottomY} ${width - r} ${bottomY}`,
+            `H 0`,
+        ].join(' ');
+    }
+
     return (
-        <div className="flex items-center gap-0 overflow-x-auto pb-1">
-            {steps.map((step, i) => {
-                const isFinal = step.stepType === 'final';
-                const lineColor = isFinal && (step.status === 'completed' || step.status === 'active')
-                    ? 'bg-amber-500'
-                    : lineColors[step.status];
+        <svg
+            width={width}
+            height={totalHeight}
+            className="shrink-0"
+            style={{ marginTop: -labelOffset }}
+        >
+            <path
+                d={d}
+                fill="none"
+                stroke={stroke}
+                strokeWidth={strokeW}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    );
+}
+
+/**
+ * Groups steps into segments: sequential steps and parallel groups.
+ * Returns an array of { type: 'step', step } | { type: 'parallel', steps[] }
+ */
+function groupSteps(steps: StepperStep[]) {
+    const segments: ({ type: 'step'; step: StepperStep } | { type: 'parallel'; steps: StepperStep[] })[] = [];
+    let i = 0;
+
+    while (i < steps.length) {
+        const step = steps[i];
+        if (step.parallelGroup) {
+            // Collect all consecutive steps with the same parallelGroup
+            const group: StepperStep[] = [];
+            const groupId = step.parallelGroup;
+            while (i < steps.length && steps[i].parallelGroup === groupId) {
+                group.push(steps[i]);
+                i++;
+            }
+            segments.push({ type: 'parallel', steps: group });
+        } else {
+            segments.push({ type: 'step', step });
+            i++;
+        }
+    }
+
+    return segments;
+}
+
+function StepRow({ steps, activeRoleName }: { steps: StepperStep[]; activeRoleName?: string | null }) {
+    const segments = groupSteps(steps);
+    let globalIndex = 0;
+
+    return (
+        <div className="flex items-center gap-0 overflow-x-auto pb-6 pt-1">
+            {segments.map((segment, segIdx) => {
+                if (segment.type === 'step') {
+                    const idx = globalIndex++;
+                    const lineColor = resolveLineColor(segment.step);
+
+                    return (
+                        <div key={`${segment.step.code}-${segIdx}`} className="flex items-center">
+                            <StepDot step={segment.step} index={idx} activeRoleName={activeRoleName} />
+                            {segIdx < segments.length - 1 && (
+                                <HLine className={cn('-mt-4.5', lineColor)} />
+                            )}
+                        </div>
+                    );
+                }
+
+                // Parallel group — fork/join rendering
+                const parallelSteps = segment.steps;
+                const startIdx = globalIndex;
+                globalIndex += parallelSteps.length;
+
+                // Determine fork line color (from the step before this group)
+                const prevSegment = segIdx > 0 ? segments[segIdx - 1] : null;
+                const forkLineColor = prevSegment
+                    ? prevSegment.type === 'step'
+                        ? resolveLineColor(prevSegment.step)
+                        : resolveLineColor(prevSegment.steps[prevSegment.steps.length - 1])
+                    : 'bg-muted';
+
+                // Join line color — best status of parallel steps
+                const allCompleted = parallelSteps.every(s => s.status === 'completed');
+                const anyRejected = parallelSteps.some(s => s.status === 'rejected');
+                const joinLineColor = allCompleted ? 'bg-green-500' : anyRejected ? 'bg-red-500' : 'bg-muted';
+
+                const hasNext = segIdx < segments.length - 1;
+
+                // Row measurements for SVG bracket alignment
+                const rowHeight = 52; // h-8 dot + gap-1 + label ≈ 52px
+                const rowGap = 28; // gap-7 — enough space for turn labels
 
                 return (
-                    <div key={`${step.code}-${i}`} className="flex items-center">
-                        <StepDot step={step} index={i} activeRoleName={activeRoleName} />
-                        {i < steps.length - 1 && (
-                            <div className={cn('mx-1 -mt-4.5 h-0.5 w-6 shrink-0', lineColor)} />
-                        )}
+                    <div key={`parallel-${segIdx}`} className="flex items-start">
+                        {/* Fork bracket ┤ */}
+                        <Bracket
+                            color={forkLineColor}
+                            side="fork"
+                            count={parallelSteps.length}
+                            rowHeight={rowHeight}
+                            gap={rowGap}
+                        />
+
+                        {/* Parallel step dots */}
+                        <div className="flex flex-col gap-7">
+                            {parallelSteps.map((pStep, pIdx) => (
+                                <div key={pStep.code} className="flex items-center">
+                                    <StepDot step={pStep} index={startIdx + pIdx} activeRoleName={activeRoleName} />
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Join bracket ├ */}
+                        <Bracket
+                            color={joinLineColor}
+                            side="join"
+                            count={parallelSteps.length}
+                            rowHeight={rowHeight}
+                            gap={rowGap}
+                        />
+
+                        {/* Line to next step — positioned at midpoint between dot centers */}
+                        {hasNext && (() => {
+                            const labelOffset = 10;
+                            const topDotY = rowHeight / 2 - labelOffset;
+                            const bottomDotY = (parallelSteps.length - 1) * (rowHeight + rowGap) + rowHeight / 2 - labelOffset;
+                            const midY = (topDotY + bottomDotY) / 2;
+                            return <HLine className={joinLineColor} style={{ marginTop: midY - 1 }} />;
+                        })()}
                     </div>
                 );
             })}
@@ -166,18 +380,15 @@ export default function StepProgress({ cycles, activeRoleName }: { cycles: Stepp
 
     return (
         <div className="space-y-2">
-            {cycles.map((cycle, i) => {
-                const isLatest = i === cycles.length - 1;
-                return (
-                    <CycleRow
-                        key={cycle.number}
-                        cycle={cycle}
-                        defaultExpanded={true}
-                        collapsible={true}
-                        activeRoleName={activeRoleName}
-                    />
-                );
-            })}
+            {cycles.map((cycle) => (
+                <CycleRow
+                    key={cycle.number}
+                    cycle={cycle}
+                    defaultExpanded={true}
+                    collapsible={true}
+                    activeRoleName={activeRoleName}
+                />
+            ))}
         </div>
     );
 }
