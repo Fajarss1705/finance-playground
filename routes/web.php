@@ -5,6 +5,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SwitcherController;
 use App\Http\Controllers\Team\TeamDashboardController;
 use App\Http\Controllers\VerifyController;
+use App\Http\Controllers\Workflows\PkWorkflowController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
@@ -47,6 +48,20 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     Route::prefix('team')->name('team.')->group(function () {
         Route::get('/', TeamDashboardController::class)->name('index');
         Route::get('files', [FileController::class, 'team'])->name('files.index');
+
+        // PK Workflow (team scope)
+        Route::prefix('workflows/pk')->name('workflows.pk.')->group(function () {
+            Route::get('/', [PkWorkflowController::class, 'index'])->name('index');
+            Route::post('/create/{ppWorkflow}', [PkWorkflowController::class, 'create'])->name('create');
+            Route::get('/{pkWorkflow}', [PkWorkflowController::class, 'show'])->name('show');
+            Route::post('/{pkWorkflow}/comment', [PkWorkflowController::class, 'comment'])->name('comment');
+            Route::post('/{pkWorkflow}/terminate', [PkWorkflowController::class, 'terminate'])->name('terminate');
+
+            // PK01
+            Route::get('/{pkWorkflow}/pk01/{pk01Data}', [PkWorkflowController::class, 'pk01Show'])->name('pk01.show');
+            Route::post('/{pkWorkflow}/pk01/{pk01Data}/draft', [PkWorkflowController::class, 'pk01Draft'])->name('pk01.draft');
+            Route::post('/{pkWorkflow}/pk01/{pk01Data}/submit', [PkWorkflowController::class, 'pk01Submit'])->name('pk01.submit');
+        });
 
         // Workflow prototypes — PABD (team scope)
         Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {

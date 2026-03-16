@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\Workflows\PpWorkflowController;
 use App\Http\Controllers\Admin\WorkspaceController;
+use App\Http\Controllers\Workflows\PkWorkflowController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
@@ -90,6 +91,18 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{ppWorkflow}/pp07/{pp07Data}', [PpWorkflowController::class, 'pp07Show'])->name('pp07.show');
             Route::post('/{ppWorkflow}/pp07/{pp07Data}/draft', [PpWorkflowController::class, 'pp07Draft'])->name('pp07.draft');
             Route::post('/{ppWorkflow}/pp07/{pp07Data}/submit', [PpWorkflowController::class, 'pp07Submit'])->name('pp07.submit');
+        });
+
+        // PK Workflow (admin scope — read-only for PK01)
+        Route::prefix('workflows/pk')->name('workflows.pk.')->group(function () {
+            Route::get('/', [PkWorkflowController::class, 'index'])->name('index');
+            Route::get('/{pkWorkflow}', [PkWorkflowController::class, 'show'])->name('show');
+            Route::post('/{pkWorkflow}/comment', [PkWorkflowController::class, 'comment'])->name('comment');
+            Route::post('/{pkWorkflow}/terminate', [PkWorkflowController::class, 'terminate'])->name('terminate');
+            Route::delete('/{pkWorkflow}', [PkWorkflowController::class, 'destroy'])->name('destroy');
+
+            // PK01 (read-only for admin)
+            Route::get('/{pkWorkflow}/pk01/{pk01Data}', [PkWorkflowController::class, 'pk01Show'])->name('pk01.show');
         });
 
         // Workflow prototypes — PABD (admin scope)

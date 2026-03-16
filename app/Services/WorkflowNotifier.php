@@ -88,13 +88,29 @@ class WorkflowNotifier
             return $this->resolveHistoryRecipients($workflow);
         }
 
-        $targetPermission = $this->getTargetPermission($event);
+        $targetPermissions = $this->getTargetPermission($event);
 
-        if ($targetPermission === null) {
+        if ($targetPermissions === null) {
             return [];
         }
 
-        return $this->resolvePermissionRecipients($workspace, $targetPermission);
+        // Support single string or array of permissions (parallel fork)
+        $permissions = is_array($targetPermissions) ? $targetPermissions : [$targetPermissions];
+
+        $recipients = [];
+        $seen = [];
+
+        foreach ($permissions as $permission) {
+            foreach ($this->resolvePermissionRecipients($workspace, $permission) as $r) {
+                $key = $r['user']->id.':'.$r['role']->id;
+                if (! isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $recipients[] = $r;
+                }
+            }
+        }
+
+        return $recipients;
     }
 
     /**
@@ -166,9 +182,11 @@ class WorkflowNotifier
     }
 
     /**
-     * Map event → target permission for recipient resolution.
+     * Map event → target permission(s) for recipient resolution.
+     *
+     * @return string|list<string>|null
      */
-    private function getTargetPermission(string $event): ?string
+    private function getTargetPermission(string $event): string|array|null
     {
         return match ($event) {
             // PP workflow events
@@ -179,6 +197,13 @@ class WorkflowNotifier
             'pp05.approved' => 'admin.workflows.pp.pp06.show',
             'pp05.rejected' => 'admin.workflows.pp.pp01.draft',
             'pp07.submitted' => 'admin.workflows.pp.pp06.show',
+
+            // PK workflow events (parallel fork: PK01 → PK02A + PK02B)
+            'pk01.submitted' => [
+                'admin.workflows.pk.pk02a.approve',
+                'admin.workflows.pk.pk02b.approve',
+            ],
+
             default => null,
         };
     }
@@ -226,6 +251,7 @@ class WorkflowNotifier
         }
 
         return match ($event) {
+            // PP workflow events
             'pp01.submitted' => ['disubmit', 'Rencana Periode (PP01)', 'Silakan lanjutkan pengisian Pertanyaan Kuisioner (PP02).'],
             'pp02.submitted' => ['disubmit', 'Pertanyaan Kuisioner (PP02)', 'Silakan lanjutkan pengisian Plafon Anggaran (PP03).'],
             'pp03.submitted' => ['disubmit', 'Plafon Anggaran (PP03)', 'Silakan lanjutkan pengisian Dokumen SOP (PP04).'],
@@ -233,6 +259,10 @@ class WorkflowNotifier
             'pp05.approved' => ['disetujui', 'Persetujuan (PP05)', 'Periode Tahunan (PP06) telah dikompilasi.'],
             'pp05.rejected' => ['ditolak', 'Persetujuan (PP05)', 'Flow dikembalikan ke PP01 untuk perbaikan.'],
             'pp07.submitted' => ['disubmit', 'Revisi (PP07)', 'Periode Tahunan (PP06) telah diperbarui.'],
+
+            // PK workflow events
+            'pk01.submitted' => ['disubmit', 'Program Kegiatan (PK01)', 'Silakan review dan approve Narasi (PK02A) dan Anggaran (PK02B).'],
+
             default => [
                 $context['action_verb'] ?? 'diproses',
                 $context['step_label'] ?? 'Step',
@@ -250,6 +280,12 @@ class WorkflowNotifier
             $pp01 = $workflow->latestPp01();
 
             return $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru';
+        }
+
+        if (method_exists($workflow, 'latestPk01')) {
+            $pk01 = $workflow->latestPk01();
+
+            return $pk01?->nama_program ? "PK-{$pk01->nama_program}" : 'PK-Baru';
         }
 
         return 'Workflow';
