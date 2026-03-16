@@ -1596,12 +1596,13 @@ class PkWorkflowController extends Controller
             $props['availableTeams'] = $availableTeams;
         }
 
-        // Team scope: create prerequisites
+        // Team scope: create prerequisites + team name
         if ($scope === 'team') {
             $createData = $this->resolveCreatePrerequisites($workspaceId, $userTeamId);
             $props['canCreate'] = $createData['canCreate'];
             $props['eligiblePpWorkflows'] = $createData['eligiblePpWorkflows'];
             $props['createMessage'] = $createData['createMessage'];
+            $props['teamName'] = \App\Models\Team::find($userTeamId)?->name;
         }
 
         return Inertia::render('workflows/pk/index', $props);
@@ -2700,9 +2701,9 @@ class PkWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
-        // Planned: SUM from in-progress raker PKs (not completed/terminated, excluding this one)
+        // Planned (raker): SUM from in-progress raker PKs (not completed/terminated, excluding this one)
         $planned = 0.0;
-        $otherPkWorkflows = PkWorkflow::query()
+        $otherRakerPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
             ->where('workspace_id', $pkWorkflow->workspace_id)
             ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
@@ -2711,7 +2712,7 @@ class PkWorkflowController extends Controller
             ->whereNull('deleted_at')
             ->get();
 
-        foreach ($otherPkWorkflows as $wf) {
+        foreach ($otherRakerPkWorkflows as $wf) {
             $status = $this->engine->getWorkflowStatus($wf->history ?? []);
             if (in_array($status, ['completed', 'terminated', 'deleted'])) {
                 continue;
@@ -2726,12 +2727,51 @@ class PkWorkflowController extends Controller
             }
         }
 
+        // Proposal totals (outside plafon)
+        $proposalAccepted = (float) Pk04Anggaran::query()
+            ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
+                ->where('team_id', $teamId)
+                ->where('workspace_id', $pkWorkflow->workspace_id)
+                ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
+                ->where('tipe', 'proposal')
+                ->whereNull('deleted_at')
+            )
+            ->where('status_item', 'active')
+            ->sum('nominal_anggaran');
+
+        $proposalPlanned = 0.0;
+        $otherProposalPkWorkflows = PkWorkflow::query()
+            ->where('team_id', $teamId)
+            ->where('workspace_id', $pkWorkflow->workspace_id)
+            ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
+            ->where('tipe', 'proposal')
+            ->where('id', '!=', $pkWorkflow->id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($otherProposalPkWorkflows as $wf) {
+            $status = $this->engine->getWorkflowStatus($wf->history ?? []);
+            if (in_array($status, ['completed', 'terminated', 'deleted'])) {
+                continue;
+            }
+            $latestPk01 = $wf->latestPk01();
+            if ($latestPk01) {
+                $proposalPlanned += (float) $latestPk01->kegiatan()
+                    ->with('anggaran')
+                    ->get()
+                    ->flatMap(fn ($k) => $k->anggaran)
+                    ->sum('nominal_anggaran');
+            }
+        }
+
         return [
             'ppLabel' => "PP-{$pp01?->tahun} Revisi {$pp06->revision}",
             'plafon' => $plafon,
             'accepted' => $accepted,
             'planned' => $planned,
             'sisa' => $plafon - $accepted,
+            'proposalAccepted' => $proposalAccepted,
+            'proposalPlanned' => $proposalPlanned,
         ];
     }
 

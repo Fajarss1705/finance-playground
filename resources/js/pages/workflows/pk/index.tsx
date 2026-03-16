@@ -57,6 +57,7 @@ type Props = {
     eligiblePpWorkflows?: EligiblePp[];
     createMessage?: string | null;
     scope: 'team' | 'admin';
+    teamName?: string;
 };
 
 const statusOptions = [
@@ -86,6 +87,7 @@ export default function PkIndex({
     eligiblePpWorkflows,
     createMessage,
     scope,
+    teamName,
 }: Props) {
     const scopeLabel = scope === 'team' ? 'Tim' : 'Manajemen';
     const scopeBase = scope === 'team' ? '/team' : '/admin';
@@ -140,10 +142,15 @@ export default function PkIndex({
             <Head title="Perencanaan Kegiatan" />
             <div className="space-y-6 p-6">
                 <div className="flex items-start justify-between gap-4">
-                    <Heading
-                        title="Perencanaan Kegiatan"
-                        description={isAdmin ? 'Semua program kegiatan' : 'Daftar program kegiatan tim Anda'}
-                    />
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                            <Heading
+                                title="Perencanaan Kegiatan"
+                                description={isAdmin ? 'Semua program kegiatan' : 'Daftar program kegiatan tim Anda'}
+                            />
+                            {teamName && <Badge variant="secondary">{teamName}</Badge>}
+                        </div>
+                    </div>
                     {scope === 'team' && canCreate && (
                         <Button onClick={handleCreate} disabled={creating}>
                             <Plus className="mr-1 h-4 w-4" />

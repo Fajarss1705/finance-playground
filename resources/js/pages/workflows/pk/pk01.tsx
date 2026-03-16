@@ -68,6 +68,8 @@ type BudgetCounter = {
     accepted: number;
     planned: number;
     sisa: number;
+    proposalAccepted: number;
+    proposalPlanned: number;
 };
 
 type RejectionNotes = {
@@ -337,7 +339,7 @@ export default function Pk01({
                 />
 
                 {/* Informasi Program */}
-                <SectionCard title="Informasi Program">
+                <SectionCard title={<span className="flex items-center gap-2">Informasi Program <Badge variant="outline">{workflow.tipe === 'raker' ? 'Raker' : 'Proposal'}</Badge></span>}>
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5 sm:col-span-2">
                             <Label>Kategori Pelayanan <span className="text-destructive">*</span></Label>
@@ -355,7 +357,7 @@ export default function Pk01({
                         </div>
                         <div className="space-y-1.5 sm:col-span-2">
                             <Label>Nama Program <span className="text-destructive">*</span></Label>
-                            <Input value={namaProgram} onChange={(e) => setNamaProgram(e.target.value)} disabled={isReadonly} maxLength={255} />
+                            <Textarea className="resize-y" rows={1} value={namaProgram} onChange={(e) => setNamaProgram(e.target.value.replace(/\n/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly} maxLength={255} />
                             {errors.nama_program && <p className="text-xs text-destructive">{errors.nama_program}</p>}
                         </div>
                         <div className="space-y-1.5">
@@ -474,16 +476,29 @@ function StepStatusBadge({ mode }: { mode: string }) {
 // ────────────────────────────────────────────────────────────
 
 function BudgetCounterSection({ counter, thisPkTotal, isOverBudget }: { counter: BudgetCounter; thisPkTotal: number; isOverBudget: boolean }) {
+    const hasProposal = counter.proposalAccepted > 0 || counter.proposalPlanned > 0;
     return (
         <SectionCard title="Referensi Anggaran">
             {counter.ppLabel && (
-                <p className="mb-3 text-sm text-muted-foreground">Menggunakan data dari {counter.ppLabel}</p>
+                <p className="mb-3 text-sm text-muted-foreground">Menggunakan data dari <Badge variant="secondary">{counter.ppLabel}</Badge></p>
             )}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <BudgetItem label="Plafon Tim" value={counter.plafon} />
-                <BudgetItem label="Sudah Ditetapkan" value={counter.accepted} />
-                <BudgetItem label="Sedang Diajukan" value={counter.planned} />
-                <BudgetItem label="Sisa" value={counter.sisa} />
+            <div className="mt-4 space-y-4">
+                <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Dalam Plafon (Raker)</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <BudgetItem label="Plafon Tim" value={counter.plafon} />
+                        <BudgetItem label="Sudah Ditetapkan (Raker)" value={counter.accepted} />
+                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.planned} />
+                        <BudgetItem label="Sisa" value={counter.sisa} />
+                    </div>
+                </div>
+                <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Di Luar Plafon (Proposal)</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <BudgetItem label="Sudah Ditetapkan (Proposal)" value={counter.proposalAccepted} />
+                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.proposalPlanned} />
+                    </div>
+                </div>
             </div>
             <div className="mt-3 flex items-center gap-2 border-t pt-3">
                 <span className="text-sm font-medium">PK Ini:</span>
@@ -646,9 +661,12 @@ function KegiatanCard({
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5">
                             <Label>Nama Kegiatan <span className="text-destructive">*</span></Label>
-                            <Input
+                            <Textarea
+                                className="resize-y"
+                                rows={1}
                                 value={kegiatan.nama_kegiatan}
-                                onChange={(e) => onUpdate({ nama_kegiatan: e.target.value })}
+                                onChange={(e) => onUpdate({ nama_kegiatan: e.target.value.replace(/\n/g, '') })}
+                                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                                 disabled={isReadonly}
                                 maxLength={255}
                             />
@@ -675,32 +693,45 @@ function KegiatanCard({
                     </div>
 
                     {/* Anggaran sub-table */}
-                    <div>
-                        <div className="mb-2 flex items-center justify-between">
-                            <h4 className="text-sm font-medium">Anggaran</h4>
-                            {!isReadonly && (
-                                <Button variant="outline" size="sm" onClick={addAnggaran}>
-                                    <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Anggaran
-                                </Button>
-                            )}
+                    <div className="rounded-lg border p-4">
+                        <div className="mb-3">
+                            <h4 className="text-sm font-semibold">Anggaran</h4>
                         </div>
                         {errors[`${ep}.anggaran`] && <p className="mb-2 text-xs text-destructive">{errors[`${ep}.anggaran`]}</p>}
                         <div className="overflow-x-auto">
                             <table className="min-w-[900px] w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
-                                        <th className="px-2 py-1.5 text-left font-medium w-36">Bidang <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-36">Sub Bidang <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-36">Jenis <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium min-w-32">Mata Anggaran <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium min-w-32">Deskripsi</th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-40">Nominal (Rp) <span className="text-destructive">*</span></th>
                                         {!isReadonly && <th className="px-2 py-1.5 w-10" />}
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-48 w-1/4">Mata Anggaran<br /><span className="text-muted-foreground font-normal">(Item Anggaran)</span> <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-56">Nominal (Rp) <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-56">Deskripsi</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-52">Bidang <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-52">Sub Bidang <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-52">Jenis <span className="text-destructive">*</span></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {kegiatan.anggaran.map((a, aIdx) => (
                                         <tr key={aIdx} className="border-b last:border-0">
+                                            {!isReadonly && (
+                                                <td className="px-2 py-1 align-top">
+                                                    <Button variant="ghost" size="sm" onClick={() => removeAnggaran(aIdx)} className="h-7 w-7 p-0">
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                </td>
+                                            )}
+                                            <td className="px-2 py-1 align-top">
+                                                <Textarea className="min-h-8 text-xs resize-y" rows={1} value={a.mata_anggaran} onChange={(e) => updateAnggaran(aIdx, { mata_anggaran: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly} maxLength={255} />
+                                                {errors[`${ep}.anggaran.${aIdx}.mata_anggaran`] && <p className="text-xs text-destructive">{errors[`${ep}.anggaran.${aIdx}.mata_anggaran`]}</p>}
+                                            </td>
+                                            <td className="px-2 py-1 align-top">
+                                                <RupiahInput value={a.nominal_anggaran} onChange={(v) => updateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly} className="h-8 text-xs" />
+                                                {errors[`${ep}.anggaran.${aIdx}.nominal_anggaran`] && <p className="text-xs text-destructive">{errors[`${ep}.anggaran.${aIdx}.nominal_anggaran`]}</p>}
+                                            </td>
+                                            <td className="px-2 py-1 align-top">
+                                                <Textarea className="min-h-8 text-xs resize-y" rows={1} value={a.deskripsi_pk} onChange={(e) => updateAnggaran(aIdx, { deskripsi_pk: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly} />
+                                            </td>
                                             <td className="px-2 py-1">
                                                 <Select value={a.kode_bidang} onValueChange={(v) => updateAnggaran(aIdx, { kode_bidang: v })} disabled={isReadonly}>
                                                     <SelectTrigger className="h-8 text-xs">
@@ -740,65 +771,59 @@ function KegiatanCard({
                                                 </Select>
                                                 {errors[`${ep}.anggaran.${aIdx}.kode_jenis`] && <p className="text-xs text-destructive">{errors[`${ep}.anggaran.${aIdx}.kode_jenis`]}</p>}
                                             </td>
-                                            <td className="px-2 py-1">
-                                                <Input className="h-8 text-xs" value={a.mata_anggaran} onChange={(e) => updateAnggaran(aIdx, { mata_anggaran: e.target.value })} disabled={isReadonly} maxLength={255} />
-                                                {errors[`${ep}.anggaran.${aIdx}.mata_anggaran`] && <p className="text-xs text-destructive">{errors[`${ep}.anggaran.${aIdx}.mata_anggaran`]}</p>}
-                                            </td>
-                                            <td className="px-2 py-1">
-                                                <Input className="h-8 text-xs" value={a.deskripsi_pk} onChange={(e) => updateAnggaran(aIdx, { deskripsi_pk: e.target.value })} disabled={isReadonly} />
-                                            </td>
-                                            <td className="px-2 py-1">
-                                                <RupiahInput value={a.nominal_anggaran} onChange={(v) => updateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly} className="h-8 text-xs" />
-                                                {errors[`${ep}.anggaran.${aIdx}.nominal_anggaran`] && <p className="text-xs text-destructive">{errors[`${ep}.anggaran.${aIdx}.nominal_anggaran`]}</p>}
-                                            </td>
-                                            {!isReadonly && (
-                                                <td className="px-2 py-1">
-                                                    <Button variant="ghost" size="sm" onClick={() => removeAnggaran(aIdx)} className="h-7 w-7 p-0">
-                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                    </Button>
-                                                </td>
-                                            )}
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
+                        {!isReadonly && (
+                            <div className="mt-3">
+                                <Button variant="outline" size="sm" onClick={addAnggaran}>
+                                    <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Anggaran
+                                </Button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Kuisioner sub-table */}
-                    <div>
-                        <div className="mb-2 flex items-center justify-between">
-                            <h4 className="text-sm font-medium">Kuisioner</h4>
-                            {!isReadonly && (
-                                <div className="flex gap-1">
-                                    {kuisionerTemplates.length > 0 && (
-                                        <Button variant="outline" size="sm" onClick={onOpenTemplatePicker}>
-                                            <FileText className="mr-1 h-3.5 w-3.5" /> Tambah dari Template
-                                        </Button>
-                                    )}
-                                    <Button variant="outline" size="sm" onClick={addKuisioner}>
-                                        <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Kuisioner
-                                    </Button>
-                                </div>
-                            )}
+                    <div className="rounded-lg border p-4">
+                        <div className="mb-3">
+                            <h4 className="text-sm font-semibold">Kuisioner</h4>
                         </div>
                         {kegiatan.kuisioner.length > 0 && (
                             <div className="overflow-x-auto">
                                 <table className="min-w-[700px] w-full text-sm">
                                     <thead>
                                         <tr className="border-b bg-muted/50">
+                                            {!isReadonly && <th className="px-2 py-1.5 w-10" />}
+                                            <th className="px-2 py-1.5 text-left font-medium w-28">Sumber</th>
+                                            <th className="px-2 py-1.5 text-left font-medium w-16">Kode</th>
                                             <th className="px-2 py-1.5 text-left font-medium min-w-48">Pertanyaan <span className="text-destructive">*</span></th>
                                             <th className="px-2 py-1.5 text-left font-medium w-32">Tipe <span className="text-destructive">*</span></th>
                                             <th className="px-2 py-1.5 text-left font-medium w-28">Satuan</th>
-                                            <th className="px-2 py-1.5 text-left font-medium w-28">Sumber</th>
-                                            {!isReadonly && <th className="px-2 py-1.5 w-10" />}
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {kegiatan.kuisioner.map((q, qIdx) => (
                                             <tr key={qIdx} className="border-b last:border-0">
+                                                {!isReadonly && (
+                                                    <td className="px-2 py-1">
+                                                        <Button variant="ghost" size="sm" onClick={() => removeKuisioner(qIdx)} className="h-7 w-7 p-0">
+                                                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                        </Button>
+                                                    </td>
+                                                )}
                                                 <td className="px-2 py-1">
-                                                    <Input className="h-8 text-xs" value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value })} disabled={isReadonly} maxLength={255} />
+                                                    {q.kode_kuisioner
+                                                        ? <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-xs">Template PP</Badge>
+                                                        : <Badge variant="outline" className="text-xs">Custom</Badge>
+                                                    }
+                                                </td>
+                                                <td className="px-2 py-1 text-xs text-muted-foreground">
+                                                    {q.kode_kuisioner || '—'}
+                                                </td>
+                                                <td className="px-2 py-1 align-top">
+                                                    <Textarea className="min-h-8 text-xs resize-y" rows={1} value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly} maxLength={255} />
                                                     {errors[`${ep}.kuisioner.${qIdx}.pertanyaan`] && <p className="text-xs text-destructive">{errors[`${ep}.kuisioner.${qIdx}.pertanyaan`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
@@ -808,19 +833,6 @@ function KegiatanCard({
                                                 <td className="px-2 py-1">
                                                     <Input className="h-8 text-xs" value={q.satuan} onChange={(e) => updateKuisioner(qIdx, { satuan: e.target.value })} disabled={isReadonly} maxLength={100} />
                                                 </td>
-                                                <td className="px-2 py-1">
-                                                    {q.kode_kuisioner
-                                                        ? <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-xs">Template PP</Badge>
-                                                        : <Badge variant="outline" className="text-xs">Custom</Badge>
-                                                    }
-                                                </td>
-                                                {!isReadonly && (
-                                                    <td className="px-2 py-1">
-                                                        <Button variant="ghost" size="sm" onClick={() => removeKuisioner(qIdx)} className="h-7 w-7 p-0">
-                                                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                        </Button>
-                                                    </td>
-                                                )}
                                             </tr>
                                         ))}
                                     </tbody>
@@ -829,6 +841,18 @@ function KegiatanCard({
                         )}
                         {kegiatan.kuisioner.length === 0 && (
                             <p className="text-xs text-muted-foreground">Belum ada kuisioner untuk kegiatan ini (opsional).</p>
+                        )}
+                        {!isReadonly && (
+                            <div className="mt-3 flex gap-1">
+                                {kuisionerTemplates.length > 0 && (
+                                    <Button variant="outline" size="sm" onClick={onOpenTemplatePicker}>
+                                        <FileText className="mr-1 h-3.5 w-3.5" /> Tambah dari Template
+                                    </Button>
+                                )}
+                                <Button variant="outline" size="sm" onClick={addKuisioner}>
+                                    <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Kuisioner
+                                </Button>
+                            </div>
                         )}
                     </div>
                 </div>
