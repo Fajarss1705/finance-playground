@@ -1409,9 +1409,9 @@ it('displays PK03 page as readonly for admin without approve permission', functi
         );
 });
 
-// ── PK03 Approve → PK04 Created ──
+// ── PK03 Approve → PK04 Compiled ──
 
-it('creates PK04 when PK03 approves', function () {
+it('compiles PK04 when PK03 approves', function () {
     [$user, $role, $workspace, $team] = setupPkUser(
         'admin.workflows.pk.pk03.show',
         'admin.workflows.pk.pk03.approve',
@@ -1429,16 +1429,17 @@ it('creates PK04 when PK03 approves', function () {
     $statuses = $engine->getStepStatuses($definition, $pkWorkflow->history);
 
     expect($statuses['PK03']['status'])->toBe('completed')
-        ->and($statuses['PK04']['status'])->toBe('active');
+        ->and($statuses['PK04']['status'])->toBe('completed');
 
     // PK03 approved entry in history
     $pk03Approved = collect($pkWorkflow->history)->where('step', 'PK03')->where('action', 'approved')->first();
     expect($pk03Approved)->not->toBeNull()
         ->and($pk03Approved['reviewed']['pk01_data'])->toBe($pk01->id);
 
-    // PK04 created entry in history
-    $pk04Created = collect($pkWorkflow->history)->where('step', 'PK04')->where('action', 'created')->first();
-    expect($pk04Created)->not->toBeNull();
+    // PK04 completed entry in history (compiled synchronously)
+    $pk04Completed = collect($pkWorkflow->history)->where('step', 'PK04')->where('action', 'completed')->first();
+    expect($pk04Completed)->not->toBeNull()
+        ->and($pk04Completed['revision'])->toBe(0);
 });
 
 // ── PK03 Reject → PK01 Re-entry ──
@@ -1604,4 +1605,319 @@ it('includes pp06_revision in PK03 history entry', function () {
     $pkWorkflow->refresh();
     $pk03Approved = collect($pkWorkflow->history)->where('step', 'PK03')->where('action', 'approved')->first();
     expect($pk03Approved)->toHaveKey('pp06_revision');
+});
+
+// ══════════════════════════════════════════════════════════════
+//  PK04 — Compile / Program Tahunan
+// ══════════════════════════════════════════════════════════════
+
+it('compiles PK04 with correct data when PK03 approves', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'RAKER approved'])
+        ->assertRedirect();
+
+    // PK04 row created with correct data
+    $pk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)->first();
+    expect($pk04)->not->toBeNull()
+        ->and($pk04->revision)->toBe(0)
+        ->and($pk04->kode_kategori)->toBe('K01')
+        ->and($pk04->nama_program)->toBe('Program Test PK02')
+        ->and($pk04->nomer_program)->toBe(1)
+        ->and($pk04->verification_code)->not->toBeNull()
+        ->and(strlen($pk04->verification_code))->toBe(8);
+
+    // Kegiatan copied
+    $pk04->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+    expect($pk04->kegiatan)->toHaveCount(1);
+
+    $kegiatan = $pk04->kegiatan->first();
+    expect($kegiatan->nama_kegiatan)->toBe('Kegiatan Test')
+        ->and($kegiatan->bulan)->toBe(3)
+        ->and($kegiatan->nomer_kegiatan)->toBe(1)
+        ->and($kegiatan->source)->toBe('pk');
+
+    // Anggaran copied with kode
+    expect($kegiatan->anggaran)->toHaveCount(1);
+    $anggaran = $kegiatan->anggaran->first();
+    expect($anggaran->mata_anggaran)->toBe('Konsumsi')
+        ->and((float) $anggaran->nominal_anggaran)->toBe(2500000.0)
+        ->and($anggaran->nomer_anggaran)->toBe(1)
+        ->and($anggaran->revisi_terakhir)->toBe(0)
+        ->and($anggaran->status_item)->toBe('active')
+        ->and($anggaran->kode_anggaran_baru)->not->toBeNull()
+        ->and($anggaran->kode_anggaran_lama)->not->toBeNull();
+
+    // Kuisioner copied
+    expect($kegiatan->kuisioner)->toHaveCount(1);
+    $kuisioner = $kegiatan->kuisioner->first();
+    expect($kuisioner->pertanyaan)->toBe('Jumlah peserta')
+        ->and($kuisioner->kode_kuisioner)->toBe('Q01');
+
+    // Author snapshot from PK01 submitter
+    expect($pk04->pk01_created_by_user_name)->toBe($user->name);
+
+    // History contains PK04 completed entry with revision=0
+    $pkWorkflow->refresh();
+    $pk04Completed = collect($pkWorkflow->history)->where('step', 'PK04')->where('action', 'completed')->first();
+    expect($pk04Completed)->not->toBeNull()
+        ->and($pk04Completed['revision'])->toBe(0)
+        ->and($pk04Completed['id'])->toBe($pk04->id);
+});
+
+it('generates correct kode anggaran format', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('admin.workflows.pk.pk03.approve');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    $pk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)->first();
+    $anggaran = $pk04->kegiatan->first()->anggaran->first();
+
+    // Format Baru: XX.XX.XX.XX.XX.XXX.XXX.XXX.XXXX.XX.XX
+    // Bidang.SubBidang.Tim.Jenis.Kategori.Program.Kegiatan.Anggaran.Tahun.Bulan.Revisi
+    $kodeBaru = $anggaran->kode_anggaran_baru;
+    $segments = explode('.', $kodeBaru);
+    expect($segments)->toHaveCount(11)
+        ->and($segments[0])->toBe('B01')  // kode_bidang
+        ->and($segments[1])->toBe('SB01') // kode_sub_bidang (padded to 2 but SB01 is 4 chars)
+        ->and($segments[3])->toBe('J01')  // kode_jenis
+        ->and($segments[8])->toBe('2027') // tahun
+        ->and($segments[9])->toBe('03')   // bulan
+        ->and($segments[10])->toBe('00'); // revisi
+
+    // Format Lama: XX.XX.XX.XX.XX.XXX
+    $kodeLama = $anggaran->kode_anggaran_lama;
+    $lamaSegments = explode('.', $kodeLama);
+    expect($lamaSegments)->toHaveCount(6);
+});
+
+it('generates deterministic verification code', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('admin.workflows.pk.pk03.approve');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    $pk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)->first();
+    $originalCode = $pk04->verification_code;
+
+    // Re-generate should produce the same code
+    $compileService = app(\App\Services\PkCompileService::class);
+    $regeneratedCode = $compileService->generateVerificationCode($pk04);
+    expect($regeneratedCode)->toBe($originalCode);
+});
+
+it('blocks compile when budget exceeds plafon for raker PK', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'team.workflows.pk.create',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow, $pp06] = setupCompletedPp($workspace, $team);
+
+    // Reduce plafon to a small amount
+    $pp06->itemPlafonAnggaran()->update(['plafon_anggaran' => 100000]);
+
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // PK01 has 2,500,000 anggaran (from setupPkAtPk02) but plafon is only 100,000
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'approve'])
+        ->assertSessionHasErrors(['approve']);
+
+    // PK04 should NOT be created (transaction rolled back)
+    $pk04Count = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)->count();
+    expect($pk04Count)->toBe(0);
+
+    // PK03 approved should also be rolled back
+    $pkWorkflow->refresh();
+    $pk03Approved = collect($pkWorkflow->history)->where('step', 'PK03')->where('action', 'approved')->first();
+    expect($pk03Approved)->toBeNull();
+});
+
+it('assigns sequential nomer_program per team', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // First PK workflow
+    [$pkWorkflow1] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow1), ['notes' => 'ok']);
+
+    // Second PK workflow
+    [$pkWorkflow2] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow2), ['notes' => 'ok']);
+
+    $pk04_1 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow1->id)->first();
+    $pk04_2 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow2->id)->first();
+
+    expect($pk04_1->nomer_program)->toBe(1)
+        ->and($pk04_2->nomer_program)->toBe(2);
+});
+
+// ── PK04 Show ──
+
+it('displays PK04 page for admin user', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.comment',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Compile PK04
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    $this->get(route('admin.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk04')
+            ->has('pk04Data')
+            ->where('pk04Data.revision', 0)
+            ->where('pk04Data.nama_program', 'Program Test PK02')
+            ->has('pk04Data.kegiatan', 1)
+            ->has('pk04Data.kegiatan.0.anggaran', 1)
+            ->has('pk04Data.kegiatan.0.kuisioner', 1)
+            ->where('pk04Data.verification_code', fn ($v) => is_string($v) && strlen($v) === 8)
+            ->where('scope', 'admin')
+            ->where('canComment', true)
+        );
+});
+
+it('displays PK04 page for team user (readonly)', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'team.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Compile PK04
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    $this->get(route('team.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk04')
+            ->has('pk04Data')
+            ->where('scope', 'team')
+        );
+});
+
+it('shows empty state when PK04 not yet compiled', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Don't approve PK03 — PK04 not yet compiled
+    $this->get(route('admin.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk04')
+            ->where('pk04Data', null)
+        );
+});
+
+it('displays budget context for raker PK04', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Compile PK04
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    $this->get(route('admin.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('budgetContext')
+            ->where('budgetContext.plafon', 50000000)
+        );
+});
+
+// ── PK04 Show Permission ──
+
+it('denies PK04 show without permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    // No pk04.show permission
+    $this->get(route('admin.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertForbidden();
+});
+
+// ── PK04 Export ──
+
+it('denies PK04 PDF export without permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    // No pk04.export.pdf permission
+    $this->get(route('admin.workflows.pk.pk04.export.pdf', $pkWorkflow))
+        ->assertForbidden();
+});
+
+it('denies PK04 Excel export without permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    // No pk04.export.excel permission
+    $this->get(route('admin.workflows.pk.pk04.export.excel', $pkWorkflow))
+        ->assertForbidden();
+});
+
+it('denies PK04 ZIP export without permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    // No pk04.export.zip permission
+    $this->get(route('admin.workflows.pk.pk04.export.zip', $pkWorkflow))
+        ->assertForbidden();
 });

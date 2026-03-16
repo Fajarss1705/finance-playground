@@ -118,6 +118,12 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{pkWorkflow}/pk03', [PkWorkflowController::class, 'pk03Show'])->name('pk03.show');
             Route::post('/{pkWorkflow}/pk03/approve', [PkWorkflowController::class, 'pk03Approve'])->name('pk03.approve');
             Route::post('/{pkWorkflow}/pk03/reject', [PkWorkflowController::class, 'pk03Reject'])->name('pk03.reject');
+
+            // PK04 (admin scope — show + export)
+            Route::get('/{pkWorkflow}/pk04', [PkWorkflowController::class, 'pk04Show'])->name('pk04.show');
+            Route::get('/{pkWorkflow}/pk04/export/pdf', [PkWorkflowController::class, 'pk04ExportPdf'])->name('pk04.export.pdf');
+            Route::get('/{pkWorkflow}/pk04/export/excel', [PkWorkflowController::class, 'pk04ExportExcel'])->name('pk04.export.excel');
+            Route::get('/{pkWorkflow}/pk04/export/zip', [PkWorkflowController::class, 'pk04ExportZip'])->name('pk04.export.zip');
         });
 
         // Workflow prototypes — PABD (admin scope)

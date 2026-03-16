@@ -14,9 +14,11 @@ use App\Http\Requests\Workflows\Pk03ApproveRequest;
 use App\Http\Requests\Workflows\Pk03RejectRequest;
 use App\Http\Requests\Workflows\PkCommentRequest;
 use App\Http\Requests\Workflows\PkTerminateRequest;
+use App\Models\File;
 use App\Models\Permission;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
+use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp06PeriodeTahunan;
 use App\Models\Pp\PpWorkflow;
@@ -25,10 +27,12 @@ use App\Models\User;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
+use App\Services\PkCompileService;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -633,29 +637,57 @@ class PkWorkflowController extends Controller
         );
 
         $pk01Data = $pkWorkflow->latestPk01();
+        $compileService = app(PkCompileService::class);
 
-        $this->engine->recordAction(
-            workflow: $pkWorkflow,
-            step: 'PK03',
-            action: 'approved',
-            userId: $request->user()->id,
-            sessionContext: $sessionContext,
-            notes: $validated['notes'] ?? null,
-            files: ! empty($fileIds) ? $fileIds : null,
-            extra: [
-                'reviewed' => ['pk01_data' => $pk01Data?->id],
-                'pp06_revision' => $this->getLatestPp06Revision($pkWorkflow),
-            ],
-        );
+        try {
+            $pk04 = DB::transaction(function () use ($request, $pkWorkflow, $pk01Data, $validated, $sessionContext, $fileIds, $compileService) {
+                // Record PK03 approved
+                $this->engine->recordAction(
+                    workflow: $pkWorkflow,
+                    step: 'PK03',
+                    action: 'approved',
+                    userId: $request->user()->id,
+                    sessionContext: $sessionContext,
+                    notes: $validated['notes'] ?? null,
+                    files: ! empty($fileIds) ? $fileIds : null,
+                    extra: [
+                        'reviewed' => ['pk01_data' => $pk01Data?->id],
+                        'pp06_revision' => $this->getLatestPp06Revision($pkWorkflow),
+                    ],
+                );
 
-        // Auto-create PK04 step instance
-        $this->engine->recordAction(
-            workflow: $pkWorkflow,
-            step: 'PK04',
-            action: 'created',
-            userId: null,
-            sessionContext: [],
-        );
+                // Compile PK04 (may throw RuntimeException on budget hard block)
+                $pk04 = $compileService->compile($pkWorkflow);
+
+                // Record PK04 completed
+                $this->engine->recordAction(
+                    workflow: $pkWorkflow,
+                    step: 'PK04',
+                    action: 'completed',
+                    userId: null,
+                    sessionContext: [],
+                    table: 'pk04_program_tahunan',
+                    dataId: $pk04->id,
+                    extra: [
+                        'revision' => 0,
+                        'pp06_revision' => $this->getLatestPp06Revision($pkWorkflow),
+                        'triggered_by' => [
+                            'user_id' => $request->user()->id,
+                            'step' => 'PK03',
+                            'action' => 'approved',
+                        ],
+                    ],
+                );
+
+                return $pk04;
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['approve' => $e->getMessage()]);
+        }
+
+        // Generate export files (outside transaction — failures are non-blocking)
+        $exportResult = $compileService->generateExportFiles($pk04, $request->user()->id, $pkWorkflow->workspace_id);
+        $compileService->appendExportFilesToHistory($pkWorkflow->fresh(), $exportResult, 0);
 
         $this->notifier->notify($pkWorkflow, 'pk03.approved', [
             'actor_name' => $request->user()->name,
@@ -665,7 +697,7 @@ class PkWorkflowController extends Controller
         $showRoute = route('admin.workflows.pk.show', $pkWorkflow);
 
         return redirect($showRoute)
-            ->with('success', 'RAKER berhasil disetujui. PK04 telah dibuat.');
+            ->with('success', 'RAKER berhasil disetujui. Program Tahunan (PK04) telah dikompilasi.');
     }
 
     public function pk03Reject(Pk03RejectRequest $request, PkWorkflow $pkWorkflow): RedirectResponse
@@ -759,6 +791,363 @@ class PkWorkflowController extends Controller
 
         return redirect($showRoute)
             ->with('success', 'RAKER ditolak. PK01 dikembalikan ke tim untuk perbaikan.');
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  PK04 — Program Tahunan (Final Compile)
+    // ──────────────────────────────────────────────────────────
+
+    public function pk04Show(PkWorkflow $pkWorkflow): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pkWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pk.pk04.show");
+
+        $history = $pkWorkflow->history ?? [];
+
+        // Resolve requested revision or latest
+        $revisionParam = request()->query('revision');
+        if ($revisionParam !== null) {
+            $pk04 = $pkWorkflow->pk04ProgramTahunan()->where('revision', (int) $revisionParam)->first();
+        }
+        $pk04 ??= $pkWorkflow->latestPk04();
+        $pk04?->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        // All revisions for revision history navigation
+        $allRevisions = $pkWorkflow->pk04ProgramTahunan()
+            ->orderBy('revision')
+            ->get(['id', 'revision', 'nomer_program', 'created_at', 'verification_code']);
+
+        // Extract changelog diffs from history
+        $changelogByRevision = [];
+        foreach ($history as $entry) {
+            // PK05 submitted entries (admin revision)
+            if (($entry['step'] ?? '') === 'PK05'
+                && ($entry['action'] ?? '') === 'submitted'
+                && isset($entry['revision'], $entry['changes'])) {
+                $changelogByRevision[$entry['revision']] = $entry['changes'];
+            }
+            // PK04 completed entries triggered by PABD02B (tarik maju)
+            if (($entry['step'] ?? '') === 'PK04'
+                && ($entry['action'] ?? '') === 'completed'
+                && isset($entry['revision'], $entry['changes'])
+                && ($entry['revision'] ?? 0) > 0) {
+                $changelogByRevision[$entry['revision']] = $entry['changes'];
+            }
+        }
+
+        // Budget context (raker only)
+        $budgetContext = null;
+        if ($pk04 && $pkWorkflow->tipe === 'raker') {
+            $budgetCounter = $this->getBudgetCounters($pkWorkflow);
+            $thisTotal = (float) $pk04->kegiatan->flatMap(fn ($k) => $k->anggaran)
+                ->where('status_item', 'active')
+                ->sum('nominal_anggaran');
+
+            $budgetContext = [
+                'pp_label' => $budgetCounter['ppLabel'],
+                'plafon' => $budgetCounter['plafon'],
+                'sudah_ditetapkan' => $budgetCounter['accepted'],
+                'sisa' => $budgetCounter['sisa'],
+                'pk_ini' => $thisTotal,
+            ];
+        }
+
+        // Labels
+        $teamName = $pkWorkflow->team?->name ?? 'Unknown';
+        $pp01 = $pkWorkflow->ppWorkflow?->latestPp01();
+        $tahun = $pp01?->tahun;
+        $label = "PK-{$teamName}-{$tahun}";
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        $pp06RevisionLabel = $pp06 ? "PP-{$tahun} Revisi {$pp06->revision}" : null;
+
+        // Approver info (PK03)
+        $approverInfo = $this->resolvePk03ApproverInfo($history);
+
+        // Revision button logic
+        $permissions = $this->session->getActivePermissions();
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+        $activeDraft = $pkWorkflow->pk05Data()->whereNull('submitted_at')->first();
+
+        $canRevise = $pk04 !== null
+            && $workflowStatus === 'completed'
+            && $scope === 'admin'
+            && in_array('admin.workflows.pk.pk05.create', $permissions);
+
+        $permPrefix = "{$scope}.workflows.pk";
+        $basePath = $scope === 'team'
+            ? "/team/workflows/pk/{$pkWorkflow->id}"
+            : "/admin/workflows/pk/{$pkWorkflow->id}";
+
+        // Map pk04 data for frontend
+        $pk04Data = null;
+        if ($pk04) {
+            $bulanLabels = [
+                1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+                5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+                9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+            ];
+
+            $pk04Data = [
+                'id' => $pk04->id,
+                'revision' => $pk04->revision,
+                'kode_kategori' => $pk04->kode_kategori,
+                'nama_program' => $pk04->nama_program,
+                'deskripsi_program' => $pk04->deskripsi_program,
+                'tujuan_program' => $pk04->tujuan_program,
+                'nomer_program' => $pk04->nomer_program,
+                'verification_code' => $pk04->verification_code,
+                'created_at' => $pk04->created_at?->toIso8601String(),
+                'pk01_created_by_user_name' => $pk04->pk01_created_by_user_name,
+                'pk01_created_by_role_name' => $pk04->pk01_created_by_role_name,
+                'pk01_created_by_team_name' => $pk04->pk01_created_by_team_name,
+                'pk01_created_at' => $pk04->pk01_created_at?->toIso8601String(),
+                'kegiatan' => $pk04->kegiatan->sortBy('nomer_kegiatan')->map(fn ($k) => [
+                    'id' => $k->id,
+                    'nama_kegiatan' => $k->nama_kegiatan,
+                    'bulan' => $k->bulan,
+                    'bulan_label' => $bulanLabels[$k->bulan] ?? null,
+                    'nomer_kegiatan' => $k->nomer_kegiatan,
+                    'source' => $k->source,
+                    'anggaran' => $k->anggaran->sortBy('nomer_anggaran')->map(fn ($a) => [
+                        'id' => $a->id,
+                        'kode_anggaran_baru' => $a->kode_anggaran_baru,
+                        'kode_anggaran_lama' => $a->kode_anggaran_lama,
+                        'kode_bidang' => $a->kode_bidang,
+                        'kode_sub_bidang' => $a->kode_sub_bidang,
+                        'kode_jenis' => $a->kode_jenis,
+                        'mata_anggaran' => $a->mata_anggaran,
+                        'deskripsi_pk' => $a->deskripsi_pk,
+                        'nominal_anggaran' => (float) $a->nominal_anggaran,
+                        'nomer_anggaran' => $a->nomer_anggaran,
+                        'revisi_terakhir' => $a->revisi_terakhir,
+                        'status_item' => $a->status_item,
+                        'source' => $a->source,
+                    ])->values(),
+                    'kuisioner' => $k->kuisioner->map(fn ($q) => [
+                        'id' => $q->id,
+                        'kode_kuisioner' => $q->kode_kuisioner,
+                        'pertanyaan' => $q->pertanyaan,
+                        'tipe' => $q->tipe,
+                        'satuan' => $q->satuan,
+                    ])->values(),
+                ])->values(),
+            ];
+        }
+
+        return Inertia::render('workflows/pk/pk04', [
+            'workflow' => [
+                'id' => $pkWorkflow->id,
+                'label' => $label,
+                'status' => $workflowStatus,
+                'history' => $this->historyFormatter->format($history),
+                'tipe' => $pkWorkflow->tipe,
+            ],
+            'pk04Data' => $pk04Data,
+            'allRevisions' => $allRevisions,
+            'changelogByRevision' => $changelogByRevision,
+            'budgetContext' => $budgetContext,
+            'pkType' => $pkWorkflow->tipe,
+            'pp06RevisionLabel' => $pp06RevisionLabel,
+            'approverInfo' => $approverInfo,
+            'canRevise' => $canRevise,
+            'activeDraftId' => $activeDraft?->id,
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'commentUrl' => "{$basePath}/comment",
+            'scope' => $scope,
+        ]);
+    }
+
+    public function pk04ExportPdf(PkWorkflow $pkWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pkWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pk.pk04.export.pdf");
+
+        $revision = request()->query('revision');
+        $pk04 = $revision !== null
+            ? $pkWorkflow->pk04ProgramTahunan()->where('revision', (int) $revision)->first()
+            : $pkWorkflow->latestPk04();
+
+        if (! $pk04) {
+            return back()->withErrors(['export' => 'PK04 belum dikompilasi.']);
+        }
+
+        // Find existing export file
+        $file = File::where('attachable_type', Pk04ProgramTahunan::class)
+            ->where('attachable_id', $pk04->id)
+            ->where('source_route', 'pk04.export.pdf')
+            ->first();
+
+        if ($file && $file->path && \Illuminate\Support\Facades\Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        // Regenerate on-demand
+        $compileService = app(PkCompileService::class);
+        $exportResult = $compileService->generateExportFiles($pk04, auth()->id(), $pkWorkflow->workspace_id);
+        $compileService->appendExportFilesToHistory($pkWorkflow, $exportResult, $pk04->revision);
+
+        if (! $exportResult['pdf_file_id']) {
+            return back()->withErrors(['export' => 'Gagal membuat file PDF.']);
+        }
+
+        $file = File::find($exportResult['pdf_file_id']);
+
+        return response()->download(
+            \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+            $file->original_filename,
+            ['Content-Type' => $file->mime_type],
+        );
+    }
+
+    public function pk04ExportExcel(PkWorkflow $pkWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pkWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pk.pk04.export.excel");
+
+        $revision = request()->query('revision');
+        $pk04 = $revision !== null
+            ? $pkWorkflow->pk04ProgramTahunan()->where('revision', (int) $revision)->first()
+            : $pkWorkflow->latestPk04();
+
+        if (! $pk04) {
+            return back()->withErrors(['export' => 'PK04 belum dikompilasi.']);
+        }
+
+        // Find existing export file
+        $file = File::where('attachable_type', Pk04ProgramTahunan::class)
+            ->where('attachable_id', $pk04->id)
+            ->where('source_route', 'pk04.export.excel')
+            ->first();
+
+        if ($file && $file->path && \Illuminate\Support\Facades\Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        // Regenerate on-demand
+        $compileService = app(PkCompileService::class);
+        $exportResult = $compileService->generateExportFiles($pk04, auth()->id(), $pkWorkflow->workspace_id);
+        $compileService->appendExportFilesToHistory($pkWorkflow, $exportResult, $pk04->revision);
+
+        if (! $exportResult['excel_file_id']) {
+            return back()->withErrors(['export' => 'Gagal membuat file Excel.']);
+        }
+
+        $file = File::find($exportResult['excel_file_id']);
+
+        return response()->download(
+            \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path),
+            $file->original_filename,
+            ['Content-Type' => $file->mime_type],
+        );
+    }
+
+    public function pk04ExportZip(PkWorkflow $pkWorkflow): \Symfony\Component\HttpFoundation\StreamedResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pkWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pk.pk04.export.zip");
+
+        $revisions = $pkWorkflow->pk04ProgramTahunan()->orderBy('revision')->get();
+
+        if ($revisions->isEmpty()) {
+            return back()->withErrors(['export' => 'PK04 belum dikompilasi.']);
+        }
+
+        $teamName = $pkWorkflow->team?->name ?? 'Unknown';
+        $pp01 = $pkWorkflow->ppWorkflow?->latestPp01();
+        $tahun = $pp01?->tahun ?? now()->year;
+        $programName = $revisions->last()->nama_program ?? 'Program';
+        $zipFilename = "PK-{$teamName}-{$tahun}-{$programName}.zip";
+        $zipFilename = preg_replace('/[^\w\-. ]/', '', $zipFilename);
+
+        // Collect per-revision export files
+        $revisionData = [];
+        foreach ($revisions as $pk04) {
+            $exportFiles = File::where('attachable_type', Pk04ProgramTahunan::class)
+                ->where('attachable_id', $pk04->id)
+                ->whereNotNull('path')
+                ->get();
+
+            $revisionData[$pk04->revision] = ['exports' => $exportFiles];
+        }
+
+        // Comment attachment files
+        $historyFileIds = collect($pkWorkflow->history ?? [])
+            ->pluck('files')
+            ->filter()
+            ->flatten()
+            ->unique()
+            ->all();
+        $commentFiles = ! empty($historyFileIds)
+            ? File::whereIn('id', $historyFileIds)->whereNotNull('path')->get()
+            : collect();
+
+        return response()->streamDownload(function () use ($revisionData, $commentFiles) {
+            $zip = new \ZipStream\ZipStream(
+                outputStream: fopen('php://output', 'wb'),
+                sendHttpHeaders: false,
+            );
+
+            $addedFiles = [];
+            $addFile = function ($zip, string $folder, File $file) use (&$addedFiles) {
+                $name = $file->original_filename;
+                $key = "{$folder}/{$name}";
+                $counter = 1;
+                while (isset($addedFiles[$key])) {
+                    $ext = pathinfo($name, PATHINFO_EXTENSION);
+                    $base = pathinfo($name, PATHINFO_FILENAME);
+                    $key = "{$folder}/{$base} ({$counter}).{$ext}";
+                    $counter++;
+                }
+                $addedFiles[$key] = true;
+
+                $path = \Illuminate\Support\Facades\Storage::disk($file->disk)->path($file->path);
+                if (file_exists($path)) {
+                    $zip->addFileFromPath($key, $path);
+                }
+            };
+
+            foreach ($revisionData as $revision => $data) {
+                $folder = "Revisi-{$revision}";
+                foreach ($data['exports'] as $file) {
+                    $addFile($zip, $folder, $file);
+                }
+            }
+
+            if ($commentFiles->isNotEmpty()) {
+                foreach ($commentFiles as $file) {
+                    $addFile($zip, 'Lampiran Komentar', $file);
+                }
+            }
+
+            $zip->finish();
+        }, $zipFilename, [
+            'Content-Type' => 'application/zip',
+            'Content-Disposition' => 'attachment; filename="'.$zipFilename.'"',
+        ]);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -1298,6 +1687,30 @@ class PkWorkflowController extends Controller
         }
 
         return $approvals;
+    }
+
+    /**
+     * Resolve PK03 approver info from history for PK04 display.
+     *
+     * @return array{by_name: ?string, role_name: ?string, at: ?string}|null
+     */
+    private function resolvePk03ApproverInfo(array $history): ?array
+    {
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['step'] ?? '') === 'PK03' && ($history[$i]['action'] ?? '') === 'approved') {
+                $entry = $history[$i];
+                $byName = isset($entry['by']) ? User::withTrashed()->find($entry['by'])?->name : null;
+                $roleName = isset($entry['role']) ? Role::withTrashed()->find($entry['role'])?->name : null;
+
+                return [
+                    'by_name' => $byName,
+                    'role_name' => $roleName,
+                    'at' => $entry['at'] ?? null,
+                ];
+            }
+        }
+
+        return null;
     }
 
     /**
