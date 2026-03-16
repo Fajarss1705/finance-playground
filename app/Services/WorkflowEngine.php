@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\WorkflowDefinition;
 use App\Enums\StepType;
 use App\Enums\WorkflowType;
+use App\Workflows\PkWorkflowDefinition;
 use App\Workflows\PpWorkflowDefinition;
 use Illuminate\Database\Eloquent\Model;
 
@@ -20,6 +21,7 @@ class WorkflowEngine
     {
         return match ($type) {
             WorkflowType::PP => new PpWorkflowDefinition,
+            WorkflowType::PK => new PkWorkflowDefinition,
             default => throw new \InvalidArgumentException("No definition for workflow type: {$type->value}"),
         };
     }

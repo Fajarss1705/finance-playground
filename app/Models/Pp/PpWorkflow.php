@@ -3,6 +3,7 @@
 namespace App\Models\Pp;
 
 use App\Models\File;
+use App\Models\Pk\PkWorkflow;
 use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -67,6 +68,11 @@ class PpWorkflow extends Model
     public function pp07Data(): HasMany
     {
         return $this->hasMany(Pp07Data::class);
+    }
+
+    public function pkWorkflows(): HasMany
+    {
+        return $this->hasMany(PkWorkflow::class);
     }
 
     public function latestPp01(): ?Pp01Data
