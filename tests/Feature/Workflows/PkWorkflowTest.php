@@ -735,3 +735,130 @@ it('denies PK01 access when workflow belongs to different team', function () {
     $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
         ->assertForbidden();
 });
+
+// ── Kode Validation ──
+
+it('rejects PK01 submit with invalid kode_kategori', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('team.workflows.pk.pk01.submit');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $data = validPk01SubmitData($pk01->updated_at->toIso8601String());
+    $data['kode_kategori'] = 'INVALID';
+
+    $this->post(
+        route('team.workflows.pk.pk01.submit', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]),
+        $data,
+    )->assertSessionHasErrors(['kode_kategori']);
+});
+
+it('rejects PK01 submit with invalid kode_bidang in anggaran', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('team.workflows.pk.pk01.submit');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $data = validPk01SubmitData($pk01->updated_at->toIso8601String());
+    $data['kegiatan'][0]['anggaran'][0]['kode_bidang'] = 'INVALID';
+
+    $this->post(
+        route('team.workflows.pk.pk01.submit', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]),
+        $data,
+    )->assertSessionHasErrors(['kegiatan.0.anggaran.0.kode_bidang']);
+});
+
+// ── Same Bulan ──
+
+it('allows multiple kegiatan with the same bulan', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('team.workflows.pk.pk01.submit');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $data = validPk01SubmitData($pk01->updated_at->toIso8601String());
+    // Add second kegiatan with same bulan
+    $data['kegiatan'][] = [
+        'nama_kegiatan' => 'Kegiatan Kedua',
+        'bulan' => 3, // same as first
+        'anggaran' => [[
+            'kode_bidang' => 'B01',
+            'kode_sub_bidang' => 'SB01',
+            'kode_jenis' => 'J01',
+            'mata_anggaran' => 'Transportasi',
+            'nominal_anggaran' => 1000000,
+        ]],
+    ];
+
+    $this->post(
+        route('team.workflows.pk.pk01.submit', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]),
+        $data,
+    )->assertRedirect();
+
+    $pk01->refresh();
+    expect($pk01->kegiatan)->toHaveCount(2);
+});
+
+// ── Rejection Cycle + Changelog Diff ──
+
+it('handles PK01 re-submission after rejection with changelog diff', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    // --- Cycle 1: initial submit ---
+    $this->post(
+        route('team.workflows.pk.pk01.submit', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]),
+        validPk01SubmitData($pk01->updated_at->toIso8601String()),
+    )->assertRedirect();
+
+    // Simulate PK02A approve + PK02B reject → PK01 re-entry
+    $pkWorkflow->refresh();
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02A', action: 'approved', userId: $user->id, sessionContext: $ctx, notes: 'Narasi ok');
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02B', action: 'rejected', userId: $user->id, sessionContext: $ctx, notes: 'Nominal terlalu tinggi');
+    // PK01 re-entry: create new pk01_data
+    $pk01Cycle2 = Pk01Data::create([
+        'pk_workflow_id' => $pkWorkflow->id,
+        'kode_kategori' => $pk01->fresh()->kode_kategori,
+        'nama_program' => $pk01->fresh()->nama_program,
+        'deskripsi_program' => $pk01->fresh()->deskripsi_program,
+        'tujuan_program' => $pk01->fresh()->tujuan_program,
+    ]);
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK01', action: 'created', userId: null, sessionContext: [], table: 'pk01_data', dataId: $pk01Cycle2->id);
+
+    // --- Cycle 2: re-submit with changes ---
+    $data = validPk01SubmitData($pk01Cycle2->updated_at->toIso8601String());
+    $data['nama_program'] = 'Program Kegiatan Kepemudaan (Revisi)'; // changed
+    $data['kegiatan'][0]['anggaran'][0]['nominal_anggaran'] = 2000000; // changed from 2500000
+
+    $this->post(
+        route('team.workflows.pk.pk01.submit', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01Cycle2]),
+        $data,
+    )->assertRedirect();
+
+    // Verify changelog in history
+    $pkWorkflow->refresh();
+    $submitEntries = collect($pkWorkflow->history)->where('action', 'submitted')->values();
+    expect($submitEntries)->toHaveCount(2);
+
+    $cycle2Submit = $submitEntries->last();
+    expect($cycle2Submit)->toHaveKey('changes');
+
+    $changes = $cycle2Submit['changes'];
+    $programChange = collect($changes)->firstWhere('type', 'program_changed');
+    expect($programChange)->not->toBeNull()
+        ->and($programChange['field'])->toBe('nama_program')
+        ->and($programChange['old'])->toBe('Program Kegiatan Kepemudaan')
+        ->and($programChange['new'])->toBe('Program Kegiatan Kepemudaan (Revisi)');
+
+    $anggaranChange = collect($changes)->firstWhere('type', 'anggaran_changed');
+    expect($anggaranChange)->not->toBeNull()
+        ->and($anggaranChange['field'])->toBe('nominal_anggaran');
+});

@@ -400,6 +400,15 @@ class PkWorkflowController extends Controller
             return back()->withErrors(['submit' => 'PP sedang dalam proses revisi. Anda tidak dapat submit sampai revisi PP selesai.']);
         }
 
+        // Validate kode references exist in PP06
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        if ($pp06) {
+            $kodeErrors = $this->validateKodeReferences($pp06, $validated);
+            if (! empty($kodeErrors)) {
+                return back()->withErrors($kodeErrors)->withInput();
+            }
+        }
+
         $pk01Data->update([
             'kode_kategori' => $validated['kode_kategori'],
             'nama_program' => $validated['nama_program'],
@@ -760,6 +769,37 @@ class PkWorkflowController extends Controller
                 ->get(['kode', 'pertanyaan', 'tipe', 'satuan'])
                 ->toArray(),
         ];
+    }
+
+    /** @return array<string, string> */
+    private function validateKodeReferences(Pp06PeriodeTahunan $pp06, array $validated): array
+    {
+        $errors = [];
+
+        $validKategori = $pp06->kodeKategoriPelayanan()->pluck('kode')->toArray();
+        if (! in_array($validated['kode_kategori'], $validKategori)) {
+            $errors['kode_kategori'] = 'Kategori pelayanan tidak valid untuk periode PP ini.';
+        }
+
+        $validBidang = $pp06->kodeBidangPelayanan()->pluck('kode')->toArray();
+        $validSubBidang = $pp06->kodeSubBidangPelayanan()->pluck('kode')->toArray();
+        $validJenis = $pp06->kodeJenisProgram()->pluck('kode')->toArray();
+
+        foreach ($validated['kegiatan'] as $kIdx => $kegiatan) {
+            foreach ($kegiatan['anggaran'] as $aIdx => $anggaran) {
+                if (! in_array($anggaran['kode_bidang'], $validBidang)) {
+                    $errors["kegiatan.{$kIdx}.anggaran.{$aIdx}.kode_bidang"] = 'Bidang pelayanan tidak valid.';
+                }
+                if (! in_array($anggaran['kode_sub_bidang'], $validSubBidang)) {
+                    $errors["kegiatan.{$kIdx}.anggaran.{$aIdx}.kode_sub_bidang"] = 'Sub bidang pelayanan tidak valid.';
+                }
+                if (! in_array($anggaran['kode_jenis'], $validJenis)) {
+                    $errors["kegiatan.{$kIdx}.anggaran.{$aIdx}.kode_jenis"] = 'Jenis program tidak valid.';
+                }
+            }
+        }
+
+        return $errors;
     }
 
     /** @return array{ppLabel: ?string, plafon: float, accepted: float, planned: float, sisa: float} */
