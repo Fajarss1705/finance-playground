@@ -339,8 +339,12 @@ export default function Pk01({
                 />
 
                 {/* Informasi Program */}
-                <SectionCard title={<span className="flex items-center gap-2">Informasi Program <Badge variant="outline">{workflow.tipe === 'raker' ? 'Raker' : 'Proposal'}</Badge></span>}>
+                <SectionCard title="Informasi Program">
                     <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5 sm:col-span-2">
+                            <Label>Tipe Penganggaran</Label>
+                            <div className="pt-1"><Badge variant="outline">{workflow.tipe === 'raker' ? 'Raker' : 'Proposal'}</Badge></div>
+                        </div>
                         <div className="space-y-1.5 sm:col-span-2">
                             <Label>Kategori Pelayanan <span className="text-destructive">*</span></Label>
                             <Select value={kodeKategoriVal} onValueChange={setKodeKategoriVal} disabled={isReadonly}>
