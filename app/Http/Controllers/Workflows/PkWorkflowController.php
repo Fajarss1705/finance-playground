@@ -12,6 +12,8 @@ use App\Http\Requests\Workflows\Pk02bApproveRequest;
 use App\Http\Requests\Workflows\Pk02bRejectRequest;
 use App\Http\Requests\Workflows\Pk03ApproveRequest;
 use App\Http\Requests\Workflows\Pk03RejectRequest;
+use App\Http\Requests\Workflows\Pk05DraftRequest;
+use App\Http\Requests\Workflows\Pk05SubmitRequest;
 use App\Http\Requests\Workflows\PkCommentRequest;
 use App\Http\Requests\Workflows\PkTerminateRequest;
 use App\Models\File;
@@ -19,6 +21,7 @@ use App\Models\Permission;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
 use App\Models\Pk\Pk04ProgramTahunan;
+use App\Models\Pk\Pk05Data;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp06PeriodeTahunan;
 use App\Models\Pp\PpWorkflow;
@@ -1148,6 +1151,337 @@ class PkWorkflowController extends Controller
             'Content-Type' => 'application/zip',
             'Content-Disposition' => 'attachment; filename="'.$zipFilename.'"',
         ]);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  PK05 — Revisi Program Tahunan (Admin Only)
+    // ──────────────────────────────────────────────────────────
+
+    public function pk05Create(Request $request, PkWorkflow $pkWorkflow): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        $this->checkPermission('admin.workflows.pk.pk05.create');
+
+        // Must have at least one PK04 revision
+        $latestPk04 = $pkWorkflow->latestPk04();
+        if (! $latestPk04) {
+            return back()->withErrors(['pk05' => 'PK04 belum dikompilasi.']);
+        }
+
+        // Only one active PK05 draft at a time
+        $activeDraft = $pkWorkflow->pk05Data()->whereNull('submitted_at')->first();
+        if ($activeDraft) {
+            return to_route('admin.workflows.pk.pk05.show', [
+                'pkWorkflow' => $pkWorkflow->id,
+                'pk05Data' => $activeDraft->id,
+            ]);
+        }
+
+        // Prefill from latest PK04 revision
+        $latestPk04->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        $draftData = [
+            'kode_kategori' => $latestPk04->kode_kategori,
+            'nama_program' => $latestPk04->nama_program,
+            'deskripsi_program' => $latestPk04->deskripsi_program,
+            'tujuan_program' => $latestPk04->tujuan_program,
+            'kegiatan' => $latestPk04->kegiatan->sortBy('nomer_kegiatan')->map(function ($k) {
+                return [
+                    'pk04_kegiatan_id' => $k->id,
+                    'nama_kegiatan' => $k->nama_kegiatan,
+                    'bulan' => $k->bulan,
+                    'source' => $k->source,
+                    'anggaran' => $k->anggaran->sortBy('nomer_anggaran')->map(function ($a) {
+                        $isLocked = $a->status_pencairan !== null || $a->status_item !== 'active';
+
+                        $lockReason = null;
+                        if ($a->status_pencairan !== null) {
+                            $lockReason = $a->status_pencairan === 'hangus' ? 'hangus' : 'sudah_dicairkan';
+                        } elseif ($a->status_item !== 'active') {
+                            $lockReason = 'ditarik_maju';
+                        }
+
+                        return [
+                            'pk04_anggaran_id' => $a->id,
+                            'kode_bidang' => $a->kode_bidang,
+                            'kode_sub_bidang' => $a->kode_sub_bidang,
+                            'kode_jenis' => $a->kode_jenis,
+                            'mata_anggaran' => $a->mata_anggaran,
+                            'deskripsi_pk' => $a->deskripsi_pk,
+                            'nominal_anggaran' => (float) $a->nominal_anggaran,
+                            'is_locked' => $isLocked,
+                            'lock_reason' => $lockReason,
+                        ];
+                    })->values()->all(),
+                    'kuisioner' => $k->kuisioner->map(fn ($q) => [
+                        'pk04_kuisioner_id' => $q->id,
+                        'kode_kuisioner' => $q->kode_kuisioner,
+                        'pertanyaan' => $q->pertanyaan,
+                        'tipe' => $q->tipe,
+                        'satuan' => $q->satuan,
+                    ])->values()->all(),
+                ];
+            })->values()->all(),
+        ];
+
+        $pk05 = Pk05Data::create([
+            'pk_workflow_id' => $pkWorkflow->id,
+            'draft_data' => $draftData,
+        ]);
+
+        $this->engine->recordAction(
+            workflow: $pkWorkflow,
+            step: 'PK05',
+            action: 'created',
+            userId: $request->user()->id,
+            sessionContext: $this->getSessionContext(),
+            table: 'pk05_data',
+            dataId: $pk05->id,
+            extra: ['pp06_revision' => $this->getLatestPp06Revision($pkWorkflow)],
+        );
+
+        // TODO: PABD freeze — build during PABD workflow phase
+
+        return to_route('admin.workflows.pk.pk05.show', [
+            'pkWorkflow' => $pkWorkflow->id,
+            'pk05Data' => $pk05->id,
+        ]);
+    }
+
+    public function pk05Show(PkWorkflow $pkWorkflow, Pk05Data $pk05Data): Response
+    {
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        $this->checkPermission('admin.workflows.pk.pk05.show');
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PK);
+        $isSubmitted = $pk05Data->submitted_at !== null;
+        $mode = $isSubmitted ? 'readonly' : 'edit';
+        $permissions = $this->session->getActivePermissions();
+
+        // PP06 kodes for dropdowns
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        $pp06Kodes = $this->loadKodeReferences($pp06);
+
+        // Budget context (raker only)
+        $budgetContext = null;
+        if ($pkWorkflow->tipe === 'raker') {
+            $budgetCounter = $this->getBudgetCounters($pkWorkflow);
+            // For PK05, "sudahDitetapkanLain" excludes THIS PK
+            $latestPk04 = $pkWorkflow->latestPk04();
+            $thisCurrentTotal = 0.0;
+            if ($latestPk04) {
+                $latestPk04->loadMissing(['kegiatan.anggaran']);
+                $thisCurrentTotal = (float) $latestPk04->kegiatan->flatMap(fn ($k) => $k->anggaran)
+                    ->where('status_item', 'active')
+                    ->sum('nominal_anggaran');
+            }
+
+            $budgetContext = [
+                'plafon' => $budgetCounter['plafon'],
+                'sudah_ditetapkan_lain' => $budgetCounter['accepted'] - $thisCurrentTotal,
+                'sisa' => $budgetCounter['plafon'] - ($budgetCounter['accepted'] - $thisCurrentTotal),
+            ];
+        }
+
+        // Labels
+        $teamName = $pkWorkflow->team?->name ?? 'Unknown';
+        $pp01 = $pkWorkflow->ppWorkflow?->latestPp01();
+        $tahun = $pp01?->tahun;
+        $label = "PK-{$teamName}-{$tahun}";
+
+        return Inertia::render('admin/workflows/pk/pk05', [
+            'workflow' => [
+                'id' => $pkWorkflow->id,
+                'label' => $label,
+                'status' => $this->engine->getWorkflowStatus($pkWorkflow->history ?? []),
+                'history' => $this->historyFormatter->format($pkWorkflow->history ?? []),
+                'tipe' => $pkWorkflow->tipe,
+            ],
+            'stepData' => [
+                'id' => $pk05Data->id,
+                'draft_data' => $pk05Data->draft_data,
+                'submitted_at' => $pk05Data->submitted_at?->toIso8601String(),
+                'updated_at' => $pk05Data->updated_at->toIso8601String(),
+            ],
+            'mode' => $mode,
+            'canDraft' => ! $isSubmitted && in_array('admin.workflows.pk.pk05.draft', $permissions),
+            'canSubmit' => ! $isSubmitted && in_array('admin.workflows.pk.pk05.submit', $permissions),
+            'canComment' => in_array('admin.workflows.pk.comment', $permissions),
+            'pp06Kodes' => $pp06Kodes,
+            'budgetContext' => $budgetContext,
+            'pkType' => $pkWorkflow->tipe,
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.pk.pk05.draft' => ['Simpan Draft', false],
+                'admin.workflows.pk.pk05.submit' => ['Submit Revisi', true],
+                'admin.workflows.pk.comment' => ['Komentar', false],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
+        ]);
+    }
+
+    public function pk05Draft(Pk05DraftRequest $request, PkWorkflow $pkWorkflow, Pk05Data $pk05Data): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        $this->checkPermission('admin.workflows.pk.pk05.draft');
+
+        if ($pk05Data->submitted_at !== null) {
+            abort(409, 'Revisi ini sudah disubmit.');
+        }
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pk05Data, $validated['expected_updated_at']);
+        $sessionContext = $this->getSessionContext();
+
+        $pk05Data->update([
+            'draft_data' => $validated['draft_data'],
+        ]);
+
+        // Comment attachment files
+        $commentFileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pk05Data,
+            'pk.pk05.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        $this->engine->recordAction(
+            workflow: $pkWorkflow,
+            step: 'PK05',
+            action: 'drafted',
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            table: 'pk05_data',
+            dataId: $pk05Data->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($commentFileIds) ? $commentFileIds : null,
+            extra: ['pp06_revision' => $this->getLatestPp06Revision($pkWorkflow)],
+        );
+
+        return to_route('admin.workflows.pk.show', $pkWorkflow)->with('success', 'Draft PK05 berhasil disimpan.');
+    }
+
+    public function pk05Submit(Pk05SubmitRequest $request, PkWorkflow $pkWorkflow, Pk05Data $pk05Data): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        $this->checkPermission('admin.workflows.pk.pk05.submit');
+
+        if ($pk05Data->submitted_at !== null) {
+            abort(409, 'Revisi ini sudah disubmit.');
+        }
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pk05Data, $validated['expected_updated_at']);
+        $draftData = $validated['draft_data'];
+        $sessionContext = $this->getSessionContext();
+
+        // Validate locked items unchanged (server-side enforcement)
+        $currentPk04 = $pkWorkflow->latestPk04();
+        if (! $currentPk04) {
+            return back()->withErrors(['submit' => 'PK04 tidak ditemukan.']);
+        }
+
+        $compileService = app(PkCompileService::class);
+        $lockErrors = $compileService->validateLockedItems($currentPk04, $draftData);
+        if (! empty($lockErrors)) {
+            return back()->withErrors(['submit' => $lockErrors[0]]);
+        }
+
+        // Budget hard block (raker only, BEFORE compile — fail fast)
+        if ($pkWorkflow->tipe === 'raker') {
+            try {
+                $compileService->checkBudgetHardBlockForRevision($pkWorkflow, $draftData);
+            } catch (\RuntimeException $e) {
+                return back()->withErrors(['submit' => $e->getMessage()]);
+            }
+        }
+
+        // Compute new revision number
+        $latestRevision = $pkWorkflow->pk04ProgramTahunan()->max('revision') ?? 0;
+        $newRevision = $latestRevision + 1;
+
+        // Compute changelog diff
+        $changelogDiff = $compileService->computePk05Diff($currentPk04, $draftData);
+
+        // Comment attachment files
+        $commentFileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pk05Data,
+            'pk.pk05.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        try {
+            $newPk04 = DB::transaction(function () use ($request, $pkWorkflow, $pk05Data, $draftData, $validated, $sessionContext, $commentFileIds, $compileService, $changelogDiff, $newRevision) {
+                // Save final draft_data and mark as submitted
+                $pk05Data->update([
+                    'draft_data' => $draftData,
+                    'submitted_at' => now(),
+                ]);
+
+                // Record PK05 submitted (with changelog diff)
+                $this->engine->recordAction(
+                    workflow: $pkWorkflow,
+                    step: 'PK05',
+                    action: 'submitted',
+                    userId: $request->user()->id,
+                    sessionContext: $sessionContext,
+                    table: 'pk05_data',
+                    dataId: $pk05Data->id,
+                    notes: $validated['notes'] ?? null,
+                    files: ! empty($commentFileIds) ? $commentFileIds : null,
+                    extra: [
+                        'revision' => $newRevision,
+                        'changes' => $changelogDiff,
+                        'pp06_revision' => $this->getLatestPp06Revision($pkWorkflow),
+                    ],
+                );
+
+                // Recompile PK04 using C + Carbon Copy strategy
+                $newPk04 = $compileService->recompileFromRevision($pkWorkflow, $draftData, $newRevision);
+
+                // Record PK04 completed
+                $this->engine->recordAction(
+                    workflow: $pkWorkflow,
+                    step: 'PK04',
+                    action: 'completed',
+                    userId: null,
+                    sessionContext: [],
+                    table: 'pk04_program_tahunan',
+                    dataId: $newPk04->id,
+                    extra: [
+                        'revision' => $newRevision,
+                        'pp06_revision' => $this->getLatestPp06Revision($pkWorkflow),
+                        'triggered_by' => [
+                            'user_id' => $request->user()->id,
+                            'step' => 'PK05',
+                            'action' => 'submitted',
+                        ],
+                    ],
+                );
+
+                return $newPk04;
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['submit' => $e->getMessage()]);
+        }
+
+        // Generate export files (outside transaction — failures are non-blocking)
+        $exportResult = $compileService->generateExportFiles($newPk04, $request->user()->id, $pkWorkflow->workspace_id);
+        $compileService->appendExportFilesToHistory($pkWorkflow->fresh(), $exportResult, $newRevision);
+
+        // TODO: PABD freeze release + reset — build during PABD workflow phase
+
+        $this->notifier->notify($pkWorkflow, 'pk05.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+            'link' => route('admin.workflows.pk.pk04.show', $pkWorkflow),
+        ], $request->user()->id);
+
+        return to_route('admin.workflows.pk.pk04.show', [
+            'pkWorkflow' => $pkWorkflow->id,
+        ])->with('success', 'Revisi berhasil disubmit. PK04 telah dikompilasi ulang.');
     }
 
     // ──────────────────────────────────────────────────────────
