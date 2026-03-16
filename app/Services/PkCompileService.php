@@ -135,27 +135,14 @@ class PkCompileService
      */
     private function checkBudgetHardBlock(PkWorkflow $pkWorkflow, Pk01Data $pk01, Pp06PeriodeTahunan $pp06): void
     {
-        $teamId = $pkWorkflow->team_id;
-
         $plafon = (float) ($pp06->itemPlafonAnggaran()
-            ->where('team_id', $teamId)
+            ->where('team_id', $pkWorkflow->team_id)
             ->value('plafon_anggaran') ?? 0);
 
-        // Sum of all active pk04_anggaran from completed raker PKs for this team
-        // (excluding the current PK, which hasn't compiled yet)
-        $accepted = (float) Pk04Anggaran::query()
-            ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
-                ->where('team_id', $teamId)
-                ->where('workspace_id', $pkWorkflow->workspace_id)
-                ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
-                ->where('tipe', 'raker')
-                ->where('id', '!=', $pkWorkflow->id)
-                ->whereNull('deleted_at')
-            )
-            ->where('status_item', 'active')
-            ->sum('nominal_anggaran');
+        // Sum of active anggaran from other completed raker PKs (scoped to latest revision)
+        $accepted = $this->sumAcceptedAnggaran($pkWorkflow, $pkWorkflow->id);
 
-        // This PK's total
+        // This PK's total from PK01
         $thisPkTotal = (float) $pk01->kegiatan()
             ->with('anggaran')
             ->get()
@@ -508,5 +495,641 @@ class PkCompileService
         }
 
         return \App\Models\Workspace::find($workspaceId)?->name ?? 'Unknown';
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  PK05 Revision — C + Carbon Copy Recompile
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Recompile PK04 from PK05 revision using C + Carbon Copy strategy.
+     *
+     * Snapshots current live rows as frozen copies on the OLD pk04_program_tahunan,
+     * then updates live rows in place. Downstream FKs (PABD/PRBL → pk04_anggaran)
+     * always point to live rows → never break.
+     *
+     * Called inside DB::transaction from pk05Submit.
+     * Assumes validateLockedItems() has already passed.
+     *
+     * @throws \RuntimeException if PP06 or PK04 not found
+     */
+    public function recompileFromRevision(PkWorkflow $pkWorkflow, array $draftData, int $newRevision): Pk04ProgramTahunan
+    {
+        $currentPk04 = $pkWorkflow->latestPk04();
+        if (! $currentPk04) {
+            throw new \RuntimeException('PK04 tidak ditemukan.');
+        }
+        $currentPk04->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        if (! $pp06) {
+            throw new \RuntimeException('PP06 tidak ditemukan.');
+        }
+        $kodeTeam = $this->resolveKodeTeam($pkWorkflow, $pp06);
+        $tahun = $this->resolveTahun($pkWorkflow);
+
+        // 1. SNAPSHOT: copy current live rows as frozen copies on OLD pk04
+        $this->snapshotCurrentState($currentPk04);
+
+        // 2. CREATE new pk04_program_tahunan (preserves author + nomer_program)
+        $newPk04 = Pk04ProgramTahunan::create([
+            'pk_workflow_id' => $pkWorkflow->id,
+            'revision' => $newRevision,
+            'kode_kategori' => $draftData['kode_kategori'],
+            'nama_program' => $draftData['nama_program'],
+            'deskripsi_program' => $draftData['deskripsi_program'],
+            'tujuan_program' => $draftData['tujuan_program'],
+            'nomer_program' => $currentPk04->nomer_program,
+            'pk01_created_by_user_name' => $currentPk04->pk01_created_by_user_name,
+            'pk01_created_by_role_name' => $currentPk04->pk01_created_by_role_name,
+            'pk01_created_by_team_name' => $currentPk04->pk01_created_by_team_name,
+            'pk01_created_by_organization_name' => $currentPk04->pk01_created_by_organization_name,
+            'pk01_created_by_workspace_name' => $currentPk04->pk01_created_by_workspace_name,
+            'pk01_created_at' => $currentPk04->pk01_created_at,
+        ]);
+
+        // Build index of draft kegiatan by pk04_kegiatan_id
+        $draftKegiatanById = [];
+        $newDraftKegiatan = [];
+        foreach ($draftData['kegiatan'] ?? [] as $dk) {
+            if (! empty($dk['pk04_kegiatan_id'])) {
+                $draftKegiatanById[(int) $dk['pk04_kegiatan_id']] = $dk;
+            } else {
+                $newDraftKegiatan[] = $dk;
+            }
+        }
+
+        // 3. Process existing kegiatan: REASSIGN to new parent + APPLY changes, or DELETE
+        $maxNomerKegiatan = (int) $currentPk04->kegiatan->max('nomer_kegiatan');
+
+        foreach ($currentPk04->kegiatan as $kegiatan) {
+            if (isset($draftKegiatanById[$kegiatan->id])) {
+                $dk = $draftKegiatanById[$kegiatan->id];
+
+                // Reassign to new parent + update kegiatan fields
+                $kegiatan->update([
+                    'pk04_program_tahunan_id' => $newPk04->id,
+                    'nama_kegiatan' => $dk['nama_kegiatan'],
+                    'bulan' => (int) $dk['bulan'],
+                ]);
+
+                $this->applyAnggaranChanges($kegiatan, $dk, $newRevision);
+                $this->applyKuisionerChanges($kegiatan, $dk);
+            } else {
+                // REMOVED kegiatan — delete row + children (locked items already validated)
+                $kegiatan->anggaran()->delete();
+                $kegiatan->kuisioner()->delete();
+                $kegiatan->delete();
+            }
+        }
+
+        // 4. INSERT new kegiatan
+        foreach ($newDraftKegiatan as $dk) {
+            $maxNomerKegiatan++;
+
+            $newKegiatan = Pk04Kegiatan::create([
+                'pk04_program_tahunan_id' => $newPk04->id,
+                'nama_kegiatan' => $dk['nama_kegiatan'],
+                'bulan' => (int) $dk['bulan'],
+                'nomer_kegiatan' => $maxNomerKegiatan,
+                'source' => 'pk',
+            ]);
+
+            $nomerAnggaran = 0;
+            foreach ($dk['anggaran'] ?? [] as $da) {
+                $nomerAnggaran++;
+                Pk04Anggaran::create([
+                    'pk04_kegiatan_id' => $newKegiatan->id,
+                    'kode_bidang' => $da['kode_bidang'],
+                    'kode_sub_bidang' => $da['kode_sub_bidang'],
+                    'kode_jenis' => $da['kode_jenis'],
+                    'mata_anggaran' => $da['mata_anggaran'],
+                    'deskripsi_pk' => $da['deskripsi_pk'] ?? null,
+                    'nominal_anggaran' => $da['nominal_anggaran'] ?? 0,
+                    'nomer_anggaran' => $nomerAnggaran,
+                    'revisi_terakhir' => $newRevision,
+                    'status_item' => 'active',
+                    'source' => 'pk',
+                ]);
+            }
+
+            foreach ($dk['kuisioner'] ?? [] as $dq) {
+                Pk04Kuisioner::create([
+                    'pk04_kegiatan_id' => $newKegiatan->id,
+                    'kode_kuisioner' => $dq['kode_kuisioner'] ?? null,
+                    'pertanyaan' => $dq['pertanyaan'],
+                    'tipe' => $dq['tipe'],
+                    'satuan' => $dq['satuan'] ?? null,
+                ]);
+            }
+        }
+
+        // 5. REGENERATE kode_anggaran for ALL live anggaran (handles bulan/kategori changes)
+        $newPk04->load(['kegiatan.anggaran']);
+        foreach ($newPk04->kegiatan as $kegiatan) {
+            foreach ($kegiatan->anggaran as $anggaran) {
+                $this->generateKodeAnggaran($anggaran, $newPk04, $kegiatan, $kodeTeam, $tahun);
+            }
+        }
+
+        // 6. Generate verification code
+        $this->generateVerificationCode($newPk04);
+
+        return $newPk04;
+    }
+
+    /**
+     * Validate that locked anggaran items in draft_data are unchanged.
+     *
+     * Also validates no kuisioner removed from kegiatan with locked anggaran.
+     *
+     * @return list<string> Error messages (empty = valid)
+     */
+    public function validateLockedItems(Pk04ProgramTahunan $currentPk04, array $draftData): array
+    {
+        $errors = [];
+        $currentPk04->loadMissing(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        // Build flat maps
+        $lockedAnggaran = [];
+        $kegiatanWithLocked = [];
+
+        foreach ($currentPk04->kegiatan as $kegiatan) {
+            foreach ($kegiatan->anggaran as $anggaran) {
+                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active';
+                if ($isLocked) {
+                    $lockedAnggaran[$anggaran->id] = $anggaran;
+                    $kegiatanWithLocked[$kegiatan->id] = true;
+                }
+            }
+        }
+
+        if (empty($lockedAnggaran)) {
+            return [];
+        }
+
+        // Build draft anggaran index by pk04_anggaran_id
+        $draftAnggaranById = [];
+        $draftKuisionerIdsByKegiatan = [];
+
+        foreach ($draftData['kegiatan'] ?? [] as $dk) {
+            $kId = $dk['pk04_kegiatan_id'] ?? null;
+
+            foreach ($dk['anggaran'] ?? [] as $da) {
+                if (! empty($da['pk04_anggaran_id'])) {
+                    $draftAnggaranById[(int) $da['pk04_anggaran_id']] = $da;
+                }
+            }
+
+            if ($kId) {
+                $draftKuisionerIdsByKegiatan[(int) $kId] = [];
+                foreach ($dk['kuisioner'] ?? [] as $dq) {
+                    if (! empty($dq['pk04_kuisioner_id'])) {
+                        $draftKuisionerIdsByKegiatan[(int) $kId][] = (int) $dq['pk04_kuisioner_id'];
+                    }
+                }
+            }
+        }
+
+        // Check each locked anggaran
+        $fieldsToCheck = ['kode_bidang', 'kode_sub_bidang', 'kode_jenis', 'mata_anggaran', 'deskripsi_pk'];
+
+        foreach ($lockedAnggaran as $anggaranId => $anggaran) {
+            if (! isset($draftAnggaranById[$anggaranId])) {
+                $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" yang terkunci tidak dapat dihapus.";
+
+                continue;
+            }
+
+            $da = $draftAnggaranById[$anggaranId];
+            foreach ($fieldsToCheck as $field) {
+                if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
+                    $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" yang terkunci tidak dapat diubah.";
+
+                    continue 2;
+                }
+            }
+
+            if ((float) $anggaran->nominal_anggaran != (float) ($da['nominal_anggaran'] ?? 0)) {
+                $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" yang terkunci tidak dapat diubah.";
+            }
+        }
+
+        // Check kuisioner removal from kegiatan with locked anggaran
+        foreach ($kegiatanWithLocked as $kegiatanId => $flag) {
+            $kegiatan = $currentPk04->kegiatan->firstWhere('id', $kegiatanId);
+            if (! $kegiatan) {
+                continue;
+            }
+
+            // Kegiatan must be in draft
+            if (! isset($draftKuisionerIdsByKegiatan[$kegiatanId])) {
+                continue; // Kegiatan removed — already caught by locked anggaran check
+            }
+
+            $currentKuisionerIds = $kegiatan->kuisioner->pluck('id')->toArray();
+            $draftKuisionerIds = $draftKuisionerIdsByKegiatan[$kegiatanId];
+            $removedIds = array_diff($currentKuisionerIds, $draftKuisionerIds);
+
+            foreach ($removedIds as $qId) {
+                $q = $kegiatan->kuisioner->firstWhere('id', $qId);
+                $errors[] = "Kuisioner \"{$q?->pertanyaan}\" tidak dapat dihapus dari kegiatan yang memiliki anggaran terkunci.";
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Compute changelog diff between current PK04 revision and PK05 draft_data.
+     *
+     * Uses pk04_*_id for matching (not name-based like PK01 diff).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function computePk05Diff(Pk04ProgramTahunan $currentPk04, array $draftData): array
+    {
+        $changes = [];
+        $currentPk04->loadMissing(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        // 1. Program-level fields
+        foreach (['kode_kategori', 'nama_program', 'deskripsi_program', 'tujuan_program'] as $field) {
+            if (($currentPk04->$field ?? '') !== ($draftData[$field] ?? '')) {
+                $changes[] = [
+                    'type' => 'program_changed',
+                    'field' => $field,
+                    'old' => $currentPk04->$field,
+                    'new' => $draftData[$field] ?? null,
+                ];
+            }
+        }
+
+        // Build index maps
+        $currentKegiatanMap = $currentPk04->kegiatan->keyBy('id');
+        $draftKegiatanById = [];
+        $newDraftKegiatan = [];
+        foreach ($draftData['kegiatan'] ?? [] as $dk) {
+            if (! empty($dk['pk04_kegiatan_id'])) {
+                $draftKegiatanById[(int) $dk['pk04_kegiatan_id']] = $dk;
+            } else {
+                $newDraftKegiatan[] = $dk;
+            }
+        }
+
+        // 2. Added kegiatan
+        foreach ($newDraftKegiatan as $dk) {
+            $changes[] = ['type' => 'kegiatan_added', 'nama_kegiatan' => $dk['nama_kegiatan'] ?? '', 'bulan' => $dk['bulan'] ?? null];
+        }
+
+        // 3. Removed kegiatan
+        foreach ($currentKegiatanMap as $kId => $kegiatan) {
+            if (! isset($draftKegiatanById[$kId])) {
+                $changes[] = ['type' => 'kegiatan_removed', 'nama_kegiatan' => $kegiatan->nama_kegiatan];
+            }
+        }
+
+        // 4. Changes within matched kegiatan
+        foreach ($draftKegiatanById as $kId => $dk) {
+            $kegiatan = $currentKegiatanMap->get($kId);
+            if (! $kegiatan) {
+                continue;
+            }
+
+            // Kegiatan field changes
+            if (($kegiatan->nama_kegiatan ?? '') !== ($dk['nama_kegiatan'] ?? '')) {
+                $changes[] = ['type' => 'kegiatan_changed', 'pk04_kegiatan_id' => $kId, 'field' => 'nama_kegiatan', 'old' => $kegiatan->nama_kegiatan, 'new' => $dk['nama_kegiatan'] ?? ''];
+            }
+            if ((int) $kegiatan->bulan !== (int) ($dk['bulan'] ?? 0)) {
+                $changes[] = ['type' => 'kegiatan_changed', 'pk04_kegiatan_id' => $kId, 'field' => 'bulan', 'old' => (int) $kegiatan->bulan, 'new' => (int) ($dk['bulan'] ?? 0)];
+            }
+
+            // Anggaran changes
+            $currentAnggaranMap = $kegiatan->anggaran->keyBy('id');
+            $draftAnggaranById = [];
+            $newDraftAnggaran = [];
+            foreach ($dk['anggaran'] ?? [] as $da) {
+                if (! empty($da['pk04_anggaran_id'])) {
+                    $draftAnggaranById[(int) $da['pk04_anggaran_id']] = $da;
+                } else {
+                    $newDraftAnggaran[] = $da;
+                }
+            }
+
+            foreach ($currentAnggaranMap as $aId => $anggaran) {
+                if (! isset($draftAnggaranById[$aId])) {
+                    $changes[] = ['type' => 'anggaran_removed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $anggaran->mata_anggaran];
+                }
+            }
+
+            foreach ($newDraftAnggaran as $da) {
+                $changes[] = ['type' => 'anggaran_added', 'mata_anggaran' => $da['mata_anggaran'] ?? ''];
+            }
+
+            foreach ($draftAnggaranById as $aId => $da) {
+                $anggaran = $currentAnggaranMap->get($aId);
+                if (! $anggaran) {
+                    continue;
+                }
+
+                foreach (['kode_bidang', 'kode_sub_bidang', 'kode_jenis', 'mata_anggaran', 'deskripsi_pk'] as $field) {
+                    if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
+                        $changes[] = ['type' => 'anggaran_changed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $da['mata_anggaran'] ?? $anggaran->mata_anggaran, 'field' => $field, 'old' => $anggaran->$field, 'new' => $da[$field] ?? null];
+                    }
+                }
+
+                if ((float) $anggaran->nominal_anggaran != (float) ($da['nominal_anggaran'] ?? 0)) {
+                    $changes[] = ['type' => 'anggaran_changed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $da['mata_anggaran'] ?? $anggaran->mata_anggaran, 'field' => 'nominal_anggaran', 'old' => (float) $anggaran->nominal_anggaran, 'new' => (float) ($da['nominal_anggaran'] ?? 0)];
+                }
+            }
+
+            // Kuisioner changes
+            $currentKuisionerMap = $kegiatan->kuisioner->keyBy('id');
+            $draftKuisionerById = [];
+            $newDraftKuisioner = [];
+            foreach ($dk['kuisioner'] ?? [] as $dq) {
+                if (! empty($dq['pk04_kuisioner_id'])) {
+                    $draftKuisionerById[(int) $dq['pk04_kuisioner_id']] = $dq;
+                } else {
+                    $newDraftKuisioner[] = $dq;
+                }
+            }
+
+            foreach ($currentKuisionerMap as $qId => $q) {
+                if (! isset($draftKuisionerById[$qId])) {
+                    $changes[] = ['type' => 'kuisioner_removed', 'pertanyaan' => $q->pertanyaan];
+                }
+            }
+
+            foreach ($newDraftKuisioner as $dq) {
+                $changes[] = ['type' => 'kuisioner_added', 'pertanyaan' => $dq['pertanyaan'] ?? ''];
+            }
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Check if the PK05 revision's new total would exceed the team's plafon.
+     *
+     * Called BEFORE recompile (fail fast). Only for raker PKs.
+     *
+     * @throws \RuntimeException on budget violation
+     */
+    public function checkBudgetHardBlockForRevision(PkWorkflow $pkWorkflow, array $draftData): void
+    {
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        if (! $pp06) {
+            throw new \RuntimeException('PP06 tidak ditemukan.');
+        }
+
+        $plafon = (float) ($pp06->itemPlafonAnggaran()
+            ->where('team_id', $pkWorkflow->team_id)
+            ->value('plafon_anggaran') ?? 0);
+
+        // Sum from OTHER completed raker PKs (excluding this one)
+        $accepted = $this->sumAcceptedAnggaran($pkWorkflow, $pkWorkflow->id);
+
+        // This PK's new total from draft_data
+        $thisPkTotal = 0.0;
+        foreach ($draftData['kegiatan'] ?? [] as $dk) {
+            foreach ($dk['anggaran'] ?? [] as $da) {
+                $thisPkTotal += (float) ($da['nominal_anggaran'] ?? 0);
+            }
+        }
+
+        if (($accepted + $thisPkTotal) > $plafon) {
+            $sisa = $plafon - $accepted;
+            $formattedSisa = 'Rp '.number_format($sisa, 0, ',', '.');
+            $formattedTotal = 'Rp '.number_format($thisPkTotal, 0, ',', '.');
+            $formattedAccepted = 'Rp '.number_format($accepted, 0, ',', '.');
+
+            throw new \RuntimeException(
+                "Total anggaran setelah revisi ({$formattedTotal}) melebihi sisa plafon ({$formattedSisa}). Sudah ditetapkan PK lain: {$formattedAccepted}."
+            );
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  PK05 Private Helpers
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Snapshot current live kegiatan/anggaran/kuisioner as frozen copies
+     * that stay attached to the OLD pk04_program_tahunan.
+     */
+    private function snapshotCurrentState(Pk04ProgramTahunan $currentPk04): void
+    {
+        foreach ($currentPk04->kegiatan as $kegiatan) {
+            $snapshotKegiatan = Pk04Kegiatan::create([
+                'pk04_program_tahunan_id' => $currentPk04->id,
+                'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                'bulan' => $kegiatan->bulan,
+                'nomer_kegiatan' => $kegiatan->nomer_kegiatan,
+                'source' => $kegiatan->source,
+                'source_pabd_workflow_id' => $kegiatan->source_pabd_workflow_id,
+                'previous_kegiatan_id' => $kegiatan->previous_kegiatan_id,
+            ]);
+
+            foreach ($kegiatan->anggaran as $anggaran) {
+                Pk04Anggaran::create([
+                    'pk04_kegiatan_id' => $snapshotKegiatan->id,
+                    'kode_bidang' => $anggaran->kode_bidang,
+                    'kode_sub_bidang' => $anggaran->kode_sub_bidang,
+                    'kode_jenis' => $anggaran->kode_jenis,
+                    'mata_anggaran' => $anggaran->mata_anggaran,
+                    'deskripsi_pk' => $anggaran->deskripsi_pk,
+                    'nominal_anggaran' => $anggaran->nominal_anggaran,
+                    'nomer_anggaran' => $anggaran->nomer_anggaran,
+                    'revisi_terakhir' => $anggaran->revisi_terakhir,
+                    'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                    'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
+                    'status_item' => $anggaran->status_item,
+                    'previous_anggaran_id' => $anggaran->previous_anggaran_id,
+                    'source' => $anggaran->source,
+                    'source_pabd_workflow_id' => $anggaran->source_pabd_workflow_id,
+                    'status_pencairan' => $anggaran->status_pencairan,
+                    'tanggal_pencairan' => $anggaran->tanggal_pencairan,
+                    'pencairan_pabd_workflow_id' => $anggaran->pencairan_pabd_workflow_id,
+                    'nominal_realisasi' => $anggaran->nominal_realisasi,
+                    'status_realisasi' => $anggaran->status_realisasi,
+                    'prbl_workflow_id' => $anggaran->prbl_workflow_id,
+                ]);
+            }
+
+            foreach ($kegiatan->kuisioner as $kuisioner) {
+                Pk04Kuisioner::create([
+                    'pk04_kegiatan_id' => $snapshotKegiatan->id,
+                    'kode_kuisioner' => $kuisioner->kode_kuisioner,
+                    'pertanyaan' => $kuisioner->pertanyaan,
+                    'tipe' => $kuisioner->tipe,
+                    'satuan' => $kuisioner->satuan,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Apply anggaran changes from draft to existing kegiatan.
+     *
+     * Locked items (pencairan or ditarik_maju) are untouched.
+     * Changed items are updated in place with revisi_terakhir set.
+     * New items are inserted. Missing items are deleted.
+     */
+    private function applyAnggaranChanges(Pk04Kegiatan $kegiatan, array $draftKegiatan, int $newRevision): void
+    {
+        $draftAnggaranById = [];
+        $newDraftAnggaran = [];
+        foreach ($draftKegiatan['anggaran'] ?? [] as $da) {
+            if (! empty($da['pk04_anggaran_id'])) {
+                $draftAnggaranById[(int) $da['pk04_anggaran_id']] = $da;
+            } else {
+                $newDraftAnggaran[] = $da;
+            }
+        }
+
+        $maxNomerAnggaran = (int) $kegiatan->anggaran->max('nomer_anggaran');
+
+        // Update or delete existing anggaran
+        foreach ($kegiatan->anggaran as $anggaran) {
+            if (isset($draftAnggaranById[$anggaran->id])) {
+                $da = $draftAnggaranById[$anggaran->id];
+                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active';
+
+                if (! $isLocked) {
+                    $changed = false;
+                    $updateData = [];
+
+                    foreach (['kode_bidang', 'kode_sub_bidang', 'kode_jenis', 'mata_anggaran', 'deskripsi_pk'] as $field) {
+                        if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
+                            $changed = true;
+                            $updateData[$field] = $da[$field] ?? null;
+                        }
+                    }
+
+                    if ((float) $anggaran->nominal_anggaran != (float) ($da['nominal_anggaran'] ?? 0)) {
+                        $changed = true;
+                        $updateData['nominal_anggaran'] = $da['nominal_anggaran'] ?? 0;
+                    }
+
+                    if ($changed) {
+                        $updateData['revisi_terakhir'] = $newRevision;
+                        $anggaran->update($updateData);
+                    }
+                }
+                // Locked: untouched (already reassigned via parent kegiatan)
+            } else {
+                // Removed — delete (locked items already validated)
+                $anggaran->delete();
+            }
+        }
+
+        // Insert new anggaran
+        foreach ($newDraftAnggaran as $da) {
+            $maxNomerAnggaran++;
+            Pk04Anggaran::create([
+                'pk04_kegiatan_id' => $kegiatan->id,
+                'kode_bidang' => $da['kode_bidang'],
+                'kode_sub_bidang' => $da['kode_sub_bidang'],
+                'kode_jenis' => $da['kode_jenis'],
+                'mata_anggaran' => $da['mata_anggaran'],
+                'deskripsi_pk' => $da['deskripsi_pk'] ?? null,
+                'nominal_anggaran' => $da['nominal_anggaran'] ?? 0,
+                'nomer_anggaran' => $maxNomerAnggaran,
+                'revisi_terakhir' => $newRevision,
+                'status_item' => 'active',
+                'source' => 'pk',
+            ]);
+        }
+    }
+
+    /**
+     * Apply kuisioner changes from draft to existing kegiatan.
+     *
+     * Existing kuisioner fields can be updated. New kuisioner are inserted.
+     * Missing kuisioner are deleted (lock constraint validated beforehand).
+     */
+    private function applyKuisionerChanges(Pk04Kegiatan $kegiatan, array $draftKegiatan): void
+    {
+        $draftKuisionerById = [];
+        $newDraftKuisioner = [];
+        foreach ($draftKegiatan['kuisioner'] ?? [] as $dq) {
+            if (! empty($dq['pk04_kuisioner_id'])) {
+                $draftKuisionerById[(int) $dq['pk04_kuisioner_id']] = $dq;
+            } else {
+                $newDraftKuisioner[] = $dq;
+            }
+        }
+
+        // Update or delete existing kuisioner
+        foreach ($kegiatan->kuisioner as $kuisioner) {
+            if (isset($draftKuisionerById[$kuisioner->id])) {
+                $dq = $draftKuisionerById[$kuisioner->id];
+                $kuisioner->update([
+                    'kode_kuisioner' => $dq['kode_kuisioner'] ?? $kuisioner->kode_kuisioner,
+                    'pertanyaan' => $dq['pertanyaan'],
+                    'tipe' => $dq['tipe'],
+                    'satuan' => $dq['satuan'] ?? null,
+                ]);
+            } else {
+                $kuisioner->delete();
+            }
+        }
+
+        // Insert new kuisioner
+        foreach ($newDraftKuisioner as $dq) {
+            Pk04Kuisioner::create([
+                'pk04_kegiatan_id' => $kegiatan->id,
+                'kode_kuisioner' => $dq['kode_kuisioner'] ?? null,
+                'pertanyaan' => $dq['pertanyaan'],
+                'tipe' => $dq['tipe'],
+                'satuan' => $dq['satuan'] ?? null,
+            ]);
+        }
+    }
+
+    /**
+     * Sum active anggaran from latest PK04 revision of completed raker PKs.
+     *
+     * Correctly scopes to latest revision per PK to avoid double-counting
+     * snapshot rows created by the C + Carbon Copy strategy.
+     */
+    private function sumAcceptedAnggaran(PkWorkflow $referenceWorkflow, ?int $excludeWorkflowId = null): float
+    {
+        $query = PkWorkflow::query()
+            ->where('team_id', $referenceWorkflow->team_id)
+            ->where('workspace_id', $referenceWorkflow->workspace_id)
+            ->where('pp_workflow_id', $referenceWorkflow->pp_workflow_id)
+            ->where('tipe', 'raker')
+            ->whereNull('deleted_at');
+
+        if ($excludeWorkflowId) {
+            $query->where('id', '!=', $excludeWorkflowId);
+        }
+
+        $pkWorkflowIds = $query->pluck('id');
+
+        if ($pkWorkflowIds->isEmpty()) {
+            return 0.0;
+        }
+
+        // Get latest pk04_program_tahunan per workflow (highest revision)
+        $latestPk04Ids = [];
+        foreach ($pkWorkflowIds as $pkId) {
+            $latestId = Pk04ProgramTahunan::where('pk_workflow_id', $pkId)
+                ->orderByDesc('revision')
+                ->value('id');
+            if ($latestId) {
+                $latestPk04Ids[] = $latestId;
+            }
+        }
+
+        if (empty($latestPk04Ids)) {
+            return 0.0;
+        }
+
+        return (float) Pk04Anggaran::query()
+            ->whereHas('pk04Kegiatan', fn ($q) => $q->whereIn('pk04_program_tahunan_id', $latestPk04Ids))
+            ->where('status_item', 'active')
+            ->sum('nominal_anggaran');
     }
 }

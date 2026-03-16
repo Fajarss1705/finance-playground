@@ -1921,3 +1921,463 @@ it('denies PK04 ZIP export without permission', function () {
     $this->get(route('admin.workflows.pk.pk04.export.zip', $pkWorkflow))
         ->assertForbidden();
 });
+
+// ════════════════════════════════════════════════════════════
+// PK05: Revisi Program Tahunan
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Setup PK at PK04 compiled state (revision 0).
+ * Returns [$pkWorkflow, $pk04].
+ */
+function setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role): array
+{
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    // Approve PK03 → triggers PK04 compile
+    $compileService = app(\App\Services\PkCompileService::class);
+    $pk04 = $compileService->compile($pkWorkflow);
+
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK03', action: 'approved', userId: $user->id, sessionContext: $ctx, notes: 'RAKER approved');
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK04', action: 'completed', userId: null, sessionContext: [], table: 'pk04_program_tahunan', dataId: $pk04->id, extra: ['revision' => 0]);
+
+    $pk04->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+    return [$pkWorkflow->fresh(), $pk04];
+}
+
+function validPk05DraftData(\App\Models\Pk\Pk04ProgramTahunan $pk04, string $expectedUpdatedAt, ?array $overrides = []): array
+{
+    $pk04->loadMissing(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+    $kegiatan = $pk04->kegiatan->first();
+
+    $draftData = [
+        'kode_kategori' => $pk04->kode_kategori,
+        'nama_program' => $overrides['nama_program'] ?? $pk04->nama_program,
+        'deskripsi_program' => $pk04->deskripsi_program ?? '',
+        'tujuan_program' => $pk04->tujuan_program ?? '',
+        'kegiatan' => [
+            [
+                'pk04_kegiatan_id' => $kegiatan->id,
+                'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                'bulan' => $kegiatan->bulan,
+                'anggaran' => $kegiatan->anggaran->map(fn ($a) => [
+                    'pk04_anggaran_id' => $a->id,
+                    'kode_bidang' => $a->kode_bidang,
+                    'kode_sub_bidang' => $a->kode_sub_bidang,
+                    'kode_jenis' => $a->kode_jenis,
+                    'mata_anggaran' => $a->mata_anggaran,
+                    'deskripsi_pk' => $a->deskripsi_pk ?? '',
+                    'nominal_anggaran' => $overrides['nominal_anggaran'] ?? (float) $a->nominal_anggaran,
+                    'is_locked' => false,
+                ])->all(),
+                'kuisioner' => $kegiatan->kuisioner->map(fn ($q) => [
+                    'pk04_kuisioner_id' => $q->id,
+                    'kode_kuisioner' => $q->kode_kuisioner,
+                    'pertanyaan' => $q->pertanyaan,
+                    'tipe' => $q->tipe,
+                    'satuan' => $q->satuan,
+                ])->all(),
+            ],
+        ],
+    ];
+
+    return [
+        'draft_data' => $draftData,
+        'expected_updated_at' => $expectedUpdatedAt,
+    ];
+}
+
+// ── PK05 Create ──
+
+it('creates PK05 draft from PK04 compiled data', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow))
+        ->assertRedirect();
+
+    // PK05 row created
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+    expect($pk05)->not->toBeNull()
+        ->and($pk05->submitted_at)->toBeNull()
+        ->and($pk05->draft_data)->toBeArray()
+        ->and($pk05->draft_data['kode_kategori'])->toBe('K01')
+        ->and($pk05->draft_data['kegiatan'])->toHaveCount(1)
+        ->and($pk05->draft_data['kegiatan'][0]['anggaran'])->toHaveCount(1)
+        ->and($pk05->draft_data['kegiatan'][0]['anggaran'][0]['pk04_anggaran_id'])->toBe($pk04->kegiatan->first()->anggaran->first()->id);
+
+    // History entry
+    $pkWorkflow->refresh();
+    $pk05Entry = collect($pkWorkflow->history)->where('step', 'PK05')->where('action', 'created')->first();
+    expect($pk05Entry)->not->toBeNull()
+        ->and($pk05Entry['id'])->toBe($pk05->id);
+});
+
+it('blocks creating PK05 when no PK04 exists', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // PK03 is active but PK04 not compiled yet
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow))
+        ->assertRedirect()
+        ->assertSessionHasErrors('pk05');
+});
+
+it('blocks creating duplicate PK05 draft', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    // First PK05 → success
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow))
+        ->assertRedirect();
+
+    // Second PK05 → redirects to existing draft
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow))
+        ->assertRedirect();
+
+    // Still only one PK05
+    expect(\App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->count())->toBe(1);
+});
+
+// ── PK05 Show ──
+
+it('displays PK05 page in edit mode for admin with permissions', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    $this->get(route('admin.workflows.pk.pk05.show', [$pkWorkflow, $pk05]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pk/pk05')
+            ->where('mode', 'edit')
+            ->where('canDraft', true)
+            ->where('canSubmit', true)
+            ->has('stepData')
+            ->has('pp06Kodes')
+            ->has('pp06Kodes.bidang')
+            ->has('pp06Kodes.kategori')
+            ->has('budgetContext')
+            ->where('pkType', 'raker')
+            ->has('actionRoles')
+        );
+});
+
+it('displays PK05 readonly after submission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    // Submit it
+    $submitData = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String());
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData);
+
+    $pk05->refresh();
+    $this->get(route('admin.workflows.pk.pk05.show', [$pkWorkflow, $pk05]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('mode', 'readonly')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+        );
+});
+
+// ── PK05 Draft ──
+
+it('saves PK05 draft data', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    $draftPayload = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String(), ['nama_program' => 'Revisi Program Kegiatan']);
+
+    $this->post(route('admin.workflows.pk.pk05.draft', [$pkWorkflow, $pk05]), $draftPayload)
+        ->assertRedirect();
+
+    $pk05->refresh();
+    expect($pk05->draft_data['nama_program'])->toBe('Revisi Program Kegiatan')
+        ->and($pk05->submitted_at)->toBeNull();
+});
+
+it('returns 409 on stale PK05 draft', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    $draftPayload = validPk05DraftData($pk04, '2020-01-01T00:00:00+00:00');
+
+    $this->post(route('admin.workflows.pk.pk05.draft', [$pkWorkflow, $pk05]), $draftPayload)
+        ->assertStatus(409);
+});
+
+// ── PK05 Submit ──
+
+it('submits PK05 and recompiles PK04 with new revision', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    // Submit with changed nama_program
+    $submitData = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String(), ['nama_program' => 'Program Kegiatan Revisi']);
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData)
+        ->assertRedirect();
+
+    // PK05 marked as submitted
+    $pk05->refresh();
+    expect($pk05->submitted_at)->not->toBeNull();
+
+    // New PK04 revision created
+    $newPk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)
+        ->orderByDesc('revision')
+        ->first();
+    expect($newPk04->revision)->toBe(1)
+        ->and($newPk04->nama_program)->toBe('Program Kegiatan Revisi')
+        ->and($newPk04->verification_code)->not->toBeNull();
+
+    // Old PK04 snapshot preserved
+    $oldPk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)
+        ->where('revision', 0)
+        ->first();
+    expect($oldPk04)->not->toBeNull()
+        ->and($oldPk04->nama_program)->toBe('Program Test PK02');
+
+    // History: PK05 submitted + PK04 completed with revision=1
+    $pkWorkflow->refresh();
+    $pk05Submitted = collect($pkWorkflow->history)->where('step', 'PK05')->where('action', 'submitted')->first();
+    expect($pk05Submitted)->not->toBeNull();
+
+    $pk04Completed = collect($pkWorkflow->history)->where('step', 'PK04')->where('action', 'completed')->last();
+    expect($pk04Completed['revision'])->toBe(1);
+});
+
+it('blocks PK05 submit after already submitted', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    $submitData = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String());
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData)
+        ->assertRedirect();
+
+    // Second submit → 409
+    $pk05->refresh();
+    $submitData2 = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String());
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData2)
+        ->assertStatus(409);
+});
+
+it('blocks PK05 submit when budget exceeds plafon for raker PK', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow, $pp06] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Reduce plafon AFTER PK04 compile (so initial compile passes)
+    $pp06->itemPlafonAnggaran()->update(['plafon_anggaran' => 100]);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    // Try submit with existing nominal (2,500,000 > 100)
+    $submitData = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String());
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData)
+        ->assertRedirect()
+        ->assertSessionHasErrors('submit');
+});
+
+// ── PK05 Permissions ──
+
+it('denies PK05 create without permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    // No pk05.create permission
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow))
+        ->assertForbidden();
+});
+
+it('denies PK05 draft without draft permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    // No pk05.draft permission
+    $draftPayload = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String());
+    $this->post(route('admin.workflows.pk.pk05.draft', [$pkWorkflow, $pk05]), $draftPayload)
+        ->assertForbidden();
+});
+
+it('denies PK05 submit without submit permission', function () {
+    // Has create+draft but NOT submit
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    // No pk05.submit permission
+    $submitData = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String());
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData)
+        ->assertForbidden();
+});
+
+// ── PK05 Recompile correctness ──
+
+it('preserves snapshot of old PK04 after PK05 recompile', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+    $originalAnggaranId = $pk04->kegiatan->first()->anggaran->first()->id;
+
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05 = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    $submitData = validPk05DraftData($pk04, $pk05->updated_at->toIso8601String(), ['nominal_anggaran' => 3000000]);
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05]), $submitData);
+
+    // Old pk04 (rev 0) still has snapshot kegiatan
+    $oldPk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)
+        ->where('revision', 0)->first();
+    $oldPk04->load(['kegiatan.anggaran']);
+    expect($oldPk04->kegiatan)->toHaveCount(1)
+        ->and((float) $oldPk04->kegiatan->first()->anggaran->first()->nominal_anggaran)->toBe(2500000.0);
+
+    // New pk04 (rev 1) has updated nominal
+    $newPk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)
+        ->where('revision', 1)->first();
+    $newPk04->load(['kegiatan.anggaran']);
+    expect((float) $newPk04->kegiatan->first()->anggaran->first()->nominal_anggaran)->toBe(3000000.0);
+
+    // Live anggaran row ID preserved (C+CC: update in place)
+    expect($newPk04->kegiatan->first()->anggaran->first()->id)->toBe($originalAnggaranId);
+});
