@@ -1497,6 +1497,7 @@ class PkWorkflowController extends Controller
         $definition = $this->engine->resolveDefinition(WorkflowType::PK);
 
         $query = PkWorkflow::query()
+            ->with(['team', 'ppWorkflow.pp01Data'])
             ->where('workspace_id', $workspaceId);
 
         // Team scope: restrict to user's team
@@ -1719,6 +1720,7 @@ class PkWorkflowController extends Controller
         if ($latestPk04) {
             $kegiatan = $latestPk04->kegiatan()
                 ->with(['anggaran' => fn ($q) => $q->where('status_item', 'active')])
+                ->withCount('kuisioner')
                 ->orderBy('nomer_kegiatan')
                 ->get();
 
@@ -1749,10 +1751,7 @@ class PkWorkflowController extends Controller
                     'total_anggaran' => (float) $k->anggaran->sum('nominal_anggaran'),
                 ])->values(),
                 'total_anggaran' => (float) $kegiatan->sum(fn ($k) => $k->anggaran->sum('nominal_anggaran')),
-                'kuisioner_count' => $latestPk04->kegiatan()
-                    ->withCount('kuisioner')
-                    ->get()
-                    ->sum('kuisioner_count'),
+                'kuisioner_count' => (int) $kegiatan->sum('kuisioner_count'),
             ];
         }
 
