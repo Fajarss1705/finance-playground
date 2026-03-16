@@ -6,6 +6,10 @@ use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Workflows\Pk01DraftRequest;
 use App\Http\Requests\Workflows\Pk01SubmitRequest;
+use App\Http\Requests\Workflows\Pk02aApproveRequest;
+use App\Http\Requests\Workflows\Pk02aRejectRequest;
+use App\Http\Requests\Workflows\Pk02bApproveRequest;
+use App\Http\Requests\Workflows\Pk02bRejectRequest;
 use App\Http\Requests\Workflows\PkCommentRequest;
 use App\Http\Requests\Workflows\PkTerminateRequest;
 use App\Models\Permission;
@@ -476,6 +480,44 @@ class PkWorkflowController extends Controller
     }
 
     // ──────────────────────────────────────────────────────────
+    //  PK02A — Approval Narasi (Monev)
+    // ──────────────────────────────────────────────────────────
+
+    public function pk02aShow(PkWorkflow $pkWorkflow): Response
+    {
+        return $this->renderApprovalStep($pkWorkflow, 'PK02A', 'pk02a', 'PK02B', 'Approval Anggaran');
+    }
+
+    public function pk02aApprove(Pk02aApproveRequest $request, PkWorkflow $pkWorkflow): RedirectResponse
+    {
+        return $this->handleApproval($request, $pkWorkflow, 'PK02A', 'pk02a', 'PK02B', 'approve');
+    }
+
+    public function pk02aReject(Pk02aRejectRequest $request, PkWorkflow $pkWorkflow): RedirectResponse
+    {
+        return $this->handleApproval($request, $pkWorkflow, 'PK02A', 'pk02a', 'PK02B', 'reject');
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  PK02B — Approval Anggaran (BU)
+    // ──────────────────────────────────────────────────────────
+
+    public function pk02bShow(PkWorkflow $pkWorkflow): Response
+    {
+        return $this->renderApprovalStep($pkWorkflow, 'PK02B', 'pk02b', 'PK02A', 'Approval Narasi');
+    }
+
+    public function pk02bApprove(Pk02bApproveRequest $request, PkWorkflow $pkWorkflow): RedirectResponse
+    {
+        return $this->handleApproval($request, $pkWorkflow, 'PK02B', 'pk02b', 'PK02A', 'approve');
+    }
+
+    public function pk02bReject(Pk02bRejectRequest $request, PkWorkflow $pkWorkflow): RedirectResponse
+    {
+        return $this->handleApproval($request, $pkWorkflow, 'PK02B', 'pk02b', 'PK02A', 'reject');
+    }
+
+    // ──────────────────────────────────────────────────────────
     //  Stubs — will be built per PK-index / PK-show step reviews
     // ──────────────────────────────────────────────────────────
 
@@ -669,6 +711,536 @@ class PkWorkflowController extends Controller
         return $role
             ? ($role->team ? "{$role->name} ({$role->team->name})" : $role->name)
             : null;
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  PK02A / PK02B Shared Helpers
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Render the approval step page (shared by PK02A and PK02B).
+     */
+    private function renderApprovalStep(
+        PkWorkflow $pkWorkflow,
+        string $thisStep,
+        string $thisStepLower,
+        string $otherStep,
+        string $otherStepLabel,
+    ): Response {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pkWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pk.{$thisStepLower}.show");
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PK);
+        $history = $pkWorkflow->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+        $stepStatus = $statuses[$thisStep]['status'] ?? 'pending';
+
+        // For completed approval steps, resolve the actual decision (approved/rejected)
+        if ($stepStatus === 'completed') {
+            $latestAction = $this->getLatestStepAction($thisStep, $history);
+            if ($latestAction === 'approved' || $latestAction === 'rejected') {
+                $stepStatus = $latestAction;
+            }
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = "{$scope}.workflows.pk";
+        $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
+        $isStepActive = $statuses[$thisStep]['status'] === 'active';
+
+        // Resolve PK01 data for read-only display
+        $pk01Data = $pkWorkflow->latestPk01();
+        $pk01Display = $this->buildPk01ReadonlyData($pkWorkflow, $pk01Data);
+
+        // Previous cycles
+        $previousCycles = $this->buildPreviousCycles($pkWorkflow, $pk01Data);
+
+        // Changelog (cycle 2+)
+        $pk01Changes = ($statuses['PK01']['cycle'] ?? 1) > 1
+            ? $this->computePk01Diff($pkWorkflow, $pk01Data)
+            : null;
+
+        // Parallel track status — resolve decision for completed tracks
+        $otherStatus = $statuses[$otherStep]['status'] ?? 'pending';
+        if ($otherStatus === 'completed') {
+            $otherAction = $this->getLatestStepAction($otherStep, $history);
+            if ($otherAction === 'approved' || $otherAction === 'rejected') {
+                $otherStatus = $otherAction;
+            }
+        }
+        $parallelTrackStatus = [
+            'step' => $otherStep,
+            'label' => $otherStepLabel,
+            'status' => $otherStatus,
+        ];
+
+        // Labels
+        $teamName = $pkWorkflow->team?->name ?? 'Unknown';
+        $pp01 = $pkWorkflow->ppWorkflow?->latestPp01();
+        $tahun = $pp01?->tahun;
+        $label = "PK-{$teamName}-{$tahun}";
+
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        $pp06RevisionLabel = $pp06
+            ? "PP-{$tahun} Revisi {$pp06->revision}"
+            : null;
+
+        $basePath = $scope === 'team'
+            ? "/team/workflows/pk/{$pkWorkflow->id}"
+            : "/admin/workflows/pk/{$pkWorkflow->id}";
+
+        // Build action roles — PK02A: Monev approve/reject, PK02B: BU approve/reject
+        $actionRolesMap = [
+            "admin.workflows.pk.{$thisStepLower}.approve" => ['Setujui', true],
+            "admin.workflows.pk.{$thisStepLower}.reject" => ['Tolak', true],
+            "{$permPrefix}.comment" => ['Komentar', false],
+            "{$permPrefix}.terminate" => ['Batalkan Workflow', true],
+        ];
+
+        // Budget context (PK02B only)
+        $budgetContext = null;
+        if ($thisStep === 'PK02B') {
+            $budgetCounter = $this->getBudgetCounters($pkWorkflow);
+            $thisTotal = $pk01Data
+                ? (float) $pk01Data->kegiatan()->with('anggaran')->get()
+                    ->flatMap(fn ($k) => $k->anggaran)->sum('nominal_anggaran')
+                : 0.0;
+            $isProposal = $pkWorkflow->tipe === 'proposal';
+
+            $budgetContext = [
+                'pp_label' => $budgetCounter['ppLabel'],
+                'plafon' => $budgetCounter['plafon'],
+                'sudah_ditetapkan' => $budgetCounter['accepted'],
+                'sedang_diajukan' => $budgetCounter['planned'],
+                'sisa' => $budgetCounter['sisa'],
+                'pk_ini' => $thisTotal,
+                'is_over_budget' => ! $isProposal && ($thisTotal + $budgetCounter['accepted']) > $budgetCounter['plafon'],
+                'is_proposal' => $isProposal,
+            ];
+        }
+
+        return Inertia::render("workflows/pk/{$thisStepLower}", [
+            'workflow' => [
+                'id' => $pkWorkflow->id,
+                'label' => $label,
+                'status' => $this->engine->getWorkflowStatus($history),
+                'history' => $this->historyFormatter->format($history),
+                'tipe' => $pkWorkflow->tipe,
+            ],
+            'pk01Data' => $pk01Display,
+            'previousCycles' => $previousCycles,
+            'pk01Changes' => $pk01Changes,
+            'pp06RevisionLabel' => $pp06RevisionLabel,
+            'parallelTrackStatus' => $parallelTrackStatus,
+            'stepStatus' => $stepStatus,
+            'canApprove' => $isStepActive && $scope === 'admin'
+                && in_array("admin.workflows.pk.{$thisStepLower}.approve", $permissions),
+            'canReject' => $isStepActive && $scope === 'admin'
+                && in_array("admin.workflows.pk.{$thisStepLower}.reject", $permissions),
+            'canTerminate' => $isWorkflowActive && in_array("{$permPrefix}.terminate", $permissions),
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'budgetContext' => $budgetContext,
+            'actionRoles' => $this->resolveActionRoles($actionRolesMap),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'scope' => $scope,
+            'basePath' => $basePath,
+        ]);
+    }
+
+    /**
+     * Handle approve or reject action for parallel approval steps (PK02A / PK02B).
+     */
+    private function handleApproval(
+        mixed $request,
+        PkWorkflow $pkWorkflow,
+        string $thisStep,
+        string $thisStepLower,
+        string $otherStep,
+        string $action,
+    ): RedirectResponse {
+        $this->ensureWorkspaceOwnership($pkWorkflow);
+        $this->checkPermission("admin.workflows.pk.{$thisStepLower}.{$action}");
+        $this->ensureStepActive($pkWorkflow, $thisStep);
+
+        $historyAction = $action === 'approve' ? 'approved' : 'rejected';
+        $validated = $request->validated();
+        $sessionContext = $this->getSessionContext();
+
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pkWorkflow,
+            "pk.{$thisStepLower}.{$action}",
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        // Find the pk01_data being reviewed
+        $pk01Data = $pkWorkflow->latestPk01();
+
+        $this->engine->recordAction(
+            workflow: $pkWorkflow,
+            step: $thisStep,
+            action: $historyAction,
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
+            extra: [
+                'reviewed' => ['pk01_data' => $pk01Data?->id],
+                'pp06_revision' => $this->getLatestPp06Revision($pkWorkflow),
+            ],
+        );
+
+        // Check parallel join gate
+        $this->handleParallelJoin($request, $pkWorkflow, $thisStep, $otherStep);
+
+        $showRoute = route('admin.workflows.pk.show', $pkWorkflow);
+        $actionLabel = $historyAction === 'approved' ? 'disetujui' : 'ditolak';
+
+        return redirect($showRoute)
+            ->with('success', "{$this->getStepLabel($thisStep)} berhasil {$actionLabel}.");
+    }
+
+    /**
+     * Check the parallel track status and trigger side effects at the join gate.
+     *
+     * Wait-for-both model:
+     * - Both approved → create PK03 + notify PK03 approvers
+     * - Both completed, any rejected → PK01 re-entry + compiled feedback
+     * - Other track pending → silent (wait)
+     */
+    private function handleParallelJoin(
+        mixed $request,
+        PkWorkflow $pkWorkflow,
+        string $thisStep,
+        string $otherStep,
+    ): void {
+        $definition = $this->engine->resolveDefinition(WorkflowType::PK);
+        $history = $pkWorkflow->fresh()->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+
+        $thisStatus = $statuses[$thisStep]['status'] ?? 'pending';
+        $otherStatus = $statuses[$otherStep]['status'] ?? 'pending';
+
+        // Other track not yet completed → silent
+        if ($otherStatus !== 'completed') {
+            return;
+        }
+
+        // Both tracks completed — determine outcome
+        $thisAction = $this->getLatestStepAction($thisStep, $history);
+        $otherAction = $this->getLatestStepAction($otherStep, $history);
+
+        if ($thisAction === 'approved' && $otherAction === 'approved') {
+            // Both approved → create PK03
+            $this->engine->recordAction(
+                workflow: $pkWorkflow,
+                step: 'PK03',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+            );
+
+            $this->notifier->notify($pkWorkflow, 'pk02.both_approved', [
+                'actor_name' => $request->user()->name,
+                'actor_role' => $this->resolveSessionRoleName(),
+            ], $request->user()->id);
+        } else {
+            // At least one rejected → record PK03 rejection to trigger invalidation cascade,
+            // then PK01 re-entry with compiled feedback.
+            // PK03 has rejectionTarget='PK01', so engine invalidates PK01→PK02A→PK02B.
+            $rejectingSummary = collect([$thisStep => $thisAction, $otherStep => $otherAction])
+                ->filter(fn ($a) => $a === 'rejected')
+                ->keys()
+                ->join(' & ');
+
+            $this->engine->recordAction(
+                workflow: $pkWorkflow,
+                step: 'PK03',
+                action: 'rejected',
+                userId: null,
+                sessionContext: [],
+                notes: "Otomatis: {$rejectingSummary} menolak.",
+            );
+
+            $previousPk01 = $pkWorkflow->fresh()->latestPk01();
+            $newPk01 = Pk01Data::create([
+                'pk_workflow_id' => $pkWorkflow->id,
+                'kode_kategori' => $previousPk01?->kode_kategori,
+                'nama_program' => $previousPk01?->nama_program,
+                'deskripsi_program' => $previousPk01?->deskripsi_program,
+                'tujuan_program' => $previousPk01?->tujuan_program,
+            ]);
+
+            // Copy kegiatan with anggaran + kuisioner
+            if ($previousPk01) {
+                foreach ($previousPk01->kegiatan()->with(['anggaran', 'kuisioner'])->get() as $kegiatan) {
+                    $newKegiatan = $newPk01->kegiatan()->create([
+                        'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                        'bulan' => $kegiatan->bulan,
+                    ]);
+                    foreach ($kegiatan->anggaran as $a) {
+                        $newKegiatan->anggaran()->create([
+                            'kode_bidang' => $a->kode_bidang,
+                            'kode_sub_bidang' => $a->kode_sub_bidang,
+                            'kode_jenis' => $a->kode_jenis,
+                            'mata_anggaran' => $a->mata_anggaran,
+                            'deskripsi_pk' => $a->deskripsi_pk,
+                            'nominal_anggaran' => $a->nominal_anggaran,
+                        ]);
+                    }
+                    foreach ($kegiatan->kuisioner as $q) {
+                        $newKegiatan->kuisioner()->create([
+                            'kode_kuisioner' => $q->kode_kuisioner,
+                            'pertanyaan' => $q->pertanyaan,
+                            'tipe' => $q->tipe,
+                            'satuan' => $q->satuan,
+                        ]);
+                    }
+                }
+            }
+
+            // Record PK01 re-entry
+            $this->engine->recordAction(
+                workflow: $pkWorkflow,
+                step: 'PK01',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+                table: 'pk01_data',
+                dataId: $newPk01->id,
+            );
+
+            $this->notifier->notify($pkWorkflow, 'pk02.rejected', [
+                'actor_name' => $request->user()->name,
+                'actor_role' => $this->resolveSessionRoleName(),
+            ], $request->user()->id);
+        }
+    }
+
+    /**
+     * Build read-only PK01 data for approval pages.
+     */
+    private function buildPk01ReadonlyData(PkWorkflow $pkWorkflow, ?Pk01Data $pk01Data): ?array
+    {
+        if (! $pk01Data) {
+            return null;
+        }
+
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        $kodeRefs = $this->loadKodeReferences($pp06);
+
+        // Build lookup maps for display names
+        $kategoriMap = collect($kodeRefs['kategori'])->keyBy('kode');
+        $bidangMap = collect($kodeRefs['bidang'])->keyBy('kode');
+        $subBidangMap = collect($kodeRefs['subBidang'])->keyBy('kode');
+        $jenisMap = collect($kodeRefs['jenis'])->keyBy('kode');
+
+        $kegiatan = $pk01Data->kegiatan()
+            ->with(['anggaran', 'kuisioner'])
+            ->orderBy('id')
+            ->get();
+
+        $totalAnggaran = $kegiatan->flatMap(fn ($k) => $k->anggaran)->sum('nominal_anggaran');
+
+        // Resolve submitter info from history
+        $history = $pkWorkflow->history ?? [];
+        $submitter = $this->resolveSubmitterInfo($history, 'PK01');
+
+        $bulanLabels = [
+            1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+            5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+            9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+        ];
+
+        return [
+            'id' => $pk01Data->id,
+            'kode_kategori' => $pk01Data->kode_kategori,
+            'kategori_nama' => $kategoriMap->get($pk01Data->kode_kategori)['nama'] ?? null,
+            'nama_program' => $pk01Data->nama_program,
+            'deskripsi_program' => $pk01Data->deskripsi_program,
+            'tujuan_program' => $pk01Data->tujuan_program,
+            'kegiatan' => $kegiatan->map(fn ($k) => [
+                'id' => $k->id,
+                'nama_kegiatan' => $k->nama_kegiatan,
+                'bulan' => $k->bulan,
+                'bulan_label' => $bulanLabels[$k->bulan] ?? null,
+                'anggaran' => $k->anggaran->map(fn ($a) => [
+                    'id' => $a->id,
+                    'kode_bidang' => $a->kode_bidang,
+                    'bidang_nama' => $bidangMap->get($a->kode_bidang)['nama'] ?? null,
+                    'kode_sub_bidang' => $a->kode_sub_bidang,
+                    'sub_bidang_nama' => $subBidangMap->get($a->kode_sub_bidang)['nama'] ?? null,
+                    'kode_jenis' => $a->kode_jenis,
+                    'jenis_nama' => $jenisMap->get($a->kode_jenis)['nama'] ?? null,
+                    'mata_anggaran' => $a->mata_anggaran,
+                    'deskripsi_pk' => $a->deskripsi_pk,
+                    'nominal_anggaran' => (float) $a->nominal_anggaran,
+                ])->values(),
+                'kuisioner' => $k->kuisioner->map(fn ($q) => [
+                    'id' => $q->id,
+                    'kode_kuisioner' => $q->kode_kuisioner,
+                    'pertanyaan' => $q->pertanyaan,
+                    'tipe' => $q->tipe,
+                    'satuan' => $q->satuan,
+                ])->values(),
+            ])->values(),
+            'total_anggaran' => (float) $totalAnggaran,
+            'created_by' => $submitter,
+        ];
+    }
+
+    /**
+     * Build previous rejection cycles data for approval pages.
+     *
+     * @return list<array{cycle_number: int, pk01_data: ?array, rejection: ?array}>
+     */
+    private function buildPreviousCycles(PkWorkflow $pkWorkflow, ?Pk01Data $currentPk01): array
+    {
+        if (! $currentPk01) {
+            return [];
+        }
+
+        $allPk01 = $pkWorkflow->pk01Data()->orderBy('id')->get();
+        if ($allPk01->count() <= 1) {
+            return [];
+        }
+
+        $history = $pkWorkflow->history ?? [];
+        $cycles = [];
+        $cycleNumber = 1;
+
+        foreach ($allPk01 as $pk01) {
+            if ($pk01->id === $currentPk01->id) {
+                break; // Don't include current
+            }
+
+            // Find rejection for this cycle
+            $rejection = $this->findRejectionForPk01($history, $pk01->id);
+
+            $cycles[] = [
+                'cycle_number' => $cycleNumber,
+                'pk01_data' => $this->buildPk01ReadonlyData($pkWorkflow, $pk01),
+                'rejection' => $rejection,
+            ];
+            $cycleNumber++;
+        }
+
+        return $cycles;
+    }
+
+    /**
+     * Find rejection details from PK02A/PK02B/PK03 that targeted a specific PK01 cycle.
+     */
+    private function findRejectionForPk01(array $history, int $pk01DataId): ?array
+    {
+        // Find entries referencing this pk01_data
+        foreach (array_reverse($history) as $entry) {
+            if (
+                ($entry['action'] ?? '') === 'rejected'
+                && in_array($entry['step'] ?? '', ['PK02A', 'PK02B', 'PK03'])
+                && ($entry['reviewed']['pk01_data'] ?? null) === $pk01DataId
+            ) {
+                $byName = isset($entry['by'])
+                    ? User::withTrashed()->find($entry['by'])?->name
+                    : null;
+                $roleName = isset($entry['role'])
+                    ? Role::withTrashed()->find($entry['role'])?->name
+                    : null;
+
+                // Also find the parallel track entry
+                $otherStep = match ($entry['step']) {
+                    'PK02A' => 'PK02B',
+                    'PK02B' => 'PK02A',
+                    default => null,
+                };
+
+                $parallelNotes = null;
+                if ($otherStep) {
+                    foreach (array_reverse($history) as $other) {
+                        if (
+                            ($other['step'] ?? '') === $otherStep
+                            && in_array($other['action'] ?? '', ['approved', 'rejected'])
+                            && ($other['reviewed']['pk01_data'] ?? null) === $pk01DataId
+                        ) {
+                            $ptByName = isset($other['by'])
+                                ? User::withTrashed()->find($other['by'])?->name
+                                : null;
+
+                            $parallelNotes = [
+                                'step' => $otherStep,
+                                'step_label' => $this->getStepLabel($otherStep),
+                                'action' => $other['action'],
+                                'notes' => $other['notes'] ?? null,
+                                'by_name' => $ptByName,
+                                'at' => $other['at'] ?? null,
+                            ];
+
+                            break;
+                        }
+                    }
+                }
+
+                return [
+                    'step' => $entry['step'],
+                    'step_label' => $this->getStepLabel($entry['step']),
+                    'notes' => $entry['notes'] ?? null,
+                    'by_name' => $byName,
+                    'role_name' => $roleName,
+                    'at' => $entry['at'] ?? null,
+                    'files' => $entry['files'] ?? [],
+                    'parallelTrackNotes' => $parallelNotes,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve submitter info from workflow history.
+     */
+    private function resolveSubmitterInfo(array $history, string $step): ?array
+    {
+        // Find latest 'submitted' action for this step
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['step'] ?? '') === $step && ($history[$i]['action'] ?? '') === 'submitted') {
+                $userId = $history[$i]['by'] ?? null;
+                $roleId = $history[$i]['role'] ?? null;
+                $teamId = $history[$i]['team'] ?? null;
+
+                $userName = $userId ? User::withTrashed()->find($userId)?->name : null;
+                $roleName = $roleId ? Role::withTrashed()->find($roleId)?->name : null;
+                $teamName = $teamId ? \App\Models\Team::withTrashed()->find($teamId)?->name : null;
+
+                return [
+                    'user_name' => $userName,
+                    'role_name' => $roleName,
+                    'team_name' => $teamName,
+                    'submitted_at' => $history[$i]['at'] ?? null,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get the latest action for a step from history (post-rejection aware).
+     */
+    private function getLatestStepAction(string $step, array $history): ?string
+    {
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['step'] ?? '') === $step && in_array($history[$i]['action'] ?? '', ['approved', 'rejected'])) {
+                return $history[$i]['action'];
+            }
+        }
+
+        return null;
     }
 
     // ──────────────────────────────────────────────────────────

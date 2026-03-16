@@ -491,6 +491,14 @@ class WorkflowEngine
             return 'completed';
         }
 
+        // For parallel approval steps without rejectionTarget, 'rejected' also completes the step.
+        // The join gate (not the engine) handles the rejection cascade for these steps.
+        if ($stepType === StepType::Approval && $definition->rejectionTarget($code) === null) {
+            if ($this->hasValidAction($code, 'rejected', $history, $rejections)) {
+                return 'completed';
+            }
+        }
+
         // Was this step skipped?
         if ($this->hasValidAction($code, 'skipped', $history, $rejections)) {
             return 'skipped';

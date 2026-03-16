@@ -23,7 +23,7 @@ class PkWorkflowDefinition implements WorkflowDefinition
             'type' => StepType::Approval,
             'label' => 'Approval Narasi',
             'prerequisites' => ['PK01'],
-            'rejectionTarget' => 'PK01',
+            'rejectionTarget' => null, // wait-for-both: join gate handles rejection via PK03
             'cycleTarget' => null,
         ],
         'PK02B' => [
@@ -31,7 +31,7 @@ class PkWorkflowDefinition implements WorkflowDefinition
             'type' => StepType::Approval,
             'label' => 'Approval Anggaran',
             'prerequisites' => ['PK01'],
-            'rejectionTarget' => 'PK01',
+            'rejectionTarget' => null, // wait-for-both: join gate handles rejection via PK03
             'cycleTarget' => null,
         ],
         'PK03' => [

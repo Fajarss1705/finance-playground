@@ -204,6 +204,10 @@ class WorkflowNotifier
                 'admin.workflows.pk.pk02b.approve',
             ],
 
+            // PK02A + PK02B join gate outcomes
+            'pk02.both_approved' => 'admin.workflows.pk.pk03.approve',
+            'pk02.rejected' => 'team.workflows.pk.pk01.draft',
+
             default => null,
         };
     }
@@ -262,6 +266,8 @@ class WorkflowNotifier
 
             // PK workflow events
             'pk01.submitted' => ['disubmit', 'Program Kegiatan (PK01)', 'Silakan review dan approve Narasi (PK02A) dan Anggaran (PK02B).'],
+            'pk02.both_approved' => ['disetujui', 'Approval Narasi & Anggaran (PK02A/PK02B)', 'Silakan lanjutkan ke RAKER (PK03).'],
+            'pk02.rejected' => ['ditolak', 'Approval Narasi/Anggaran (PK02A/PK02B)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
 
             default => [
                 $context['action_verb'] ?? 'diproses',

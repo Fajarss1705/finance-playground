@@ -61,6 +61,12 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::get('/{pkWorkflow}/pk01/{pk01Data}', [PkWorkflowController::class, 'pk01Show'])->name('pk01.show');
             Route::post('/{pkWorkflow}/pk01/{pk01Data}/draft', [PkWorkflowController::class, 'pk01Draft'])->name('pk01.draft');
             Route::post('/{pkWorkflow}/pk01/{pk01Data}/submit', [PkWorkflowController::class, 'pk01Submit'])->name('pk01.submit');
+
+            // PK02A (team scope — read-only)
+            Route::get('/{pkWorkflow}/pk02a', [PkWorkflowController::class, 'pk02aShow'])->name('pk02a.show');
+
+            // PK02B (team scope — read-only)
+            Route::get('/{pkWorkflow}/pk02b', [PkWorkflowController::class, 'pk02bShow'])->name('pk02b.show');
         });
 
         // Workflow prototypes — PABD (team scope)
