@@ -67,6 +67,13 @@ const teamNavItems: NavItem[] = [
         permission: 'team.files.index',
     },
     {
+        title: '(PK) Kegiatan dan Anggaran',
+        href: '/team/workflows/pk',
+        icon: NotebookPen,
+        permission: 'team.workflows.pk.index',
+        emphasis: true,
+    },
+    {
         title: 'Anggaran Bulanan',
         href: '/team/workflows/pabd',
         icon: CalendarDays,
@@ -136,6 +143,13 @@ const adminNavItems: NavItem[] = [
         href: adminPpIndex().url,
         icon: NotebookPen,
         permission: 'admin.workflows.pp.index',
+        emphasis: true,
+    },
+    {
+        title: '(PK) Semua Kegiatan',
+        href: '/admin/workflows/pk',
+        icon: NotebookPen,
+        permission: 'admin.workflows.pk.index',
         emphasis: true,
     },
     {
