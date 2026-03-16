@@ -1,6 +1,6 @@
 import { Head, usePage, router } from '@inertiajs/react';
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +14,7 @@ import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 import Pk01ReadonlySection from './_pk01-readonly-section';
-import type { Pk01ReadonlyData, PreviousCycle, Pk01Change, ParallelTrackStatus } from './_pk01-readonly-section';
+import type { Pk01ReadonlyData, PreviousCycle, Pk01Change } from './_pk01-readonly-section';
 
 type Workflow = {
     id: number;
@@ -24,13 +24,21 @@ type Workflow = {
     tipe: string;
 };
 
+type ParallelApproval = {
+    step: string;
+    label: string;
+    by_name: string | null;
+    role_name: string | null;
+    at: string | null;
+};
+
 type Props = {
     workflow: Workflow;
     pk01Data: Pk01ReadonlyData | null;
     previousCycles: PreviousCycle[];
     pk01Changes: Pk01Change[] | null;
     pp06RevisionLabel: string | null;
-    parallelTrackStatus: ParallelTrackStatus;
+    parallelApprovals: ParallelApproval[];
     stepStatus: string;
     canApprove: boolean;
     canReject: boolean;
@@ -42,13 +50,17 @@ type Props = {
     basePath: string;
 };
 
-export default function Pk02a({
+function formatTanggal(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+export default function Pk03({
     workflow,
     pk01Data,
     previousCycles,
     pk01Changes,
     pp06RevisionLabel,
-    parallelTrackStatus,
+    parallelApprovals,
     stepStatus,
     canApprove,
     canReject,
@@ -69,13 +81,13 @@ export default function Pk02a({
             { title: 'Tim', href: '/team' },
             { title: 'Perencanaan Kegiatan', href: '/team/workflows/pk' },
             { title: workflow.label, href: `${basePath}` },
-            { title: 'PK02A: Approval Narasi', href: '#' },
+            { title: 'PK03: Approval RAKER', href: '#' },
         ]
         : [
             { title: 'Manajemen', href: '/admin' },
             { title: 'Perencanaan Kegiatan', href: '/admin/workflows/pk' },
             { title: workflow.label, href: `${basePath}` },
-            { title: 'PK02A: Approval Narasi', href: '#' },
+            { title: 'PK03: Approval RAKER', href: '#' },
         ];
 
     function stepUrlResolver(entry: HistoryEntry): string | null {
@@ -90,10 +102,10 @@ export default function Pk02a({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={`PK02A: Approval Narasi — ${workflow.label}`} />
+            <Head title={`PK03: Approval RAKER — ${workflow.label}`} />
             <div className="space-y-6 p-6">
                 <div className="flex items-center gap-3">
-                    <Heading title="PK02A: Approval Narasi" description="Review narasi dan konten program kegiatan" />
+                    <Heading title="PK03: Approval RAKER" description="Keputusan RAKER untuk program kegiatan" />
                     <StepStatusBadge status={stepStatus} />
                     {workflow.tipe === 'proposal' && (
                         <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">PK Proposal</Badge>
@@ -116,15 +128,15 @@ export default function Pk02a({
                     </div>
                 )}
 
-                {/* Parallel track status */}
-                <ParallelTrackIndicator status={parallelTrackStatus} />
+                {/* Parallel approval status — shows both PK02A + PK02B as approved */}
+                <ParallelApprovalStatus approvals={parallelApprovals} />
 
                 <ActionRolesSection items={actionRoles} activeRoleName={activeRoleName} />
 
                 <HistoryCommentSection
                     entries={workflow.history}
                     commentUrl={`${basePath}/comment`}
-                    commentSource="pk02a"
+                    commentSource="pk03"
                     canComment={canComment}
                     finalSteps={['PK04']}
                     stepUrlResolver={stepUrlResolver}
@@ -168,21 +180,27 @@ function StepStatusBadge({ status }: { status: string }) {
     return <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Disetujui</Badge>;
 }
 
-function ParallelTrackIndicator({ status }: { status: ParallelTrackStatus }) {
-    const statusLabels: Record<string, { text: string; className: string }> = {
-        pending: { text: 'Menunggu keputusan', className: 'text-slate-600 dark:text-slate-400' },
-        active: { text: 'Menunggu keputusan', className: 'text-slate-600 dark:text-slate-400' },
-        approved: { text: 'Disetujui', className: 'text-green-600 dark:text-green-400' },
-        rejected: { text: 'Ditolak', className: 'text-red-600 dark:text-red-400' },
-    };
-
-    const info = statusLabels[status.status] ?? statusLabels.pending;
+function ParallelApprovalStatus({ approvals }: { approvals: ParallelApproval[] }) {
+    if (approvals.length === 0) return null;
 
     return (
-        <div className="rounded-md border bg-muted/30 p-3 text-sm">
-            <span className="text-muted-foreground">{status.step} ({status.label}):</span>{' '}
-            <span className={info.className}>{info.text}</span>
-        </div>
+        <SectionCard title="Status Approval Sebelumnya">
+            <div className="space-y-2">
+                {approvals.map((a) => (
+                    <div key={a.step} className="flex items-start gap-2 text-sm">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                        <div>
+                            <span className="font-medium">{a.step} ({a.label}):</span>{' '}
+                            <span className="text-green-600 dark:text-green-400">Disetujui</span>
+                            <div className="text-xs text-muted-foreground">
+                                oleh {a.by_name ?? 'Unknown'} ({a.role_name ?? 'Unknown'})
+                                {a.at && ` — ${formatTanggal(a.at)}`}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </SectionCard>
     );
 }
 
@@ -191,13 +209,13 @@ function ApproveButton({ basePath }: { basePath: string }) {
     return (
         <ActionConfirmDialog
             trigger={<Button>Setujui</Button>}
-            title="Setujui Narasi Program Kegiatan"
-            description="Narasi dan konten program kegiatan akan disetujui."
+            title="Setujui RAKER Program Kegiatan"
+            description="Program kegiatan akan dilanjutkan ke kompilasi Program Tahunan (PK04)."
             confirmLabel="Setujui"
             processing={processing}
             onConfirm={({ notes, files }) => {
                 setProcessing(true);
-                router.post(`${basePath}/pk02a/approve`, { notes, ...(files.length > 0 ? { files } : {}) }, {
+                router.post(`${basePath}/pk03/approve`, { notes, ...(files.length > 0 ? { files } : {}) }, {
                     forceFormData: files.length > 0,
                     onFinish: () => setProcessing(false),
                 });
@@ -211,15 +229,15 @@ function RejectButton({ basePath }: { basePath: string }) {
     return (
         <ActionConfirmDialog
             trigger={<Button variant="destructive">Tolak</Button>}
-            title="Tolak Narasi Program Kegiatan"
-            description="Program kegiatan akan dikembalikan ke tim untuk perbaikan setelah kedua track selesai."
+            title="Tolak RAKER Program Kegiatan"
+            description="Program kegiatan akan dikembalikan ke tim untuk perbaikan."
             confirmLabel="Tolak"
             variant="destructive"
             requireNotes
             processing={processing}
             onConfirm={({ notes, files }) => {
                 setProcessing(true);
-                router.post(`${basePath}/pk02a/reject`, { notes, ...(files.length > 0 ? { files } : {}) }, {
+                router.post(`${basePath}/pk03/reject`, { notes, ...(files.length > 0 ? { files } : {}) }, {
                     forceFormData: files.length > 0,
                     onFinish: () => setProcessing(false),
                 });

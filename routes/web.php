@@ -67,6 +67,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
 
             // PK02B (team scope — read-only)
             Route::get('/{pkWorkflow}/pk02b', [PkWorkflowController::class, 'pk02bShow'])->name('pk02b.show');
+
+            // PK03 (team scope — read-only)
+            Route::get('/{pkWorkflow}/pk03', [PkWorkflowController::class, 'pk03Show'])->name('pk03.show');
         });
 
         // Workflow prototypes — PABD (team scope)

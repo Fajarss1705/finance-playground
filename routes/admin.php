@@ -113,6 +113,11 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{pkWorkflow}/pk02b', [PkWorkflowController::class, 'pk02bShow'])->name('pk02b.show');
             Route::post('/{pkWorkflow}/pk02b/approve', [PkWorkflowController::class, 'pk02bApprove'])->name('pk02b.approve');
             Route::post('/{pkWorkflow}/pk02b/reject', [PkWorkflowController::class, 'pk02bReject'])->name('pk02b.reject');
+
+            // PK03 (admin scope — show + approve/reject)
+            Route::get('/{pkWorkflow}/pk03', [PkWorkflowController::class, 'pk03Show'])->name('pk03.show');
+            Route::post('/{pkWorkflow}/pk03/approve', [PkWorkflowController::class, 'pk03Approve'])->name('pk03.approve');
+            Route::post('/{pkWorkflow}/pk03/reject', [PkWorkflowController::class, 'pk03Reject'])->name('pk03.reject');
         });
 
         // Workflow prototypes — PABD (admin scope)

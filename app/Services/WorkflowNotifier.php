@@ -208,6 +208,13 @@ class WorkflowNotifier
             'pk02.both_approved' => 'admin.workflows.pk.pk03.approve',
             'pk02.rejected' => 'team.workflows.pk.pk01.draft',
 
+            // PK03 linear outcomes
+            'pk03.approved' => [
+                'team.workflows.pk.pk04.show',
+                'admin.workflows.pk.pk04.show',
+            ],
+            'pk03.rejected' => 'team.workflows.pk.pk01.draft',
+
             default => null,
         };
     }
@@ -268,6 +275,8 @@ class WorkflowNotifier
             'pk01.submitted' => ['disubmit', 'Program Kegiatan (PK01)', 'Silakan review dan approve Narasi (PK02A) dan Anggaran (PK02B).'],
             'pk02.both_approved' => ['disetujui', 'Approval Narasi & Anggaran (PK02A/PK02B)', 'Silakan lanjutkan ke RAKER (PK03).'],
             'pk02.rejected' => ['ditolak', 'Approval Narasi/Anggaran (PK02A/PK02B)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
+            'pk03.approved' => ['disetujui', 'RAKER (PK03)', 'Program Tahunan (PK04) telah dibuat.'],
+            'pk03.rejected' => ['ditolak', 'RAKER (PK03)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
 
             default => [
                 $context['action_verb'] ?? 'diproses',

@@ -100,6 +100,7 @@ export default function Pk02b({
         const step = entry.step;
         if (step === 'PK02A') return `${basePath}/pk02a`;
         if (step === 'PK02B') return `${basePath}/pk02b`;
+        if (step === 'PK03') return `${basePath}/pk03`;
         if (entry.id && entry.table) return `${basePath}/${step.toLowerCase()}/${entry.id}`;
         return null;
     }

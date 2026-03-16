@@ -1318,3 +1318,290 @@ it('blocks approve on pending PK02B step', function () {
     $this->post(route('admin.workflows.pk.pk02b.approve', $pkWorkflow), ['notes' => 'ok'])
         ->assertStatus(409);
 });
+
+// ══════════════════════════════════════════════════════════════
+//  PK03 — Approval RAKER (Join Point)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Setup PK workflow at PK03 active state.
+ * Both PK02A + PK02B approved → PK03 auto-created.
+ */
+function setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role): array
+{
+    [$pkWorkflow, $pk01] = setupPkAtPk02($workspace, $team, $ppWorkflow, $user, $role);
+
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    // Approve PK02A
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02A', action: 'approved', userId: $user->id, sessionContext: $ctx, extra: [
+        'reviewed' => ['pk01_data' => $pk01->id],
+    ]);
+
+    // Approve PK02B
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02B', action: 'approved', userId: $user->id, sessionContext: $ctx, extra: [
+        'reviewed' => ['pk01_data' => $pk01->id],
+    ]);
+
+    // Create PK03 (simulates join gate outcome)
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK03', action: 'created', userId: null, sessionContext: []);
+
+    return [$pkWorkflow->fresh(), $pk01->fresh()];
+}
+
+// ── PK03 Show ──
+
+it('displays PK03 page for admin user with approve permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk03.reject',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('admin.workflows.pk.pk03.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk03')
+            ->where('stepStatus', 'active')
+            ->where('canApprove', true)
+            ->where('canReject', true)
+            ->has('pk01Data')
+            ->has('parallelApprovals', 2)
+        );
+});
+
+it('displays PK03 page as readonly for team user', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk03.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.pk03.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk03')
+            ->where('stepStatus', 'active')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+it('displays PK03 page as readonly for admin without approve permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('admin.workflows.pk.pk03.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk03')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+// ── PK03 Approve → PK04 Created ──
+
+it('creates PK04 when PK03 approves', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'RAKER approved'])
+        ->assertRedirect();
+
+    $pkWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PkWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pkWorkflow->history);
+
+    expect($statuses['PK03']['status'])->toBe('completed')
+        ->and($statuses['PK04']['status'])->toBe('active');
+
+    // PK03 approved entry in history
+    $pk03Approved = collect($pkWorkflow->history)->where('step', 'PK03')->where('action', 'approved')->first();
+    expect($pk03Approved)->not->toBeNull()
+        ->and($pk03Approved['reviewed']['pk01_data'])->toBe($pk01->id);
+
+    // PK04 created entry in history
+    $pk04Created = collect($pkWorkflow->history)->where('step', 'PK04')->where('action', 'created')->first();
+    expect($pk04Created)->not->toBeNull();
+});
+
+// ── PK03 Reject → PK01 Re-entry ──
+
+it('returns to PK01 when PK03 rejects', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+        'admin.workflows.pk.pk03.reject',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.reject', $pkWorkflow), ['notes' => 'Program perlu revisi menyeluruh'])
+        ->assertRedirect();
+
+    $pkWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PkWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pkWorkflow->history);
+
+    // PK01 re-entry, PK03 completed (rejected), PK04 still pending
+    expect($statuses['PK01']['status'])->toBe('active')
+        ->and($statuses['PK01']['cycle'])->toBe(2)
+        ->and($statuses['PK04']['status'])->toBe('pending');
+
+    // PK03 rejected entry in history with notes
+    $pk03Rejected = collect($pkWorkflow->history)->where('step', 'PK03')->where('action', 'rejected')->last();
+    expect($pk03Rejected)->not->toBeNull()
+        ->and($pk03Rejected['notes'])->toBe('Program perlu revisi menyeluruh')
+        ->and($pk03Rejected['by'])->toBe($user->id);
+
+    // New PK01 data created with copied data
+    $allPk01 = Pk01Data::where('pk_workflow_id', $pkWorkflow->id)->orderBy('id')->get();
+    expect($allPk01)->toHaveCount(2);
+
+    $newPk01 = $allPk01->last();
+    expect($newPk01->nama_program)->toBe('Program Test PK02')
+        ->and($newPk01->kegiatan)->toHaveCount(1)
+        ->and($newPk01->kegiatan->first()->anggaran)->toHaveCount(1)
+        ->and($newPk01->kegiatan->first()->kuisioner)->toHaveCount(1);
+
+    // PK01 created entry for re-entry
+    $pk01Created = collect($pkWorkflow->history)->where('step', 'PK01')->where('action', 'created')->last();
+    expect($pk01Created['id'])->toBe($newPk01->id);
+});
+
+// ── PK03 Concurrent Approve Block ──
+
+it('blocks concurrent approve on same PK03 step', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('admin.workflows.pk.pk03.approve');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // First approve succeeds
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok'])
+        ->assertRedirect();
+
+    // Second approve should fail (step no longer active)
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'duplicate'])
+        ->assertStatus(409);
+});
+
+// ── PK03 Permission Enforcement ──
+
+it('denies PK03 approve without approve permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('admin.workflows.pk.pk03.show');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok'])
+        ->assertForbidden();
+});
+
+it('denies PK03 reject without reject permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('admin.workflows.pk.pk03.show');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.reject', $pkWorkflow), ['notes' => 'should fail'])
+        ->assertForbidden();
+});
+
+it('denies PK03 approve from team scope user', function () {
+    [$user, $role, $workspace, $team] = setupPkUser('team.workflows.pk.pk03.show');
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok'])
+        ->assertForbidden();
+});
+
+// ── PK03 Show After Completion ──
+
+it('shows PK03 as readonly after approval', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Approve PK03
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    // Show should still work but canApprove/canReject = false
+    $this->get(route('admin.workflows.pk.pk03.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/pk03')
+            ->where('stepStatus', 'approved')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+// ── PK03 Sanity Checks ──
+
+it('rejects PK03 reject without notes', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+        'admin.workflows.pk.pk03.approve',
+        'admin.workflows.pk.pk03.reject',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.reject', $pkWorkflow), ['notes' => ''])
+        ->assertSessionHasErrors(['notes']);
+});
+
+it('blocks approve on pending PK03 step', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Setup PK at PK02 stage (PK03 not yet created)
+    [$pkWorkflow] = setupPkAtPk02($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok'])
+        ->assertStatus(409);
+});
+
+it('includes pp06_revision in PK03 history entry', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk03.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk03($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->post(route('admin.workflows.pk.pk03.approve', $pkWorkflow), ['notes' => 'ok']);
+
+    $pkWorkflow->refresh();
+    $pk03Approved = collect($pkWorkflow->history)->where('step', 'PK03')->where('action', 'approved')->first();
+    expect($pk03Approved)->toHaveKey('pp06_revision');
+});
