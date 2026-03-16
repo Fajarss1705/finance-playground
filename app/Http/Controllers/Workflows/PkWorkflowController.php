@@ -1485,17 +1485,125 @@ class PkWorkflowController extends Controller
     }
 
     // ──────────────────────────────────────────────────────────
-    //  Stubs — will be built per PK-index / PK-show step reviews
+    //  Index & Show
     // ──────────────────────────────────────────────────────────
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $scope = $this->getScope();
         $this->checkPermission("{$scope}.workflows.pk.index");
 
-        return Inertia::render('workflows/pk/index', [
+        $workspaceId = $this->session->getActiveWorkspaceId();
+        $definition = $this->engine->resolveDefinition(WorkflowType::PK);
+
+        $query = PkWorkflow::query()
+            ->where('workspace_id', $workspaceId);
+
+        // Team scope: restrict to user's team
+        $roleId = $this->session->getActiveRoleId();
+        $userTeamId = $roleId ? Role::find($roleId)?->team_id : null;
+        if ($scope === 'team') {
+            $query->where('team_id', $userTeamId);
+        }
+
+        // Trash toggle
+        if ($request->boolean('trash')) {
+            $query->onlyTrashed();
+        }
+
+        // DB-level filters: PP period
+        if ($request->filled('pp')) {
+            $ppTahun = (int) $request->input('pp');
+            $query->whereHas('ppWorkflow', fn ($q) => $q->whereHas('pp01Data', fn ($q2) => $q2->where('tahun', $ppTahun)));
+        }
+
+        // DB-level: tipe
+        if ($request->filled('tipe')) {
+            $query->where('tipe', $request->input('tipe'));
+        }
+
+        // DB-level: team (admin only)
+        if ($scope === 'admin' && $request->filled('team')) {
+            $query->where('team_id', (int) $request->input('team'));
+        }
+
+        $statusFilter = $request->input('status');
+        $userCache = [];
+        $roleCache = [];
+
+        // Status is a computed filter — load all, transform, filter in-memory, then paginate
+        if ($statusFilter) {
+            $allWorkflows = $query->orderByDesc('created_at')->get();
+            $transformed = $allWorkflows->map(fn (PkWorkflow $wf) => $this->transformPkForIndex($wf, $definition, $scope, $userCache, $roleCache));
+
+            $transformed = $transformed->filter(fn ($item) => $item['status'] === $statusFilter);
+
+            $filtered = $transformed->values();
+            $page = (int) $request->input('page', 1);
+            $perPage = 15;
+            $workflows = new \Illuminate\Pagination\LengthAwarePaginator(
+                $filtered->forPage($page, $perPage)->values(),
+                $filtered->count(),
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()],
+            );
+        } else {
+            $workflows = $query
+                ->orderByDesc('created_at')
+                ->paginate(15)
+                ->withQueryString();
+
+            $workflows->through(fn (PkWorkflow $wf) => $this->transformPkForIndex($wf, $definition, $scope, $userCache, $roleCache));
+        }
+
+        // Available PP periods for filter
+        $availablePpPeriods = \App\Models\Pp\Pp01Data::query()
+            ->whereIn('pp_workflow_id', PpWorkflow::where('workspace_id', $workspaceId)->select('id'))
+            ->whereNotNull('tahun')
+            ->distinct()
+            ->orderByDesc('tahun')
+            ->pluck('tahun')
+            ->map(fn ($t) => ['value' => (string) $t, 'label' => "PP-{$t}"])
+            ->values();
+
+        // Available teams for filter (admin only)
+        $availableTeams = [];
+        if ($scope === 'admin') {
+            $teamIds = PkWorkflow::where('workspace_id', $workspaceId)->distinct()->pluck('team_id');
+            $availableTeams = \App\Models\Team::whereIn('id', $teamIds)
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn ($t) => ['value' => (string) $t->id, 'label' => $t->name])
+                ->values();
+        }
+
+        $props = [
+            'workflows' => $workflows,
+            'filters' => [
+                'status' => $request->input('status'),
+                'pp' => $request->input('pp'),
+                'tipe' => $request->input('tipe'),
+                'trash' => $request->boolean('trash'),
+                ...($scope === 'admin' ? ['team' => $request->input('team')] : []),
+            ],
+            'availablePpPeriods' => $availablePpPeriods,
             'scope' => $scope,
-        ]);
+        ];
+
+        if ($scope === 'admin') {
+            $props['availableTeams'] = $availableTeams;
+        }
+
+        // Team scope: create prerequisites
+        if ($scope === 'team') {
+            $createData = $this->resolveCreatePrerequisites($workspaceId, $userTeamId);
+            $props['canCreate'] = $createData['canCreate'];
+            $props['eligiblePpWorkflows'] = $createData['eligiblePpWorkflows'];
+            $props['createMessage'] = $createData['createMessage'];
+        }
+
+        return Inertia::render('workflows/pk/index', $props);
     }
 
     public function show(PkWorkflow $pkWorkflow): Response
@@ -1507,16 +1615,182 @@ class PkWorkflowController extends Controller
         }
         $this->checkPermission("{$scope}.workflows.pk.show");
 
+        $definition = $this->engine->resolveDefinition(WorkflowType::PK);
         $history = $pkWorkflow->history ?? [];
-        $teamName = $pkWorkflow->team?->name ?? 'Unknown';
-        $pp01 = $pkWorkflow->ppWorkflow?->latestPp01();
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+
+        // Status override: completed → revising if PK05 draft exists
+        if ($workflowStatus === 'completed') {
+            if ($pkWorkflow->pk05Data()->whereNull('submitted_at')->exists()) {
+                $workflowStatus = 'revising';
+            }
+        }
+
+        // Label: prefer pk04 program name, fallback to pk01, then "PK Baru"
+        $latestPk04 = $pkWorkflow->latestPk04();
+        $latestPk01 = $pkWorkflow->latestPk01();
+        $label = $latestPk04?->nama_program ?? $latestPk01?->nama_program ?? 'PK Baru';
+
+        // Creator info from first history entry
+        $creatorEntry = $history[0] ?? null;
+        $creatorName = 'Sistem';
+        $creatorRole = null;
+        $creatorTeam = null;
+        $creatorDate = $pkWorkflow->created_at->format('d/m/Y');
+        if ($creatorEntry && isset($creatorEntry['by'])) {
+            $creatorName = User::find($creatorEntry['by'])?->name ?? 'Unknown';
+            if (isset($creatorEntry['role'])) {
+                $role = Role::with('team')->find($creatorEntry['role']);
+                $creatorRole = $role?->name;
+                $creatorTeam = $role?->team?->name;
+            }
+        }
+
+        // Step aktif label — with parallel step support
+        $stepAktifLabel = null;
+        if ($workflowStatus === 'active' && ! empty($currentSteps)) {
+            $stepNames = [
+                'PK01' => 'Program Kegiatan',
+                'PK02A' => 'Approval Narasi',
+                'PK02B' => 'Approval Anggaran',
+                'PK03' => 'RAKER',
+                'PK04' => 'Program Tahunan',
+                'PK05' => 'Revisi',
+            ];
+            $stepLabels = array_map(
+                fn ($s) => $s.': '.($stepNames[$s] ?? $s),
+                $currentSteps
+            );
+            $stepAktifLabel = implode(', ', $stepLabels);
+        }
+
+        // Stepper cycles with scope-aware URL resolver
+        $wfId = $pkWorkflow->id;
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($wfId, $scope): ?string {
+            $base = "/{$scope}/workflows/pk/{$wfId}";
+
+            if ($code === 'PK01' && $dataId) {
+                return "{$base}/pk01/{$dataId}";
+            }
+            if (in_array($code, ['PK02A', 'PK02B', 'PK03'])) {
+                return "{$base}/".strtolower($code);
+            }
+            if ($code === 'PK04') {
+                return "{$base}/pk04";
+            }
+            if ($code === 'PK05') {
+                return "{$base}/pk05";
+            }
+
+            return null;
+        });
+
+        // Inject step roles for tooltips
+        $stepRoleMap = $this->resolveStepRolesForShow();
+        foreach ($stepperCycles as &$cycle) {
+            foreach ($cycle['steps'] as &$step) {
+                $step['roles'] = $stepRoleMap[$step['code']] ?? [];
+            }
+        }
+        unset($cycle, $step);
+
+        // PP context
+        $ppWorkflow = $pkWorkflow->ppWorkflow;
+        $ppTahun = $ppWorkflow?->latestPp01()?->tahun;
+
+        // Budget counter (raker only)
+        $budgetCounter = null;
+        if ($pkWorkflow->tipe === 'raker') {
+            $counters = $this->getBudgetCounters($pkWorkflow);
+            $pkIni = $this->computePkIniAnggaran($pkWorkflow, $latestPk04, $latestPk01);
+            $budgetCounter = [
+                'pp_reference' => $counters['ppLabel'] ?? '—',
+                'plafon' => $counters['plafon'],
+                'accepted' => $counters['accepted'],
+                'planned' => $counters['planned'],
+                'sisa' => $counters['sisa'],
+                'pk_ini' => $pkIni,
+            ];
+        }
+
+        // Data Terbaru from PK04
+        $dataTerbaru = null;
+        if ($latestPk04) {
+            $kegiatan = $latestPk04->kegiatan()
+                ->with(['anggaran' => fn ($q) => $q->where('status_item', 'active')])
+                ->orderBy('nomer_kegiatan')
+                ->get();
+
+            $kodeKategori = $latestPk04->kode_kategori;
+            $kategoriLabel = $kodeKategori;
+            if ($ppWorkflow) {
+                $pp06 = $ppWorkflow->latestPp06();
+                if ($pp06) {
+                    $kat = $pp06->kodeKategoriPelayanan()->where('kode', $kodeKategori)->first();
+                    if ($kat) {
+                        $kategoriLabel = "{$kat->kode} - {$kat->nama}";
+                    }
+                }
+            }
+
+            $bulanNames = [1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'];
+
+            $dataTerbaru = [
+                'program' => $latestPk04->nama_program,
+                'kategori_label' => $kategoriLabel,
+                'revision' => $latestPk04->revision,
+                'verification_code' => $latestPk04->verification_code ?? null,
+                'pk04_id' => $latestPk04->id,
+                'kegiatan' => $kegiatan->map(fn ($k) => [
+                    'nomer' => $k->nomer_kegiatan,
+                    'nama' => $k->nama_kegiatan,
+                    'bulan_label' => $bulanNames[$k->bulan] ?? (string) $k->bulan,
+                    'total_anggaran' => (float) $k->anggaran->sum('nominal_anggaran'),
+                ])->values(),
+                'total_anggaran' => (float) $kegiatan->sum(fn ($k) => $k->anggaran->sum('nominal_anggaran')),
+                'kuisioner_count' => $latestPk04->kegiatan()
+                    ->withCount('kuisioner')
+                    ->get()
+                    ->sum('kuisioner_count'),
+            ];
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = $scope === 'team' ? 'team' : 'admin';
 
         return Inertia::render('workflows/pk/show', [
             'workflow' => [
                 'id' => $pkWorkflow->id,
-                'label' => "PK-{$teamName}-{$pp01?->tahun}",
-                'status' => $this->engine->getWorkflowStatus($history),
+                'label' => $label,
+                'status' => $workflowStatus,
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
             ],
+            'informasi' => [
+                'team_name' => $pkWorkflow->team?->name ?? 'Unknown',
+                'pp_label' => $ppTahun ? "PP-{$ppTahun}" : '—',
+                'pp_workflow_id' => $ppWorkflow?->id,
+                'tipe' => $pkWorkflow->tipe,
+                'dibuat_oleh' => $creatorName,
+                'dibuat_oleh_role' => $creatorRole,
+                'dibuat_oleh_team' => $creatorTeam,
+                'dibuat_tanggal' => $creatorDate,
+                'status' => $workflowStatus,
+                'step_aktif' => $stepAktifLabel,
+            ],
+            'budgetCounter' => $budgetCounter,
+            'dataTerbaru' => $dataTerbaru,
+            'canTerminate' => $workflowStatus === 'active'
+                && in_array("{$permPrefix}.workflows.pk.terminate", $permissions),
+            'canRevise' => $workflowStatus === 'completed'
+                && in_array('admin.workflows.pk.pk05.create', $permissions),
+            'canDelete' => $workflowStatus === 'terminated'
+                && in_array('admin.workflows.pk.destroy', $permissions),
+            'canComment' => in_array("{$permPrefix}.workflows.pk.comment", $permissions),
+            'canExportZip' => $dataTerbaru !== null
+                && in_array("{$permPrefix}.workflows.pk.pk04.export.zip", $permissions),
+            'activeRoleName' => $this->getActiveRoleName(),
             'scope' => $scope,
         ]);
     }
@@ -2683,5 +2957,287 @@ class PkWorkflowController extends Controller
             'PK05' => 'Revisi',
             default => $step,
         };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  Index & Show Helpers
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Transform a PkWorkflow into a row for the index page.
+     *
+     * @param  array<int, string>  $userCache
+     * @param  array<int, string|null>  $roleCache
+     * @return array<string, mixed>
+     */
+    private function transformPkForIndex(PkWorkflow $wf, \App\Contracts\WorkflowDefinition $definition, string $scope, array &$userCache, array &$roleCache): array
+    {
+        $history = $wf->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+
+        // Status override: completed → revising if PK05 draft exists
+        if ($workflowStatus === 'completed') {
+            if ($wf->pk05Data()->whereNull('submitted_at')->exists()) {
+                $workflowStatus = 'revising';
+            }
+        }
+
+        // Step aktif — parallel steps joined with comma
+        $stepAktif = null;
+        if ($workflowStatus === 'active') {
+            $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+            if (! empty($currentSteps)) {
+                $stepAktif = implode(', ', $currentSteps);
+            }
+        }
+
+        // Program name: prefer pk04, fallback to pk01
+        $latestPk04 = $wf->latestPk04();
+        $latestPk01 = $wf->latestPk01();
+        $program = $latestPk04?->nama_program ?? $latestPk01?->nama_program;
+
+        // Total anggaran
+        $totalAnggaran = null;
+        if ($latestPk04) {
+            $totalAnggaran = (float) $latestPk04->kegiatan()
+                ->join('pk04_anggaran', 'pk04_kegiatan.id', '=', 'pk04_anggaran.pk04_kegiatan_id')
+                ->where('pk04_anggaran.status_item', 'active')
+                ->sum('pk04_anggaran.nominal_anggaran');
+        } elseif ($latestPk01) {
+            $totalAnggaran = (float) $latestPk01->kegiatan()
+                ->join('pk01_anggaran', 'pk01_kegiatan.id', '=', 'pk01_anggaran.pk01_kegiatan_id')
+                ->sum('pk01_anggaran.nominal_anggaran');
+            if ($totalAnggaran == 0) {
+                $totalAnggaran = null;
+            }
+        }
+
+        // PP label
+        $ppTahun = $wf->ppWorkflow?->latestPp01()?->tahun;
+        $ppLabel = $ppTahun ? "PP-{$ppTahun}" : '—';
+
+        // Creator from first history entry
+        $creatorEntry = $history[0] ?? null;
+        $creatorName = 'Sistem';
+        $creatorRoleName = null;
+        if ($creatorEntry && isset($creatorEntry['by'])) {
+            $uid = $creatorEntry['by'];
+            if (! isset($userCache[$uid])) {
+                $userCache[$uid] = User::find($uid)?->name ?? 'Unknown';
+            }
+            $creatorName = $userCache[$uid];
+            if (isset($creatorEntry['role'])) {
+                $rid = $creatorEntry['role'];
+                if (! isset($roleCache[$rid])) {
+                    $roleCache[$rid] = Role::find($rid)?->name;
+                }
+                $creatorRoleName = $roleCache[$rid];
+            }
+        }
+
+        // "Terakhir" — scan history in reverse for last non-comment action
+        [$lastActorName, $lastActorRole] = $this->resolveLastActor($history, $userCache, $roleCache);
+
+        $row = [
+            'id' => $wf->id,
+            'program' => $program,
+            'tipe' => $wf->tipe,
+            'status' => $workflowStatus,
+            'step_aktif' => $stepAktif,
+            'pp_label' => $ppLabel,
+            'total_anggaran' => $totalAnggaran,
+            'revision' => $latestPk04?->revision,
+            'terakhir_name' => $lastActorName,
+            'terakhir_role' => $lastActorRole,
+            'tanggal' => $wf->created_at->format('d/m/Y'),
+        ];
+
+        // Admin-only fields
+        if ($scope === 'admin') {
+            $row['team_name'] = $wf->team?->name ?? 'Unknown';
+            $row['dibuat_oleh_name'] = $creatorName;
+            $row['dibuat_oleh_role'] = $creatorRoleName;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Resolve last non-comment, non-system actor from history.
+     *
+     * @param  array<int, string>  $userCache
+     * @param  array<int, string|null>  $roleCache
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function resolveLastActor(array $history, array &$userCache, array &$roleCache): array
+    {
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            $entry = $history[$i];
+            $action = $entry['action'] ?? '';
+            if ($action === 'commented') {
+                continue;
+            }
+
+            if (! isset($entry['by']) || $entry['by'] === null) {
+                // System-triggered action
+                if (! empty($entry['triggered_by_text'])) {
+                    return ['Sistem', null];
+                }
+
+                continue;
+            }
+
+            $uid = $entry['by'];
+            if (! isset($userCache[$uid])) {
+                $userCache[$uid] = User::find($uid)?->name ?? 'Unknown';
+            }
+            $name = $userCache[$uid];
+            $roleName = null;
+            if (isset($entry['role'])) {
+                $rid = $entry['role'];
+                if (! isset($roleCache[$rid])) {
+                    $roleCache[$rid] = Role::find($rid)?->name;
+                }
+                $roleName = $roleCache[$rid];
+            }
+
+            return [$name, $roleName];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * Resolve create prerequisites for team scope index.
+     *
+     * @return array{canCreate: bool, eligiblePpWorkflows: list<array{id: int, label: string, tahun: int}>, createMessage: string|null}
+     */
+    private function resolveCreatePrerequisites(int $workspaceId, ?int $teamId): array
+    {
+        if (! $teamId) {
+            return ['canCreate' => false, 'eligiblePpWorkflows' => [], 'createMessage' => 'Anda tidak memiliki tim aktif.'];
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        if (! in_array('team.workflows.pk.create', $permissions)) {
+            return ['canCreate' => false, 'eligiblePpWorkflows' => [], 'createMessage' => null];
+        }
+
+        // Find PP workflows where the team has plafon
+        $ppWorkflows = PpWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereHas('pp06PeriodeTahunan', function ($q) use ($teamId) {
+                $q->whereHas('itemPlafonAnggaran', fn ($q2) => $q2->where('team_id', $teamId));
+            })
+            ->with(['pp01Data', 'pp06PeriodeTahunan'])
+            ->get();
+
+        if ($ppWorkflows->isEmpty()) {
+            // Check if any PP is complete at all
+            $anyComplete = PpWorkflow::where('workspace_id', $workspaceId)
+                ->whereHas('pp06PeriodeTahunan')
+                ->exists();
+
+            if (! $anyComplete) {
+                return ['canCreate' => false, 'eligiblePpWorkflows' => [], 'createMessage' => 'Menunggu PP selesai untuk membuat program kegiatan.'];
+            }
+
+            return ['canCreate' => false, 'eligiblePpWorkflows' => [], 'createMessage' => 'Tim Anda belum memiliki plafon di PP periode aktif.'];
+        }
+
+        // Filter by pra-raker window
+        $eligible = $ppWorkflows->filter(function ($pp) {
+            $pp06 = $pp->pp06PeriodeTahunan()->latest('revision')->first();
+
+            return $pp06
+                && $pp06->tanggal_mulai_pra_raker
+                && $pp06->tanggal_penetapan_program
+                && now()->between($pp06->tanggal_mulai_pra_raker, $pp06->tanggal_penetapan_program);
+        });
+
+        if ($eligible->isEmpty()) {
+            // Show window info from latest PP
+            $latestPp = $ppWorkflows->first();
+            $pp06 = $latestPp?->pp06PeriodeTahunan()->latest('revision')->first();
+            $start = $pp06?->tanggal_mulai_pra_raker?->format('d/m/Y') ?? '—';
+            $end = $pp06?->tanggal_penetapan_program?->format('d/m/Y') ?? '—';
+
+            return ['canCreate' => false, 'eligiblePpWorkflows' => [], 'createMessage' => "Di luar periode pra-raker ({$start} — {$end})."];
+        }
+
+        $eligibleList = $eligible->map(function ($pp) {
+            $tahun = $pp->latestPp01()?->tahun ?? 0;
+
+            return ['id' => $pp->id, 'label' => "PP-{$tahun}", 'tahun' => $tahun];
+        })->sortByDesc('tahun')->values()->all();
+
+        return ['canCreate' => true, 'eligiblePpWorkflows' => $eligibleList, 'createMessage' => null];
+    }
+
+    /**
+     * Resolve step roles for show page stepper tooltips.
+     *
+     * @return array<string, list<string>>
+     */
+    private function resolveStepRolesForShow(): array
+    {
+        $stepPermissions = [
+            'PK01' => 'team.workflows.pk.pk01.submit',
+            'PK02A' => 'admin.workflows.pk.pk02a.approve',
+            'PK02B' => 'admin.workflows.pk.pk02b.approve',
+            'PK03' => 'admin.workflows.pk.pk03.approve',
+            'PK04' => null,
+            'PK05' => 'admin.workflows.pk.pk05.submit',
+        ];
+
+        $permNames = array_filter(array_values($stepPermissions));
+        $permissions = Permission::whereIn('name', $permNames)
+            ->with('roles.team')
+            ->get()
+            ->keyBy('name');
+
+        $map = [];
+
+        foreach ($stepPermissions as $step => $permName) {
+            if ($permName === null) {
+                $map[$step] = ['Kompilasi Otomatis'];
+
+                continue;
+            }
+
+            $perm = $permissions->get($permName);
+            $roles = [];
+
+            if ($perm) {
+                foreach ($perm->roles->sortBy(fn (Role $r) => $r->team ? "{$r->name} ({$r->team->name})" : $r->name) as $role) {
+                    $roles[] = $role->team ? "{$role->name} ({$role->team->name})" : $role->name;
+                }
+            }
+
+            $map[$step] = $roles;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Compute "PK Ini" anggaran total for budget counter on show page.
+     */
+    private function computePkIniAnggaran(PkWorkflow $pkWorkflow, ?Pk04ProgramTahunan $latestPk04, ?Pk01Data $latestPk01): float
+    {
+        if ($latestPk04) {
+            return (float) $latestPk04->kegiatan()
+                ->join('pk04_anggaran', 'pk04_kegiatan.id', '=', 'pk04_anggaran.pk04_kegiatan_id')
+                ->where('pk04_anggaran.status_item', 'active')
+                ->sum('pk04_anggaran.nominal_anggaran');
+        }
+
+        if ($latestPk01) {
+            return (float) $latestPk01->kegiatan()
+                ->join('pk01_anggaran', 'pk01_kegiatan.id', '=', 'pk01_anggaran.pk01_kegiatan_id')
+                ->sum('pk01_anggaran.nominal_anggaran');
+        }
+
+        return 0.0;
     }
 }

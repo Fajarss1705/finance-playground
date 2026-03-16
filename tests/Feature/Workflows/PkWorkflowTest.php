@@ -2381,3 +2381,435 @@ it('preserves snapshot of old PK04 after PK05 recompile', function () {
     // Live anggaran row ID preserved (C+CC: update in place)
     expect($newPk04->kegiatan->first()->anggaran->first()->id)->toBe($originalAnggaranId);
 });
+
+// ════════════════════════════════════════════════════════════
+// Index Page
+// ════════════════════════════════════════════════════════════
+
+it('renders team index for user with permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+        'team.workflows.pk.create',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/index')
+            ->where('scope', 'team')
+            ->has('workflows.data', 1)
+            ->has('filters')
+            ->has('availablePpPeriods')
+            ->has('canCreate')
+            ->has('eligiblePpWorkflows')
+        );
+});
+
+it('renders admin index for user with permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.index',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('admin.workflows.pk.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/index')
+            ->where('scope', 'admin')
+            ->has('workflows.data', 1)
+            ->has('availableTeams')
+            ->has('filters.team')
+        );
+});
+
+it('denies index without permission', function () {
+    [$user, $role, $workspace] = setupPkUser();
+    activatePkSession($this, $user, $role, $workspace);
+
+    $this->get(route('team.workflows.pk.index'))->assertForbidden();
+    $this->get(route('admin.workflows.pk.index'))->assertForbidden();
+});
+
+it('filters index by status', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Active PK → status=active should include it
+    $this->get(route('team.workflows.pk.index', ['status' => 'active']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('workflows.data', 1)
+        );
+
+    // Completed filter → should not include the active PK
+    $this->get(route('team.workflows.pk.index', ['status' => 'completed']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('workflows.data', 0)
+        );
+});
+
+it('filters index by tipe', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Default is raker → tipe=raker should include it
+    $this->get(route('team.workflows.pk.index', ['tipe' => 'raker']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    // proposal → should not include raker PK
+    $this->get(route('team.workflows.pk.index', ['tipe' => 'proposal']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
+it('filters index by PP period', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // PP is tahun 2027 by default
+    $this->get(route('team.workflows.pk.index', ['pp' => '2027']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    $this->get(route('team.workflows.pk.index', ['pp' => '9999']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
+it('filters admin index by team', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.index',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Filter by correct team
+    $this->get(route('admin.workflows.pk.index', ['team' => $team->id]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    // Filter by non-existent team
+    $this->get(route('admin.workflows.pk.index', ['team' => '99999']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
+it('shows trash on index when toggled', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.index',
+        'admin.workflows.pk.destroy',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $pkWorkflow->delete(); // Soft delete
+
+    // Normal index should not show it
+    $this->get(route('admin.workflows.pk.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+
+    // Trash toggle shows it
+    $this->get(route('admin.workflows.pk.index', ['trash' => '1']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+});
+
+it('team index only shows own team PKs', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a PK for a different team
+    $otherTeam = \App\Models\Team::factory()->create([
+        'organization_id' => $team->organization_id,
+    ]);
+    PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $otherTeam->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'raker',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $otherTeam->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [['step' => 'PK01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => $otherTeam->id, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()]],
+    ]);
+
+    // Create a PK for own team
+    setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Team index should only show own PK
+    $this->get(route('team.workflows.pk.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+});
+
+it('resolves create prerequisites when PP is complete and within pra-raker', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+        'team.workflows.pk.create',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    $this->get(route('team.workflows.pk.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('canCreate', true)
+            ->has('eligiblePpWorkflows', 1)
+            ->where('createMessage', null)
+        );
+});
+
+it('shows createMessage when outside pra-raker window', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.index',
+        'team.workflows.pk.create',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+
+    // PP with expired pra-raker window
+    $ppWorkflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [['step' => 'PP06', 'action' => 'completed', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()]],
+    ]);
+    Pp01Data::create(['pp_workflow_id' => $ppWorkflow->id, 'tahun' => 2027]);
+    $pp06 = Pp06PeriodeTahunan::create([
+        'pp_workflow_id' => $ppWorkflow->id,
+        'revision' => 0,
+        'tahun' => 2027,
+        'tanggal_mulai_pra_raker' => now()->subDays(60)->toDateString(),
+        'tanggal_penetapan_program' => now()->subDays(30)->toDateString(),
+        ...pp06AuthorSnapshot(),
+    ]);
+    $pp06->itemPlafonAnggaran()->create([
+        'team_id' => $team->id,
+        'kode_team' => 'T01',
+        'plafon_anggaran' => 50000000,
+        'nama_bank' => 'Bank Test',
+        'nama_rekening' => 'Rek Test',
+        'nomor_rekening' => '1234567890',
+    ]);
+
+    $this->get(route('team.workflows.pk.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('canCreate', false)
+            ->where('eligiblePpWorkflows', [])
+            ->where('createMessage', fn ($msg) => str_contains($msg, 'pra-raker'))
+        );
+});
+
+// ════════════════════════════════════════════════════════════
+// Show Page
+// ════════════════════════════════════════════════════════════
+
+it('renders team show page for active PK', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.show',
+        'team.workflows.pk.comment',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/show')
+            ->where('scope', 'team')
+            ->where('workflow.status', 'active')
+            ->has('informasi')
+            ->where('informasi.tipe', 'raker')
+            ->has('budgetCounter')
+            ->where('dataTerbaru', null)
+            ->where('canComment', true)
+        );
+});
+
+it('renders admin show page for active PK', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('admin.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pk/show')
+            ->where('scope', 'admin')
+            ->where('workflow.status', 'active')
+            ->has('informasi')
+            ->has('budgetCounter')
+        );
+});
+
+it('denies show without permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser();
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.show', $pkWorkflow))->assertForbidden();
+    $this->get(route('admin.workflows.pk.show', $pkWorkflow))->assertForbidden();
+});
+
+it('denies team show for another team PK', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create PK for different team
+    $otherTeam = \App\Models\Team::factory()->create([
+        'organization_id' => $team->organization_id,
+    ]);
+    $pkWorkflow = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $otherTeam->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'raker',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $otherTeam->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [['step' => 'PK01', 'action' => 'created', 'by' => $user->id, 'role' => $role->id, 'team' => $otherTeam->id, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()]],
+    ]);
+
+    $this->get(route('team.workflows.pk.show', $pkWorkflow))->assertForbidden();
+});
+
+it('shows dataTerbaru after PK04 compile', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('admin.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('workflow.status', 'completed')
+            ->has('dataTerbaru')
+            ->where('dataTerbaru.revision', 0)
+            ->has('dataTerbaru.kegiatan')
+        );
+});
+
+it('shows revising status when PK05 draft exists', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.show',
+        'admin.workflows.pk.pk05.create',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create PK05 draft (unsubmitted)
+    \App\Models\Pk\Pk05Data::create([
+        'pk_workflow_id' => $pkWorkflow->id,
+        'pk04_program_tahunan_id' => $pk04->id,
+    ]);
+
+    $this->get(route('admin.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('workflow.status', 'revising')
+            ->where('canRevise', false)
+        );
+});
+
+it('hides budget counter for proposal PK', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create proposal PK (created by system, but model needs non-null created_by fields)
+    $pkWorkflow = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'proposal',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $team->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [['step' => 'PK01', 'action' => 'created', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()]],
+    ]);
+    Pk01Data::create(['pk_workflow_id' => $pkWorkflow->id]);
+
+    $this->get(route('team.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter', null)
+            ->where('informasi.tipe', 'proposal')
+        );
+});
+
+it('shows canTerminate for active PK with permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.show',
+        'team.workflows.pk.terminate',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('canTerminate', true)
+            ->where('canRevise', false)
+            ->where('canDelete', false)
+        );
+});
+
+it('shows canRevise for completed PK with admin pk05.create permission', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.show',
+        'admin.workflows.pk.pk05.create',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('admin.workflows.pk.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('canRevise', true)
+            ->where('canTerminate', false)
+        );
+});
