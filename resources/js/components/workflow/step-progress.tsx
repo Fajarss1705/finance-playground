@@ -46,6 +46,14 @@ const cycleStatusLabels: Record<string, string> = {
     completed: 'selesai',
 };
 
+/** Extract short number from step code, e.g. "PK02A" → "2A", "PP01" → "1", "PK03" → "3" */
+function stepShortLabel(code: string): string {
+    const m = code.match(/\d+[A-Za-z]?$/);
+    if (!m) return code;
+    // Strip leading zeros: "01" → "1", "02A" → "2A"
+    return m[0].replace(/^0+/, '') || '0';
+}
+
 function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: number; activeRoleName?: string | null }) {
     const roles = step.roles ?? [];
     const hasAccess = activeRoleName ? roles.includes(activeRoleName) : false;
@@ -86,7 +94,7 @@ function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: nu
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             ) : (
-                index + 1
+                stepShortLabel(step.code)
             )}
         </div>
     );

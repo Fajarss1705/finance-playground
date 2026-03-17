@@ -603,7 +603,7 @@ class PkWorkflowController extends Controller
             ? "/team/workflows/pk/{$pkWorkflow->id}"
             : "/admin/workflows/pk/{$pkWorkflow->id}";
 
-        // Build action roles — PK03: Koordinator MONEV + BU 1 approve/reject
+        // Build action roles — PK03: BU 1 + BU 2 approve/reject
         $actionRolesMap = [
             'admin.workflows.pk.pk03.approve' => ['Setujui', true],
             'admin.workflows.pk.pk03.reject' => ['Tolak', true],
@@ -2728,18 +2728,17 @@ class PkWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
-        // Planned (raker): SUM from in-progress raker PKs (not completed/terminated, excluding this one)
+        // Planned (raker): SUM from in-progress raker PKs (not completed/terminated, including this one)
         $planned = 0.0;
-        $otherRakerPkWorkflows = PkWorkflow::query()
+        $activeRakerPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
             ->where('workspace_id', $pkWorkflow->workspace_id)
             ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
             ->where('tipe', 'raker')
-            ->where('id', '!=', $pkWorkflow->id)
             ->whereNull('deleted_at')
             ->get();
 
-        foreach ($otherRakerPkWorkflows as $wf) {
+        foreach ($activeRakerPkWorkflows as $wf) {
             $status = $this->engine->getWorkflowStatus($wf->history ?? []);
             if (in_array($status, ['completed', 'terminated', 'deleted'])) {
                 continue;
@@ -2767,16 +2766,15 @@ class PkWorkflowController extends Controller
             ->sum('nominal_anggaran');
 
         $proposalPlanned = 0.0;
-        $otherProposalPkWorkflows = PkWorkflow::query()
+        $activeProposalPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
             ->where('workspace_id', $pkWorkflow->workspace_id)
             ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
             ->where('tipe', 'proposal')
-            ->where('id', '!=', $pkWorkflow->id)
             ->whereNull('deleted_at')
             ->get();
 
-        foreach ($otherProposalPkWorkflows as $wf) {
+        foreach ($activeProposalPkWorkflows as $wf) {
             $status = $this->engine->getWorkflowStatus($wf->history ?? []);
             if (in_array($status, ['completed', 'terminated', 'deleted'])) {
                 continue;

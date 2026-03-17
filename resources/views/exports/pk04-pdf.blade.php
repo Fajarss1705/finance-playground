@@ -34,6 +34,15 @@
         .chrono-time { font-family: 'DejaVu Sans Mono', monospace; font-size: 8px; color: #999; }
         .chrono-actor { font-size: 8px; color: #666; }
         .chrono-notes { font-size: 8px; color: #444; font-style: italic; margin: 4px 0; padding-left: 8px; border-left: 2px solid #ddd; }
+        .chrono-files { font-size: 8px; color: #555; margin: 2px 0; }
+        .chrono-data { margin: 6px 0 0 0; }
+        .chrono-data table { font-size: 8px; }
+        .chrono-data th { font-size: 7px; padding: 2px 4px; }
+        .chrono-data td { font-size: 8px; padding: 2px 4px; }
+        .chrono-kode-list { font-size: 8px; color: #444; margin: 2px 0; }
+        .chrono-kode-label { font-weight: bold; color: #666; }
+        .revision-separator { text-align: center; font-size: 11px; font-weight: bold; color: #333; margin: 20px 0 16px; padding: 6px 0; border-top: 2px solid #666; border-bottom: 2px solid #666; background: #f5f5f5; }
+        .revision-note { font-size: 8px; color: #333; font-weight: bold; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -164,6 +173,11 @@
         <h2 style="margin-top:0;">Kronologis Workflow</h2>
 
         @foreach($chronology as $entry)
+            @if($entry['is_separator'] ?? false)
+                <div class="revision-separator">REVISI {{ $entry['revision'] }}</div>
+                @continue
+            @endif
+
             <div class="chrono-entry">
                 <div class="chrono-header">
                     <span class="chrono-time">{{ $entry['at'] }}</span>
@@ -181,6 +195,66 @@
 
                 @if($entry['notes'])
                     <div class="chrono-notes">"{{ $entry['notes'] }}"</div>
+                @endif
+
+                @if(!empty($entry['files']))
+                    <div class="chrono-files">
+                        Lampiran:
+                        @foreach($entry['files'] as $fname)
+                            {{ $fname }}@if(!$loop->last), @endif
+                        @endforeach
+                    </div>
+                @endif
+
+                {{-- Embedded step data --}}
+                @if(!empty($entry['step_data']))
+                    <div class="chrono-data">
+                        @if($entry['step_data']['type'] === 'pk01')
+                            <div class="chrono-kode-list"><span class="chrono-kode-label">Program:</span> {{ $entry['step_data']['nama_program'] }}</div>
+                            <div class="chrono-kode-list"><span class="chrono-kode-label">Kategori:</span> {{ $entry['step_data']['kode_kategori'] ?? '-' }}</div>
+                            @if($entry['step_data']['deskripsi_program'])
+                                <div class="chrono-kode-list"><span class="chrono-kode-label">Deskripsi:</span> {{ $entry['step_data']['deskripsi_program'] }}</div>
+                            @endif
+                            @if($entry['step_data']['tujuan_program'])
+                                <div class="chrono-kode-list"><span class="chrono-kode-label">Tujuan:</span> {{ $entry['step_data']['tujuan_program'] }}</div>
+                            @endif
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>No. Kegiatan</th>
+                                        <th>Nama Kegiatan</th>
+                                        <th class="text-center">Anggaran</th>
+                                        <th class="text-right">Total (Rp)</th>
+                                        <th class="text-center">Kuisioner</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($entry['step_data']['kegiatan'] as $keg)
+                                    <tr>
+                                        <td class="mono">{{ $keg['nomer'] }}</td>
+                                        <td>{{ $keg['nama'] }}</td>
+                                        <td class="text-center">{{ $keg['anggaran_count'] }} item</td>
+                                        <td class="text-right mono">{{ number_format($keg['anggaran_total'], 0, ',', '.') }}</td>
+                                        <td class="text-center">{{ $keg['kuisioner_count'] }} item</td>
+                                    </tr>
+                                    @endforeach
+                                </tbody>
+                                <tfoot>
+                                    <tr class="total-row">
+                                        <td colspan="2">Total: {{ $entry['step_data']['total_kegiatan'] }} kegiatan, {{ $entry['step_data']['total_kuisioner'] }} kuisioner</td>
+                                        <td></td>
+                                        <td class="text-right mono">{{ number_format($entry['step_data']['total_anggaran'], 0, ',', '.') }}</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        @endif
+                    </div>
+                @endif
+
+                {{-- Revision compiled note --}}
+                @if(($entry['revision_marker'] ?? null) !== null)
+                    <div class="revision-note">&rarr; PK04 Rev {{ $entry['revision_marker'] }} dikompilasi</div>
                 @endif
             </div>
         @endforeach

@@ -512,7 +512,7 @@ function BudgetCounterSection({ counter, thisPkTotal, isOverBudget }: { counter:
                 </div>
             </div>
             <div className="mt-3 flex items-center gap-2 border-t pt-3">
-                <span className="text-sm font-medium">PK Ini:</span>
+                <span className="text-sm text-muted-foreground">di antaranya, PK ini:</span>
                 <span className={`text-sm font-semibold ${isOverBudget ? 'text-amber-600 dark:text-amber-400' : ''}`}>
                     Rp {formatRupiah(thisPkTotal)}
                 </span>

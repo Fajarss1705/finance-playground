@@ -236,14 +236,14 @@ function BudgetCounterSection({ counter }: { counter: BudgetCounter }) {
                 </div>
             </div>
             <div className="mt-3 flex items-center gap-2 border-t pt-3">
-                <span className="text-sm font-medium">PK Ini:</span>
+                <span className="text-sm text-muted-foreground">di antaranya, PK ini:</span>
                 <span className={`text-sm font-semibold ${isOverBudget ? 'text-amber-600 dark:text-amber-400' : ''}`}>
                     Rp {formatRupiah(counter.pkIni)}
                 </span>
             </div>
             {isOverBudget && (
                 <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                    Total anggaran PK ini melebihi sisa plafon. Submit tetap diizinkan, namun akan diblokir saat kompilasi PK04.
+                    Total anggaran PK ini melebihi sisa plafon.
                 </p>
             )}
         </SectionCard>

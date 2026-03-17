@@ -1036,8 +1036,8 @@ it('displays PK02B page with budget context for admin', function () {
             ->component('workflows/pk/pk02b')
             ->where('stepStatus', 'active')
             ->where('canApprove', true)
-            ->has('budgetContext')
-            ->where('budgetContext.plafon', 50000000)
+            ->has('budgetCounter')
+            ->where('budgetCounter.plafon', 50000000)
             ->where('parallelTrackStatus.step', 'PK02A')
             ->where('parallelTrackStatus.status', 'active')
         );
