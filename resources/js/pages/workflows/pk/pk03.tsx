@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
+import BudgetReferenceCard from '@/components/workflow/budget-reference-card';
+import type { BudgetCounterData } from '@/components/workflow/budget-reference-card';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
@@ -32,16 +34,6 @@ type ParallelApproval = {
     at: string | null;
 };
 
-type BudgetCounter = {
-    ppLabel: string | null;
-    plafon: number;
-    accepted: number;
-    planned: number;
-    sisa: number;
-    proposalAccepted: number;
-    proposalPlanned: number;
-    pkIni: number;
-};
 
 type Props = {
     workflow: Workflow;
@@ -57,7 +49,7 @@ type Props = {
     canReject: boolean;
     canTerminate: boolean;
     canComment: boolean;
-    budgetCounter: BudgetCounter;
+    budgetCounter: BudgetCounterData & { pkIni: number };
     actionRoles: ActionRole[];
     activeRoleName: string | null;
     scope: string;
@@ -91,6 +83,8 @@ export default function Pk03({
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const isActive = stepStatus === 'active';
     const isCompleted = stepStatus === 'approved' || stepStatus === 'rejected';
+    const sisaRaker = budgetCounter.plafon - budgetCounter.accepted;
+    const isOverBudget = budgetCounter.pkIni > sisaRaker && sisaRaker > 0;
     const isReadonly = !canApprove && !canReject;
 
     const breadcrumbs: BreadcrumbItem[] = scope === 'team'
@@ -173,13 +167,13 @@ export default function Pk03({
                 />
 
                 {/* Budget Counter */}
-                <BudgetCounterSection counter={budgetCounter} />
+                <BudgetReferenceCard counter={budgetCounter} variant="approval" hardBlock />
 
                 {/* Action Buttons */}
                 {isActive && (canApprove || canReject || canTerminate) && (
                     <div className="flex gap-2">
                         {canApprove && (
-                            <ApproveButton basePath={basePath} />
+                            <ApproveButton basePath={basePath} disabled={isOverBudget} />
                         )}
                         {canReject && (
                             <RejectButton basePath={basePath} />
@@ -228,65 +222,11 @@ function ParallelApprovalStatus({ approvals }: { approvals: ParallelApproval[] }
     );
 }
 
-function formatRupiah(value: number): string {
-    return new Intl.NumberFormat('id-ID').format(value);
-}
-
-function BudgetCounterSection({ counter }: { counter: BudgetCounter }) {
-    const isOverBudget = counter.pkIni > counter.sisa && counter.sisa > 0;
-
-    return (
-        <SectionCard title="Referensi Anggaran">
-            {counter.ppLabel && (
-                <p className="mb-3 text-sm text-muted-foreground">Menggunakan data dari <Badge variant="secondary">{counter.ppLabel}</Badge></p>
-            )}
-            <div className="mt-4 space-y-4">
-                <div>
-                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Dalam Plafon (Raker)</p>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <BudgetItem label="Plafon Tim" value={counter.plafon} />
-                        <BudgetItem label="Sudah Ditetapkan (Raker)" value={counter.accepted} />
-                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.planned} />
-                        <BudgetItem label="Sisa" value={counter.sisa} />
-                    </div>
-                </div>
-                <div>
-                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Di Luar Plafon (Proposal)</p>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <BudgetItem label="Sudah Ditetapkan (Proposal)" value={counter.proposalAccepted} />
-                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.proposalPlanned} />
-                    </div>
-                </div>
-            </div>
-            <div className="mt-3 flex items-center gap-2 border-t pt-3">
-                <span className="text-sm text-muted-foreground">di antaranya, PK ini:</span>
-                <span className={`text-sm font-semibold ${isOverBudget ? 'text-amber-600 dark:text-amber-400' : ''}`}>
-                    Rp {formatRupiah(counter.pkIni)}
-                </span>
-            </div>
-            {isOverBudget && (
-                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                    Total anggaran PK ini melebihi sisa plafon.
-                </p>
-            )}
-        </SectionCard>
-    );
-}
-
-function BudgetItem({ label, value }: { label: string; value: number }) {
-    return (
-        <div className="rounded-md border px-3 py-2">
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <p className="text-sm font-semibold">Rp {formatRupiah(value)}</p>
-        </div>
-    );
-}
-
-function ApproveButton({ basePath }: { basePath: string }) {
+function ApproveButton({ basePath, disabled }: { basePath: string; disabled?: boolean }) {
     const [processing, setProcessing] = useState(false);
     return (
         <ActionConfirmDialog
-            trigger={<Button>Setujui</Button>}
+            trigger={<Button disabled={disabled}>{disabled ? 'Melebihi Plafon' : 'Setujui'}</Button>}
             title="Setujui RAKER Program Kegiatan"
             description="Program kegiatan akan dilanjutkan ke kompilasi Program Tahunan (PK04)."
             confirmLabel="Setujui"

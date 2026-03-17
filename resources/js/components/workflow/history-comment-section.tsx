@@ -293,7 +293,7 @@ export default function HistoryCommentSection({
 
                                                 {/* Notes */}
                                                 {entry.notes && (
-                                                    <div className="mt-1.5 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                                                    <div className="mt-1.5 whitespace-pre-line rounded-md border bg-muted/30 px-3 py-2 text-sm">
                                                         {entry.notes}
                                                     </div>
                                                 )}

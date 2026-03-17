@@ -118,8 +118,8 @@ return new class extends Migration
             $table->decimal('nominal_anggaran', 20, 2);
             $table->integer('nomer_anggaran');
             $table->integer('revisi_terakhir')->default(0);
-            $table->string('kode_anggaran_baru', 50)->nullable();
-            $table->string('kode_anggaran_lama', 30)->nullable();
+            $table->string('kode_anggaran_baru', 80)->nullable();
+            $table->string('kode_anggaran_lama', 40)->nullable();
 
             // Source tracking (PK or PABD)
             $table->string('status_item')->default('active');

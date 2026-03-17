@@ -10,7 +10,10 @@ import StepProgress from '@/components/workflow/step-progress';
 import type { StepperCycle } from '@/components/workflow/step-progress';
 import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
+import BudgetReferenceCard from '@/components/workflow/budget-reference-card';
+import type { BudgetCounterData } from '@/components/workflow/budget-reference-card';
 import AppLayout from '@/layouts/app-layout';
+import { formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 type KegiatanRow = {
@@ -31,14 +34,6 @@ type DataTerbaru = {
     kuisioner_count: number;
 };
 
-type BudgetCounter = {
-    pp_reference: string;
-    plafon: number;
-    accepted: number;
-    planned: number;
-    sisa: number;
-    pk_ini: number;
-};
 
 type Informasi = {
     team_name: string;
@@ -64,7 +59,7 @@ type Workflow = {
 type Props = {
     workflow: Workflow;
     informasi: Informasi;
-    budgetCounter: BudgetCounter | null;
+    budgetCounter: (BudgetCounterData & { pkIni: number }) | null;
     dataTerbaru: DataTerbaru | null;
     canTerminate: boolean;
     canRevise: boolean;
@@ -75,9 +70,6 @@ type Props = {
     scope: 'team' | 'admin';
 };
 
-function formatRupiah(value: number): string {
-    return new Intl.NumberFormat('id-ID').format(value);
-}
 
 function TipeBadge({ tipe }: { tipe: 'raker' | 'proposal' }) {
     return (
@@ -195,44 +187,16 @@ export default function PkShow({
                     </div>
                 </div>
 
-                {/* Anggaran (raker only) */}
-                {budgetCounter && (
-                    <div className="rounded-lg border">
-                        <h3 className="border-b px-4 py-3 text-sm font-medium">Anggaran</h3>
-                        <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
-                            <div>
-                                <span className="text-xs text-muted-foreground">Referensi PP</span>
-                                <p className="text-sm font-medium">{budgetCounter.pp_reference}</p>
-                            </div>
-                            <div>
-                                <span className="text-xs text-muted-foreground">Plafon Tim</span>
-                                <p className="text-sm font-medium tabular-nums">Rp {formatRupiah(budgetCounter.plafon)}</p>
-                            </div>
-                            <div>
-                                <span className="text-xs text-muted-foreground">Sudah Ditetapkan</span>
-                                <p className="text-sm font-medium tabular-nums">Rp {formatRupiah(budgetCounter.accepted)}</p>
-                            </div>
-                            <div>
-                                <span className="text-xs text-muted-foreground">Sedang Diajukan</span>
-                                <p className="text-sm font-medium tabular-nums">Rp {formatRupiah(budgetCounter.planned)}</p>
-                            </div>
-                            <div>
-                                <span className="text-xs text-muted-foreground">Sisa</span>
-                                <p className="text-sm font-medium tabular-nums">Rp {formatRupiah(budgetCounter.sisa)}</p>
-                            </div>
-                            <div>
-                                <span className="text-xs text-muted-foreground">PK Ini</span>
-                                <p className="text-sm font-medium tabular-nums">Rp {formatRupiah(budgetCounter.pk_ini)}</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 {/* Progress Step */}
                 <div className="rounded-lg border p-4">
                     <h3 className="mb-3 text-sm font-medium">Progress Step</h3>
                     <StepProgress cycles={workflow.stepper_cycles} activeRoleName={activeRoleName} />
                 </div>
+
+                {/* Anggaran (raker only) */}
+                {budgetCounter && (
+                    <BudgetReferenceCard counter={budgetCounter} variant="readonly" />
+                )}
 
                 {/* Data Terbaru */}
                 <div className="rounded-lg border">

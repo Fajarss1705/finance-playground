@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
+import BudgetReferenceCard from '@/components/workflow/budget-reference-card';
+import type { BudgetCounterData } from '@/components/workflow/budget-reference-card';
 import AppLayout from '@/layouts/app-layout';
+import { formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 type AnggaranItem = {
@@ -67,13 +70,6 @@ type Workflow = { id: number; label: string; status: string; history: HistoryEnt
 
 type ChangeItem = { description: string };
 
-type BudgetContext = {
-    pp_label: string;
-    plafon: number;
-    sudah_ditetapkan: number;
-    sisa: number;
-    pk_ini: number;
-};
 
 type ApproverInfo = {
     by_name: string | null;
@@ -86,7 +82,7 @@ type Props = {
     pk04Data: Pk04Data | null;
     allRevisions: Revision[];
     changelogByRevision: Record<number, ChangeItem[]>;
-    budgetContext: BudgetContext | null;
+    budgetContext: (BudgetCounterData & { pkIni: number }) | null;
     pkType: string;
     pp06RevisionLabel: string | null;
     approverInfo: ApproverInfo | null;
@@ -97,9 +93,6 @@ type Props = {
     scope: string;
 };
 
-function formatRupiah(value: number): string {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
-}
 
 function formatDate(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -229,26 +222,7 @@ export default function Pk04({
 
                 {/* Budget Context (raker only) */}
                 {budgetContext && (
-                    <SectionCard title="Anggaran Plafon">
-                        <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                            <div>
-                                <span className="text-muted-foreground">Plafon ({budgetContext.pp_label}):</span>{' '}
-                                <span className="font-medium tabular-nums">{formatRupiah(budgetContext.plafon)}</span>
-                            </div>
-                            <div>
-                                <span className="text-muted-foreground">Sudah Ditetapkan:</span>{' '}
-                                <span className="font-medium tabular-nums">{formatRupiah(budgetContext.sudah_ditetapkan)}</span>
-                            </div>
-                            <div>
-                                <span className="text-muted-foreground">Sisa:</span>{' '}
-                                <span className="font-medium tabular-nums">{formatRupiah(budgetContext.sisa)}</span>
-                            </div>
-                            <div>
-                                <span className="text-muted-foreground">PK Ini:</span>{' '}
-                                <span className="font-medium tabular-nums">{formatRupiah(budgetContext.pk_ini)}</span>
-                            </div>
-                        </div>
-                    </SectionCard>
+                    <BudgetReferenceCard counter={budgetContext} variant="readonly" />
                 )}
 
                 {/* Approver Info */}

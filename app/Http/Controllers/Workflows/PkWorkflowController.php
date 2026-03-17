@@ -651,16 +651,7 @@ class PkWorkflowController extends Controller
                 && in_array('admin.workflows.pk.pk03.reject', $permissions),
             'canTerminate' => $isWorkflowActive && in_array("{$permPrefix}.terminate", $permissions),
             'canComment' => in_array("{$permPrefix}.comment", $permissions),
-            'budgetCounter' => [
-                'ppLabel' => $budgetCounter['ppLabel'],
-                'plafon' => $budgetCounter['plafon'],
-                'accepted' => $budgetCounter['accepted'],
-                'planned' => $budgetCounter['planned'],
-                'sisa' => $budgetCounter['sisa'],
-                'proposalAccepted' => $budgetCounter['proposalAccepted'],
-                'proposalPlanned' => $budgetCounter['proposalPlanned'],
-                'pkIni' => $thisTotal,
-            ],
+            'budgetCounter' => [...$budgetCounter, 'pkIni' => $thisTotal],
             'actionRoles' => $this->resolveActionRoles($actionRolesMap),
             'activeRoleName' => $this->getActiveRoleName(),
             'scope' => $scope,
@@ -900,11 +891,8 @@ class PkWorkflowController extends Controller
                 ->sum('nominal_anggaran');
 
             $budgetContext = [
-                'pp_label' => $budgetCounter['ppLabel'],
-                'plafon' => $budgetCounter['plafon'],
-                'sudah_ditetapkan' => $budgetCounter['accepted'],
-                'sisa' => $budgetCounter['sisa'],
-                'pk_ini' => $thisTotal,
+                ...$budgetCounter,
+                'pkIni' => $thisTotal,
             ];
         }
 
@@ -1757,14 +1745,7 @@ class PkWorkflowController extends Controller
         if ($pkWorkflow->tipe === 'raker') {
             $counters = $this->getBudgetCounters($pkWorkflow);
             $pkIni = $this->computePkIniAnggaran($pkWorkflow, $latestPk04, $latestPk01);
-            $budgetCounter = [
-                'pp_reference' => $counters['ppLabel'] ?? '—',
-                'plafon' => $counters['plafon'],
-                'accepted' => $counters['accepted'],
-                'planned' => $counters['planned'],
-                'sisa' => $counters['sisa'],
-                'pk_ini' => $pkIni,
-            ];
+            $budgetCounter = [...$counters, 'pkIni' => $pkIni];
         }
 
         // Data Terbaru from PK04
@@ -2132,16 +2113,7 @@ class PkWorkflowController extends Controller
                 && in_array("admin.workflows.pk.{$thisStepLower}.reject", $permissions),
             'canTerminate' => $isWorkflowActive && in_array("{$permPrefix}.terminate", $permissions),
             'canComment' => in_array("{$permPrefix}.comment", $permissions),
-            'budgetCounter' => [
-                'ppLabel' => $budgetCounter['ppLabel'],
-                'plafon' => $budgetCounter['plafon'],
-                'accepted' => $budgetCounter['accepted'],
-                'planned' => $budgetCounter['planned'],
-                'sisa' => $budgetCounter['sisa'],
-                'proposalAccepted' => $budgetCounter['proposalAccepted'],
-                'proposalPlanned' => $budgetCounter['proposalPlanned'],
-                'pkIni' => $thisTotal,
-            ],
+            'budgetCounter' => [...$budgetCounter, 'pkIni' => $thisTotal],
             'actionRoles' => $this->resolveActionRoles($actionRolesMap),
             'activeRoleName' => $this->getActiveRoleName(),
             'scope' => $scope,
@@ -2252,10 +2224,31 @@ class PkWorkflowController extends Controller
             // At least one rejected → record PK03 rejection to trigger invalidation cascade,
             // then PK01 re-entry with compiled feedback.
             // PK03 has rejectionTarget='PK01', so engine invalidates PK01→PK02A→PK02B.
-            $rejectingSummary = collect([$thisStep => $thisAction, $otherStep => $otherAction])
+            // Collect rejection notes from each track
+            $rejectingSteps = collect([$thisStep => $thisAction, $otherStep => $otherAction])
                 ->filter(fn ($a) => $a === 'rejected')
-                ->keys()
-                ->join(' & ');
+                ->keys();
+
+            $rejectingSummary = $rejectingSteps->join(' & ');
+
+            $trackNotes = [];
+            foreach ($rejectingSteps as $rejStep) {
+                for ($i = count($history) - 1; $i >= 0; $i--) {
+                    if (($history[$i]['step'] ?? '') === $rejStep && ($history[$i]['action'] ?? '') === 'rejected') {
+                        $note = $history[$i]['notes'] ?? null;
+                        if ($note) {
+                            $trackNotes[] = "{$rejStep}: {$note}";
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            $compiledNotes = "Ditolak otomatis — {$rejectingSummary} menolak.";
+            if (! empty($trackNotes)) {
+                $compiledNotes .= "\n\n".implode("\n\n", $trackNotes);
+            }
 
             $this->engine->recordAction(
                 workflow: $pkWorkflow,
@@ -2263,7 +2256,7 @@ class PkWorkflowController extends Controller
                 action: 'rejected',
                 userId: null,
                 sessionContext: [],
-                notes: "Otomatis: {$rejectingSummary} menolak.",
+                notes: $compiledNotes,
             );
 
             $previousPk01 = $pkWorkflow->fresh()->latestPk01();
@@ -2732,23 +2725,33 @@ class PkWorkflowController extends Controller
         return $errors;
     }
 
-    /** @return array{ppLabel: ?string, plafon: float, accepted: float, planned: float, sisa: float} */
+    /**
+     * Get budget counters split by workflow step: draft (PK01), review (PK02A/PK02B), pendingRaker (PK03).
+     *
+     * @return array{ppLabel: ?string, tahun: ?int, teamName: string, plafon: float, accepted: float, review: float, pendingRaker: float, draft: float, proposalAccepted: float, proposalReview: float, proposalDraft: float}
+     */
     private function getBudgetCounters(PkWorkflow $pkWorkflow): array
     {
+        $teamName = $pkWorkflow->team?->name ?? 'Unknown';
         $pp06 = $this->getLatestPp06($pkWorkflow);
         if (! $pp06) {
-            return ['ppLabel' => null, 'plafon' => 0, 'accepted' => 0, 'planned' => 0, 'sisa' => 0];
+            return [
+                'ppLabel' => null, 'tahun' => null, 'teamName' => $teamName,
+                'plafon' => 0, 'accepted' => 0, 'review' => 0, 'pendingRaker' => 0, 'draft' => 0,
+                'proposalAccepted' => 0, 'proposalReview' => 0, 'proposalDraft' => 0,
+            ];
         }
 
         $teamId = $pkWorkflow->team_id;
         $pp01 = $pkWorkflow->ppWorkflow?->latestPp01();
+        $tahun = $pp01?->tahun ? (int) $pp01->tahun : null;
 
         // Plafon for this team
         $plafon = (float) ($pp06->itemPlafonAnggaran()
             ->where('team_id', $teamId)
             ->value('plafon_anggaran') ?? 0);
 
-        // Accepted: SUM from completed PK04 active anggaran items for this team
+        // Accepted: SUM from completed PK04 active anggaran items for this team (raker)
         $accepted = (float) Pk04Anggaran::query()
             ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
                 ->where('team_id', $teamId)
@@ -2760,8 +2763,12 @@ class PkWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
-        // Planned (raker): SUM from in-progress raker PKs (not completed/terminated, including this one)
-        $planned = 0.0;
+        // In-progress raker PKs split by current step
+        $draft = 0.0;
+        $review = 0.0;
+        $pendingRaker = 0.0;
+        $pkDefinition = new \App\Workflows\PkWorkflowDefinition;
+
         $activeRakerPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
             ->where('workspace_id', $pkWorkflow->workspace_id)
@@ -2776,16 +2783,28 @@ class PkWorkflowController extends Controller
                 continue;
             }
             $latestPk01 = $wf->latestPk01();
-            if ($latestPk01) {
-                $planned += (float) $latestPk01->kegiatan()
-                    ->with('anggaran')
-                    ->get()
-                    ->flatMap(fn ($k) => $k->anggaran)
-                    ->sum('nominal_anggaran');
+            if (! $latestPk01) {
+                continue;
+            }
+
+            $total = (float) $latestPk01->kegiatan()
+                ->with('anggaran')
+                ->get()
+                ->flatMap(fn ($k) => $k->anggaran)
+                ->sum('nominal_anggaran');
+
+            $currentSteps = $this->engine->getCurrentSteps($pkDefinition, $wf->history ?? []);
+
+            if (in_array('PK01', $currentSteps)) {
+                $draft += $total;
+            } elseif (in_array('PK03', $currentSteps)) {
+                $pendingRaker += $total;
+            } elseif (array_intersect(['PK02A', 'PK02B'], $currentSteps)) {
+                $review += $total;
             }
         }
 
-        // Proposal totals (outside plafon)
+        // Proposal totals (outside plafon) — only accepted from PK04, review/draft from PABD (not yet implemented)
         $proposalAccepted = (float) Pk04Anggaran::query()
             ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
                 ->where('team_id', $teamId)
@@ -2797,38 +2816,18 @@ class PkWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
-        $proposalPlanned = 0.0;
-        $activeProposalPkWorkflows = PkWorkflow::query()
-            ->where('team_id', $teamId)
-            ->where('workspace_id', $pkWorkflow->workspace_id)
-            ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
-            ->where('tipe', 'proposal')
-            ->whereNull('deleted_at')
-            ->get();
-
-        foreach ($activeProposalPkWorkflows as $wf) {
-            $status = $this->engine->getWorkflowStatus($wf->history ?? []);
-            if (in_array($status, ['completed', 'terminated', 'deleted'])) {
-                continue;
-            }
-            $latestPk01 = $wf->latestPk01();
-            if ($latestPk01) {
-                $proposalPlanned += (float) $latestPk01->kegiatan()
-                    ->with('anggaran')
-                    ->get()
-                    ->flatMap(fn ($k) => $k->anggaran)
-                    ->sum('nominal_anggaran');
-            }
-        }
-
         return [
             'ppLabel' => "PP-{$pp01?->tahun} Revisi {$pp06->revision}",
+            'tahun' => $tahun,
+            'teamName' => $teamName,
             'plafon' => $plafon,
             'accepted' => $accepted,
-            'planned' => $planned,
-            'sisa' => $plafon - $accepted,
+            'review' => $review,
+            'pendingRaker' => $pendingRaker,
+            'draft' => $draft,
             'proposalAccepted' => $proposalAccepted,
-            'proposalPlanned' => $proposalPlanned,
+            'proposalReview' => 0.0, // TODO: from PABD workflow
+            'proposalDraft' => 0.0, // TODO: from PABD workflow
         ];
     }
 

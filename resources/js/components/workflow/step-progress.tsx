@@ -295,7 +295,7 @@ function StepRow({ steps, activeRoleName }: { steps: StepperStep[]; activeRoleNa
     let globalIndex = 0;
 
     return (
-        <div className="flex items-center gap-0 overflow-x-auto pb-6 pt-1">
+        <div className="flex items-center gap-0 overflow-x-auto pb-6 pl-8 pt-1">
             {segments.map((segment, segIdx) => {
                 if (segment.type === 'step') {
                     const idx = globalIndex++;

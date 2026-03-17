@@ -13,10 +13,13 @@ import { Textarea } from '@/components/ui/textarea';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
+import BudgetReferenceCard from '@/components/workflow/budget-reference-card';
+import type { BudgetCounterData } from '@/components/workflow/budget-reference-card';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
+import { formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 import { buildKodeSegments, KodePreviewCell } from './_pk01-readonly-section';
 import type { KodeAnggaranContext } from './_pk01-readonly-section';
@@ -64,15 +67,6 @@ type StepData = {
     updated_at: string;
 };
 
-type BudgetCounter = {
-    ppLabel: string | null;
-    plafon: number;
-    accepted: number;
-    planned: number;
-    sisa: number;
-    proposalAccepted: number;
-    proposalPlanned: number;
-};
 
 type RejectionNotes = {
     step: string;
@@ -110,7 +104,7 @@ type Props = {
     kodeSubBidang: KodeRef[];
     kodeJenis: KodeRef[];
     kuisionerTemplates: KuisionerTemplate[];
-    budgetCounter: BudgetCounter;
+    budgetCounter: BudgetCounterData;
     kodeAnggaranContext: KodeAnggaranContext;
     mode: 'edit' | 'readonly';
     canDraft: boolean;
@@ -131,9 +125,6 @@ const BULAN_LABELS = [
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
 
-function formatRupiah(value: number): string {
-    return new Intl.NumberFormat('id-ID').format(value);
-}
 
 // ────────────────────────────────────────────────────────────
 // Main Page Component
@@ -172,7 +163,6 @@ export default function Pk01({
         return kegiatanList.reduce((sum, k) =>
             sum + k.anggaran.reduce((s, a) => s + (a.nominal_anggaran || 0), 0), 0);
     }, [kegiatanList]);
-    const isOverBudget = thisPkTotal > budgetCounter.sisa && budgetCounter.sisa > 0;
 
     // ── Breadcrumbs ──
     const scopeLabel = scope === 'team' ? 'Tim' : 'Manajemen';
@@ -336,11 +326,7 @@ export default function Pk01({
                 />
 
                 {/* Budget Counter */}
-                <BudgetCounterSection
-                    counter={budgetCounter}
-                    thisPkTotal={thisPkTotal}
-                    isOverBudget={isOverBudget}
-                />
+                <BudgetReferenceCard counter={budgetCounter} pkIniOverride={thisPkTotal} variant="form" />
 
                 {/* Informasi Program */}
                 <SectionCard title="Informasi Program">
@@ -485,55 +471,6 @@ function StepStatusBadge({ mode }: { mode: string }) {
 // ────────────────────────────────────────────────────────────
 // Budget Counter Section
 // ────────────────────────────────────────────────────────────
-
-function BudgetCounterSection({ counter, thisPkTotal, isOverBudget }: { counter: BudgetCounter; thisPkTotal: number; isOverBudget: boolean }) {
-    const hasProposal = counter.proposalAccepted > 0 || counter.proposalPlanned > 0;
-    return (
-        <SectionCard title="Referensi Anggaran">
-            {counter.ppLabel && (
-                <p className="mb-3 text-sm text-muted-foreground">Menggunakan data dari <Badge variant="secondary">{counter.ppLabel}</Badge></p>
-            )}
-            <div className="mt-4 space-y-4">
-                <div>
-                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Dalam Plafon (Raker)</p>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <BudgetItem label="Plafon Tim" value={counter.plafon} />
-                        <BudgetItem label="Sudah Ditetapkan (Raker)" value={counter.accepted} />
-                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.planned} />
-                        <BudgetItem label="Sisa" value={counter.sisa} />
-                    </div>
-                </div>
-                <div>
-                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Di Luar Plafon (Proposal)</p>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        <BudgetItem label="Sudah Ditetapkan (Proposal)" value={counter.proposalAccepted} />
-                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.proposalPlanned} />
-                    </div>
-                </div>
-            </div>
-            <div className="mt-3 flex items-center gap-2 border-t pt-3">
-                <span className="text-sm text-muted-foreground">di antaranya, PK ini:</span>
-                <span className={`text-sm font-semibold ${isOverBudget ? 'text-amber-600 dark:text-amber-400' : ''}`}>
-                    Rp {formatRupiah(thisPkTotal)}
-                </span>
-            </div>
-            {isOverBudget && (
-                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                    Total anggaran PK ini melebihi sisa plafon. Submit tetap diizinkan, namun akan diblokir saat kompilasi PK04.
-                </p>
-            )}
-        </SectionCard>
-    );
-}
-
-function BudgetItem({ label, value }: { label: string; value: number }) {
-    return (
-        <div className="rounded-md border px-3 py-2">
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <p className="text-sm font-semibold">Rp {formatRupiah(value)}</p>
-        </div>
-    );
-}
 
 // ────────────────────────────────────────────────────────────
 // Rejection Banner
