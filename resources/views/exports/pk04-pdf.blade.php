@@ -65,7 +65,7 @@
         <tr><th style="width:180px">Item</th><th>Nilai</th></tr>
         <tr><td>Tim</td><td>{{ $teamName }}</td></tr>
         <tr><td>Nomer Program</td><td class="mono">{{ $pk04->nomer_program }}</td></tr>
-        <tr><td>Kategori</td><td class="mono">{{ $pk04->kode_kategori }}</td></tr>
+        <tr><td>Kategori</td><td class="mono">{{ $pk04->kode_kategori }}@if(!empty($kodeRefMap['kategori'][$pk04->kode_kategori])) ({{ $kodeRefMap['kategori'][$pk04->kode_kategori] }})@endif</td></tr>
         <tr><td>Nama Program</td><td>{{ $pk04->nama_program }}</td></tr>
         <tr><td>Deskripsi Program</td><td>{{ $pk04->deskripsi_program ?? '-' }}</td></tr>
         <tr><td>Tujuan Program</td><td>{{ $pk04->tujuan_program ?? '-' }}</td></tr>
@@ -95,8 +95,11 @@
                             <th>Mata Anggaran</th>
                             <th>Deskripsi</th>
                             <th style="width:90px" class="text-right">Nominal (Rp)</th>
-                            <th style="width:180px">Kode Anggaran Baru</th>
-                            <th style="width:110px">Kode Anggaran Lama</th>
+                            <th>Bidang</th>
+                            <th>Sub Bidang</th>
+                            <th>Jenis</th>
+                            <th style="width:170px">Kode Anggaran Baru</th>
+                            <th style="width:100px">Kode Anggaran Lama</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -107,6 +110,9 @@
                                 <td>{{ $anggaran->mata_anggaran }}</td>
                                 <td>{{ $anggaran->deskripsi_pk ?? '-' }}</td>
                                 <td class="text-right mono">{{ number_format($anggaran->nominal_anggaran, 0, ',', '.') }}</td>
+                                <td>{{ $anggaran->kode_bidang }}@if(!empty($kodeRefMap['bidang'][$anggaran->kode_bidang]))<br><span style="font-size:7px;color:#666;">{{ $kodeRefMap['bidang'][$anggaran->kode_bidang] }}</span>@endif</td>
+                                <td>{{ $anggaran->kode_sub_bidang }}@if(!empty($kodeRefMap['subBidang'][$anggaran->kode_sub_bidang]))<br><span style="font-size:7px;color:#666;">{{ $kodeRefMap['subBidang'][$anggaran->kode_sub_bidang] }}</span>@endif</td>
+                                <td>{{ $anggaran->kode_jenis }}@if(!empty($kodeRefMap['jenis'][$anggaran->kode_jenis]))<br><span style="font-size:7px;color:#666;">{{ $kodeRefMap['jenis'][$anggaran->kode_jenis] }}</span>@endif</td>
                                 <td class="mono">{{ $anggaran->kode_anggaran_baru ?? '-' }}</td>
                                 <td class="mono">{{ $anggaran->kode_anggaran_lama ?? '-' }}</td>
                             </tr>
@@ -116,7 +122,7 @@
                         <tr class="total-row">
                             <td colspan="3">Subtotal Kegiatan</td>
                             <td class="text-right mono">{{ number_format($kegiatan->anggaran->sum('nominal_anggaran'), 0, ',', '.') }}</td>
-                            <td colspan="2"></td>
+                            <td colspan="5"></td>
                         </tr>
                     </tfoot>
                 </table>

@@ -978,6 +978,15 @@ class PkWorkflowController extends Controller
             ];
         }
 
+        // Kode references for segment tooltips
+        $kodeRefs = $this->loadKodeReferences($pp06);
+        $kodeRefMap = [
+            'bidang' => collect($kodeRefs['bidang'])->pluck('nama', 'kode')->toArray(),
+            'subBidang' => collect($kodeRefs['subBidang'])->pluck('nama', 'kode')->toArray(),
+            'jenis' => collect($kodeRefs['jenis'])->pluck('nama', 'kode')->toArray(),
+            'kategori' => collect($kodeRefs['kategori'])->pluck('nama', 'kode')->toArray(),
+        ];
+
         return Inertia::render('workflows/pk/pk04', [
             'workflow' => [
                 'id' => $pkWorkflow->id,
@@ -998,6 +1007,8 @@ class PkWorkflowController extends Controller
             'canComment' => in_array("{$permPrefix}.comment", $permissions),
             'commentUrl' => "{$basePath}/comment",
             'scope' => $scope,
+            'kodeRefMap' => $kodeRefMap,
+            'teamName' => $teamName,
         ]);
     }
 

@@ -22,6 +22,7 @@ class Pk04PdfExportService
         $teamName = $workflow?->team?->name ?? 'Unknown';
         $tahun = $this->resolveTahun($workflow);
         $chronology = $this->buildChronology($workflow);
+        $kodeRefMap = $this->loadKodeRefMap($workflow);
 
         $bulanLabels = [
             1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
@@ -36,6 +37,7 @@ class Pk04PdfExportService
             'tahun' => $tahun,
             'bulanLabels' => $bulanLabels,
             'chronology' => $chronology,
+            'kodeRefMap' => $kodeRefMap,
         ]);
         $pdf->setPaper('a4', 'landscape');
 
@@ -199,6 +201,27 @@ class Pk04PdfExportService
             'total_anggaran' => $totalAnggaran,
             'total_kegiatan' => $kegiatan->count(),
             'total_kuisioner' => $totalKuisioner,
+        ];
+    }
+
+    /**
+     * Load kode reference name maps from PP06.
+     *
+     * @return array{bidang: array<string, string>, subBidang: array<string, string>, jenis: array<string, string>, kategori: array<string, string>}
+     */
+    private function loadKodeRefMap(?PkWorkflow $workflow): array
+    {
+        $empty = ['bidang' => [], 'subBidang' => [], 'jenis' => [], 'kategori' => []];
+        $pp06 = $workflow?->ppWorkflow?->latestPp06();
+        if (! $pp06) {
+            return $empty;
+        }
+
+        return [
+            'bidang' => $pp06->kodeBidangPelayanan()->pluck('nama', 'kode')->toArray(),
+            'subBidang' => $pp06->kodeSubBidangPelayanan()->pluck('nama', 'kode')->toArray(),
+            'jenis' => $pp06->kodeJenisProgram()->pluck('nama', 'kode')->toArray(),
+            'kategori' => $pp06->kodeKategoriPelayanan()->pluck('nama', 'kode')->toArray(),
         ];
     }
 

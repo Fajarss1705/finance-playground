@@ -3,6 +3,7 @@ import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -70,6 +71,12 @@ type Workflow = { id: number; label: string; status: string; history: HistoryEnt
 
 type ChangeItem = { description: string };
 
+type KodeRefMap = {
+    bidang: Record<string, string>;
+    subBidang: Record<string, string>;
+    jenis: Record<string, string>;
+    kategori: Record<string, string>;
+};
 
 type ApproverInfo = {
     by_name: string | null;
@@ -91,6 +98,8 @@ type Props = {
     canComment: boolean;
     commentUrl: string;
     scope: string;
+    kodeRefMap: KodeRefMap | null;
+    teamName: string | null;
 };
 
 
@@ -100,6 +109,74 @@ function formatDate(dateStr: string): string {
 
 function formatDateTime(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+const BULAN_LABELS: Record<number, string> = {
+    1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April',
+    5: 'Mei', 6: 'Juni', 7: 'Juli', 8: 'Agustus',
+    9: 'September', 10: 'Oktober', 11: 'November', 12: 'Desember',
+};
+
+type KodeSegment = { value: string; label: string };
+
+function parseKodeBaru(kode: string, refs: KodeRefMap | null, teamName: string | null): KodeSegment[] {
+    const parts = kode.split('.');
+    if (parts.length < 13) return [{ value: kode, label: 'Kode Anggaran' }];
+
+    const [tipe, bidang, subBidang, tim, jenis, kategori, prog, keg, ang, tahun, bulan, revisi, tarik] = parts;
+    const bulanNum = parseInt(bulan, 10);
+
+    return [
+        { value: tipe, label: `Tipe: ${tipe === 'R' ? 'Raker' : 'Proposal'}` },
+        { value: bidang, label: `Bidang: ${refs?.bidang[bidang] ?? bidang}` },
+        { value: subBidang, label: `Sub Bidang: ${refs?.subBidang[subBidang] ?? subBidang}` },
+        { value: tim, label: `Tim: ${teamName ?? tim}` },
+        { value: jenis, label: `Jenis: ${refs?.jenis[jenis] ?? jenis}` },
+        { value: kategori, label: `Kategori: ${refs?.kategori[kategori] ?? kategori}` },
+        { value: prog, label: `Program: ${prog}` },
+        { value: keg, label: `Kegiatan: ${keg}` },
+        { value: ang, label: `Anggaran: ${ang}` },
+        { value: tahun, label: `Tahun: ${tahun}` },
+        { value: bulan, label: `Bulan: ${BULAN_LABELS[bulanNum] ?? bulan}` },
+        { value: revisi, label: `Revisi: ${revisi.replace('rev', '')}` },
+        { value: tarik, label: `Tarik Maju: ${tarik.replace('M', '')}` },
+    ];
+}
+
+function parseKodeLama(kode: string, refs: KodeRefMap | null, teamName: string | null): KodeSegment[] {
+    const parts = kode.split('.');
+    if (parts.length < 6) return [{ value: kode, label: 'Kode Lama' }];
+
+    const [bidang, subBidang, tim, jenis, kategori, prog] = parts;
+
+    return [
+        { value: bidang, label: `Bidang: ${refs?.bidang[bidang] ?? bidang}` },
+        { value: subBidang, label: `Sub Bidang: ${refs?.subBidang[subBidang] ?? subBidang}` },
+        { value: tim, label: `Tim: ${teamName ?? tim}` },
+        { value: jenis, label: `Jenis: ${refs?.jenis[jenis] ?? jenis}` },
+        { value: kategori, label: `Kategori: ${refs?.kategori[kategori] ?? kategori}` },
+        { value: prog, label: `Program: ${prog}` },
+    ];
+}
+
+function KodeWithTooltip({ segments }: { segments: KodeSegment[] }) {
+    return (
+        <span className="font-mono text-xs">
+            {segments.map((seg, i) => (
+                <span key={i}>
+                    {i > 0 && <span className="text-muted-foreground/50">.</span>}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="cursor-help border-b border-dotted border-muted-foreground/30 hover:text-foreground hover:border-foreground/50 transition-colors">
+                                {seg.value}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">{seg.label}</TooltipContent>
+                    </Tooltip>
+                </span>
+            ))}
+        </span>
+    );
 }
 
 export default function Pk04({
@@ -116,6 +193,8 @@ export default function Pk04({
     canComment,
     commentUrl,
     scope,
+    kodeRefMap,
+    teamName,
 }: Props) {
     const basePath = scope === 'team'
         ? `/team/workflows/pk/${workflow.id}`
@@ -167,7 +246,7 @@ export default function Pk04({
             <Head title={`PK04: Program Tahunan — ${workflow.label}`} />
             <div className="space-y-6 p-6">
                 <div className="flex flex-wrap items-center gap-3">
-                    <Heading title="PK04: Program Tahunan" description="Data final program kegiatan yang sudah dikompilasi" />
+                    <Heading title={pk04Data.nama_program} description="Data final program kegiatan yang sudah dikompilasi" />
                     <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Revisi {pk04Data.revision}</Badge>
                     {pkType === 'proposal' && (
                         <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">PK Proposal</Badge>
@@ -220,11 +299,6 @@ export default function Pk04({
                     </SectionCard>
                 )}
 
-                {/* Budget Context (raker only) */}
-                {budgetContext && (
-                    <BudgetReferenceCard counter={budgetContext} variant="readonly" />
-                )}
-
                 {/* Approver Info */}
                 {approverInfo && (
                     <SectionCard title="Persetujuan RAKER (PK03)">
@@ -273,15 +347,15 @@ export default function Pk04({
                             <div className="mb-4">
                                 <h4 className="mb-2 text-xs font-medium text-muted-foreground">Anggaran ({kegiatan.anggaran.length})</h4>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[800px] text-sm">
+                                    <table className="w-full min-w-275 text-sm">
                                         <thead>
                                             <tr className="border-b bg-muted/50">
                                                 <th className="w-10 px-3 py-2 text-left font-medium">No</th>
-                                                <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
-                                                <th className="px-3 py-2 text-left font-medium">Deskripsi</th>
-                                                <th className="w-32 px-3 py-2 text-right font-medium">Nominal (Rp)</th>
-                                                <th className="px-3 py-2 text-left font-medium">Kode Baru</th>
-                                                <th className="w-36 px-3 py-2 text-left font-medium">Kode Lama</th>
+                                                <th className="min-w-52 px-3 py-2 text-left font-medium">Mata Anggaran</th>
+                                                <th className="min-w-48 px-3 py-2 text-left font-medium">Deskripsi</th>
+                                                <th className="min-w-40 px-3 py-2 text-right font-medium">Nominal (Rp)</th>
+                                                <th className="min-w-72 px-3 py-2 text-left font-medium">Kode Baru</th>
+                                                <th className="min-w-48 px-3 py-2 text-left font-medium">Kode Lama</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -289,10 +363,18 @@ export default function Pk04({
                                                 <tr key={a.id} className="border-b last:border-0">
                                                     <td className="px-3 py-2 text-center">{i + 1}</td>
                                                     <td className="px-3 py-2">{a.mata_anggaran}</td>
-                                                    <td className="px-3 py-2">{a.deskripsi_pk || '-'}</td>
-                                                    <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(a.nominal_anggaran)}</td>
-                                                    <td className="px-3 py-2 font-mono text-xs">{a.kode_anggaran_baru || '-'}</td>
-                                                    <td className="px-3 py-2 font-mono text-xs">{a.kode_anggaran_lama || '-'}</td>
+                                                    <td className="px-3 py-2 text-muted-foreground">{a.deskripsi_pk || '-'}</td>
+                                                    <td className="px-3 py-2 text-right tabular-nums font-medium">{formatRupiah(a.nominal_anggaran)}</td>
+                                                    <td className="px-3 py-2">
+                                                        {a.kode_anggaran_baru
+                                                            ? <KodeWithTooltip segments={parseKodeBaru(a.kode_anggaran_baru, kodeRefMap, teamName)} />
+                                                            : <span className="text-muted-foreground">-</span>}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        {a.kode_anggaran_lama
+                                                            ? <KodeWithTooltip segments={parseKodeLama(a.kode_anggaran_lama, kodeRefMap, teamName)} />
+                                                            : <span className="text-muted-foreground">-</span>}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -349,6 +431,11 @@ export default function Pk04({
                         <div><span className="text-muted-foreground">Dikompilasi:</span> {formatDateTime(pk04Data.created_at)}</div>
                     </div>
                 </SectionCard>
+
+                {/* Budget Context (raker only) — moved below ringkasan */}
+                {budgetContext && (
+                    <BudgetReferenceCard counter={budgetContext} variant="readonly" />
+                )}
 
                 {/* Kode Verifikasi */}
                 {pk04Data.verification_code && <VerificationCodeBox code={pk04Data.verification_code} />}

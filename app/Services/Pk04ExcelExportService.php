@@ -14,6 +14,9 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class Pk04ExcelExportService
 {
+    /** @var array{bidang: array<string, string>, subBidang: array<string, string>, jenis: array<string, string>, kategori: array<string, string>} */
+    private array $kodeRefMap = ['bidang' => [], 'subBidang' => [], 'jenis' => [], 'kategori' => []];
+
     /**
      * Generate an Excel file and return the temp file path.
      */
@@ -24,6 +27,7 @@ class Pk04ExcelExportService
         $workflow = $pk04->pkWorkflow;
         $teamName = $workflow?->team?->name ?? 'Unknown';
         $tahun = $this->resolveTahun($workflow);
+        $this->kodeRefMap = $this->loadKodeRefMap($workflow);
 
         $bulanLabels = [
             1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
@@ -64,7 +68,7 @@ class Pk04ExcelExportService
         $rows = [
             ['Tim', $teamName],
             ['Nomer Program', $pk04->nomer_program],
-            ['Kategori', $pk04->kode_kategori],
+            ['Kategori', $pk04->kode_kategori.($this->kodeRefMap['kategori'][$pk04->kode_kategori] ?? '' ? ' ('.$this->kodeRefMap['kategori'][$pk04->kode_kategori].')' : '')],
             ['Nama Program', $pk04->nama_program],
             ['Deskripsi Program', $pk04->deskripsi_program ?? '-'],
             ['Tujuan Program', $pk04->tujuan_program ?? '-'],
@@ -109,12 +113,12 @@ class Pk04ExcelExportService
         $sheet = $spreadsheet->createSheet();
         $sheet->setTitle('Kegiatan & Anggaran');
 
-        $columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-        $headers = ['No. Kegiatan', 'Nama Kegiatan', 'Bulan', 'Mata Anggaran', 'Deskripsi', 'Nominal (Rp)', 'Kode Anggaran Baru', 'Kode Anggaran Lama'];
+        $columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'];
+        $headers = ['No. Kegiatan', 'Nama Kegiatan', 'Bulan', 'Mata Anggaran', 'Deskripsi', 'Nominal (Rp)', 'Bidang', 'Sub Bidang', 'Jenis', 'Kode Anggaran Baru', 'Kode Anggaran Lama'];
         foreach ($headers as $i => $header) {
             $sheet->setCellValue("{$columns[$i]}1", $header);
         }
-        $this->styleTableHeader($sheet, 'A1:H1');
+        $this->styleTableHeader($sheet, 'A1:K1');
 
         $row = 2;
         foreach ($pk04->kegiatan as $kegiatan) {
@@ -136,8 +140,16 @@ class Pk04ExcelExportService
                     $sheet->setCellValue("E{$row}", $anggaran->deskripsi_pk ?? '-');
                     $sheet->setCellValue("F{$row}", (float) $anggaran->nominal_anggaran);
                     $sheet->getStyle("F{$row}")->getNumberFormat()->setFormatCode('#,##0');
-                    $sheet->setCellValue("G{$row}", $anggaran->kode_anggaran_baru ?? '-');
-                    $sheet->setCellValue("H{$row}", $anggaran->kode_anggaran_lama ?? '-');
+
+                    $bidangNama = $this->kodeRefMap['bidang'][$anggaran->kode_bidang] ?? '';
+                    $subBidangNama = $this->kodeRefMap['subBidang'][$anggaran->kode_sub_bidang] ?? '';
+                    $jenisNama = $this->kodeRefMap['jenis'][$anggaran->kode_jenis] ?? '';
+                    $sheet->setCellValue("G{$row}", $anggaran->kode_bidang.($bidangNama ? " ({$bidangNama})" : ''));
+                    $sheet->setCellValue("H{$row}", $anggaran->kode_sub_bidang.($subBidangNama ? " ({$subBidangNama})" : ''));
+                    $sheet->setCellValue("I{$row}", $anggaran->kode_jenis.($jenisNama ? " ({$jenisNama})" : ''));
+
+                    $sheet->setCellValue("J{$row}", $anggaran->kode_anggaran_baru ?? '-');
+                    $sheet->setCellValue("K{$row}", $anggaran->kode_anggaran_lama ?? '-');
                     $row++;
                 }
 
@@ -157,16 +169,19 @@ class Pk04ExcelExportService
         $sheet->mergeCells("A{$row}:E{$row}");
         $sheet->setCellValue("F{$row}", (float) $totalAnggaran);
         $sheet->getStyle("F{$row}")->getNumberFormat()->setFormatCode('#,##0');
-        $sheet->getStyle("A{$row}:H{$row}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$row}:K{$row}")->getFont()->setBold(true);
 
         $sheet->getColumnDimension('A')->setWidth(14);
         $sheet->getColumnDimension('B')->setWidth(30);
-        $sheet->getColumnDimension('C')->setWidth(25);
+        $sheet->getColumnDimension('C')->setWidth(14);
         $sheet->getColumnDimension('D')->setWidth(22);
         $sheet->getColumnDimension('E')->setWidth(25);
         $sheet->getColumnDimension('F')->setWidth(18);
-        $sheet->getColumnDimension('G')->setWidth(38);
+        $sheet->getColumnDimension('G')->setWidth(22);
         $sheet->getColumnDimension('H')->setWidth(22);
+        $sheet->getColumnDimension('I')->setWidth(18);
+        $sheet->getColumnDimension('J')->setWidth(38);
+        $sheet->getColumnDimension('K')->setWidth(22);
     }
 
     private function sheetKuisioner(Spreadsheet $spreadsheet, Pk04ProgramTahunan $pk04): void
@@ -329,6 +344,25 @@ class Pk04ExcelExportService
                 'notes' => $entry['notes'] ?? null,
             ];
         })->all();
+    }
+
+    /**
+     * @return array{bidang: array<string, string>, subBidang: array<string, string>, jenis: array<string, string>, kategori: array<string, string>}
+     */
+    private function loadKodeRefMap(?PkWorkflow $workflow): array
+    {
+        $empty = ['bidang' => [], 'subBidang' => [], 'jenis' => [], 'kategori' => []];
+        $pp06 = $workflow?->ppWorkflow?->latestPp06();
+        if (! $pp06) {
+            return $empty;
+        }
+
+        return [
+            'bidang' => $pp06->kodeBidangPelayanan()->pluck('nama', 'kode')->toArray(),
+            'subBidang' => $pp06->kodeSubBidangPelayanan()->pluck('nama', 'kode')->toArray(),
+            'jenis' => $pp06->kodeJenisProgram()->pluck('nama', 'kode')->toArray(),
+            'kategori' => $pp06->kodeKategoriPelayanan()->pluck('nama', 'kode')->toArray(),
+        ];
     }
 
     private function resolveTahun(?PkWorkflow $workflow): int
