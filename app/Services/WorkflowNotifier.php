@@ -18,7 +18,7 @@ class WorkflowNotifier
     /**
      * Notify users after a workflow event.
      *
-     * @param  array{actor_name?: string, actor_role?: string, link?: string, step_label?: string, next_instruction?: string}  $context
+     * @param  array{actor_name?: string, actor_role?: string, link?: string, admin_link?: string, team_link?: string, step_label?: string, next_instruction?: string}  $context
      */
     public function notify(
         Model $workflow,
@@ -54,6 +54,8 @@ class WorkflowNotifier
 
             $seen[$userId] = true;
 
+            $link = $this->resolveRecipientLink($template['link'], $context, $recipient['role']);
+
             try {
                 $this->notificationService->send(
                     $recipient['user'],
@@ -61,7 +63,7 @@ class WorkflowNotifier
                     $workspace,
                     $template['subject'],
                     $template['body'],
-                    $template['link'],
+                    $link,
                 );
                 $sent++;
             } catch (\Throwable $e) {
@@ -75,6 +77,48 @@ class WorkflowNotifier
             'workflow_id' => $workflow->id,
             'workflow_type' => $workflow->getMorphClass(),
         ]);
+    }
+
+    /**
+     * Resolve the appropriate link for a recipient based on their role.
+     *
+     * Supports three strategies:
+     * 1. permission_links: map of permission name → URL (picks first match)
+     * 2. admin_link / team_link: scope-based resolution
+     * 3. Fallback to default link
+     */
+    private function resolveRecipientLink(?string $defaultLink, array $context, Role $role): ?string
+    {
+        // Strategy 1: permission-based links (for parallel fork where each recipient has a different step)
+        $permissionLinks = $context['permission_links'] ?? null;
+
+        if ($permissionLinks) {
+            $rolePermissions = $role->permissions()->pluck('name');
+
+            foreach ($permissionLinks as $permission => $link) {
+                if ($rolePermissions->contains($permission)) {
+                    return $link;
+                }
+            }
+        }
+
+        // Strategy 2: scope-based links
+        $adminLink = $context['admin_link'] ?? null;
+        $teamLink = $context['team_link'] ?? null;
+
+        if ($adminLink === null && $teamLink === null) {
+            return $defaultLink;
+        }
+
+        $isTeamRole = $role->permissions()
+            ->where('name', 'like', 'team.%')
+            ->exists();
+
+        if ($isTeamRole && $teamLink) {
+            return $teamLink;
+        }
+
+        return $adminLink ?? $teamLink ?? $defaultLink;
     }
 
     /**

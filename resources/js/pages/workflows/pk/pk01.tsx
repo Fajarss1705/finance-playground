@@ -18,6 +18,8 @@ import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
+import { buildKodeSegments, KodePreviewCell } from './_pk01-readonly-section';
+import type { KodeAnggaranContext } from './_pk01-readonly-section';
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -109,6 +111,7 @@ type Props = {
     kodeJenis: KodeRef[];
     kuisionerTemplates: KuisionerTemplate[];
     budgetCounter: BudgetCounter;
+    kodeAnggaranContext: KodeAnggaranContext;
     mode: 'edit' | 'readonly';
     canDraft: boolean;
     canSubmit: boolean;
@@ -138,7 +141,7 @@ function formatRupiah(value: number): string {
 
 export default function Pk01({
     workflow, stepData, kodeKategori, kodeBidang, kodeSubBidang, kodeJenis,
-    kuisionerTemplates, budgetCounter, mode, canDraft, canSubmit, canTerminate,
+    kuisionerTemplates, budgetCounter, kodeAnggaranContext, mode, canDraft, canSubmit, canTerminate,
     canComment, isRejectionReentry, rejectionNotes, isPp07Active,
     actionRoles, activeRoleName, scope, basePath,
 }: Props) {
@@ -162,6 +165,7 @@ export default function Pk01({
 
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
     const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
+    const kategoriNama = kodeKategori.find(k => k.kode === kodeKategoriVal)?.nama ?? null;
 
     // ── Budget total for this PK ──
     const thisPkTotal = useMemo(() => {
@@ -400,6 +404,9 @@ export default function Pk01({
                                 kodeBidang={kodeBidang}
                                 kodeSubBidang={kodeSubBidang}
                                 kodeJenis={kodeJenis}
+                                kodeAnggaranContext={kodeAnggaranContext}
+                                kodeKategori={kodeKategoriVal}
+                                kategoriNama={kategoriNama}
                                 kuisionerTemplates={kuisionerTemplates}
                                 errors={errors}
                                 onUpdate={(updates) => updateKegiatan(kIdx, updates)}
@@ -588,6 +595,7 @@ function RejectionBanner({ rejectionNotes }: { rejectionNotes: RejectionNotes })
 
 function KegiatanCard({
     index, kegiatan, isReadonly, kodeBidang, kodeSubBidang, kodeJenis,
+    kodeAnggaranContext, kodeKategori, kategoriNama,
     kuisionerTemplates, errors, onUpdate, onRemove, onDuplicate, onOpenTemplatePicker,
 }: {
     index: number;
@@ -596,6 +604,9 @@ function KegiatanCard({
     kodeBidang: KodeRef[];
     kodeSubBidang: KodeRef[];
     kodeJenis: KodeRef[];
+    kodeAnggaranContext: KodeAnggaranContext;
+    kodeKategori: string;
+    kategoriNama: string | null;
     kuisionerTemplates: KuisionerTemplate[];
     errors: Record<string, string>;
     onUpdate: (updates: Partial<Kegiatan>) => void;
@@ -713,6 +724,8 @@ function KegiatanCard({
                                         <th className="px-2 py-1.5 text-left font-medium min-w-52">Bidang <span className="text-destructive">*</span></th>
                                         <th className="px-2 py-1.5 text-left font-medium min-w-52">Sub Bidang <span className="text-destructive">*</span></th>
                                         <th className="px-2 py-1.5 text-left font-medium min-w-52">Jenis <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-56">Kode Baru</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-40">Kode Lama</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -775,6 +788,21 @@ function KegiatanCard({
                                                 </Select>
                                                 {errors[`${ep}.anggaran.${aIdx}.kode_jenis`] && <p className="text-xs text-destructive">{errors[`${ep}.anggaran.${aIdx}.kode_jenis`]}</p>}
                                             </td>
+                                            {(() => {
+                                                const segs = buildKodeSegments(a, kodeAnggaranContext, kodeKategori, kegiatan.bulan, {
+                                                    bidang_nama: kodeBidang.find(k => k.kode === a.kode_bidang)?.nama,
+                                                    sub_bidang_nama: kodeSubBidang.find(k => k.kode === a.kode_sub_bidang)?.nama,
+                                                    jenis_nama: kodeJenis.find(k => k.kode === a.kode_jenis)?.nama,
+                                                    tim_nama: kodeAnggaranContext.tim_nama,
+                                                    kategori_nama: kategoriNama,
+                                                });
+                                                return (
+                                                    <>
+                                                        <td className="px-2 py-1 text-xs"><KodePreviewCell segments={segs.baru} /></td>
+                                                        <td className="px-2 py-1 text-xs"><KodePreviewCell segments={segs.lama} /></td>
+                                                    </>
+                                                );
+                                            })()}
                                         </tr>
                                     ))}
                                 </tbody>

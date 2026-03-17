@@ -14,7 +14,18 @@ import type { ActionRole } from '@/components/workflow/action-roles-section';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 import Pk01ReadonlySection from './_pk01-readonly-section';
-import type { Pk01ReadonlyData, PreviousCycle, Pk01Change, ParallelTrackStatus } from './_pk01-readonly-section';
+import type { Pk01ReadonlyData, PreviousCycle, Pk01Change, ParallelTrackStatus, KodeAnggaranContext } from './_pk01-readonly-section';
+
+type BudgetCounter = {
+    ppLabel: string | null;
+    plafon: number;
+    accepted: number;
+    planned: number;
+    sisa: number;
+    proposalAccepted: number;
+    proposalPlanned: number;
+    pkIni: number;
+};
 
 type Workflow = {
     id: number;
@@ -30,12 +41,14 @@ type Props = {
     previousCycles: PreviousCycle[];
     pk01Changes: Pk01Change[] | null;
     pp06RevisionLabel: string | null;
+    kodeAnggaranContext: KodeAnggaranContext;
     parallelTrackStatus: ParallelTrackStatus;
     stepStatus: string;
     canApprove: boolean;
     canReject: boolean;
     canTerminate: boolean;
     canComment: boolean;
+    budgetCounter: BudgetCounter;
     actionRoles: ActionRole[];
     activeRoleName: string | null;
     scope: string;
@@ -48,12 +61,14 @@ export default function Pk02a({
     previousCycles,
     pk01Changes,
     pp06RevisionLabel,
+    kodeAnggaranContext,
     parallelTrackStatus,
     stepStatus,
     canApprove,
     canReject,
     canTerminate,
     canComment,
+    budgetCounter,
     actionRoles,
     activeRoleName,
     scope,
@@ -137,7 +152,11 @@ export default function Pk02a({
                     previousCycles={previousCycles}
                     pk01Changes={pk01Changes}
                     pp06RevisionLabel={pp06RevisionLabel}
+                    kodeAnggaranContext={kodeAnggaranContext}
                 />
+
+                {/* Budget Counter */}
+                <BudgetCounterSection counter={budgetCounter} />
 
                 {/* Action Buttons */}
                 {isActive && (canApprove || canReject || canTerminate) && (
@@ -182,6 +201,60 @@ function ParallelTrackIndicator({ status }: { status: ParallelTrackStatus }) {
         <div className="rounded-md border bg-muted/30 p-3 text-sm">
             <span className="text-muted-foreground">{status.step} ({status.label}):</span>{' '}
             <span className={info.className}>{info.text}</span>
+        </div>
+    );
+}
+
+function formatRupiah(value: number): string {
+    return new Intl.NumberFormat('id-ID').format(value);
+}
+
+function BudgetCounterSection({ counter }: { counter: BudgetCounter }) {
+    const isOverBudget = counter.pkIni > counter.sisa && counter.sisa > 0;
+
+    return (
+        <SectionCard title="Referensi Anggaran">
+            {counter.ppLabel && (
+                <p className="mb-3 text-sm text-muted-foreground">Menggunakan data dari <Badge variant="secondary">{counter.ppLabel}</Badge></p>
+            )}
+            <div className="mt-4 space-y-4">
+                <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Dalam Plafon (Raker)</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <BudgetItem label="Plafon Tim" value={counter.plafon} />
+                        <BudgetItem label="Sudah Ditetapkan (Raker)" value={counter.accepted} />
+                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.planned} />
+                        <BudgetItem label="Sisa" value={counter.sisa} />
+                    </div>
+                </div>
+                <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Di Luar Plafon (Proposal)</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <BudgetItem label="Sudah Ditetapkan (Proposal)" value={counter.proposalAccepted} />
+                        <BudgetItem label="Sedang Diajukan & Direview" value={counter.proposalPlanned} />
+                    </div>
+                </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2 border-t pt-3">
+                <span className="text-sm font-medium">PK Ini:</span>
+                <span className={`text-sm font-semibold ${isOverBudget ? 'text-amber-600 dark:text-amber-400' : ''}`}>
+                    Rp {formatRupiah(counter.pkIni)}
+                </span>
+            </div>
+            {isOverBudget && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    Total anggaran PK ini melebihi sisa plafon. Submit tetap diizinkan, namun akan diblokir saat kompilasi PK04.
+                </p>
+            )}
+        </SectionCard>
+    );
+}
+
+function BudgetItem({ label, value }: { label: string; value: number }) {
+    return (
+        <div className="rounded-md border px-3 py-2">
+            <p className="text-xs text-muted-foreground">{label}</p>
+            <p className="text-sm font-semibold">Rp {formatRupiah(value)}</p>
         </div>
     );
 }

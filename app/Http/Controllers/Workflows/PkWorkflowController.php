@@ -199,6 +199,8 @@ class PkWorkflowController extends Controller
         $this->notifier->notify($pkWorkflow, "{$activeStep}.terminated", [
             'actor_name' => $request->user()->name,
             'actor_role' => $this->resolveSessionRoleName(),
+            'admin_link' => route('admin.workflows.pk.show', $pkWorkflow),
+            'team_link' => route('team.workflows.pk.show', $pkWorkflow),
         ], $request->user()->id);
 
         $showRoute = $scope === 'team'
@@ -273,6 +275,11 @@ class PkWorkflowController extends Controller
         $tahun = $pp01?->tahun;
         $label = "PK-{$teamName}-{$tahun}";
 
+        // Kode anggaran context for preview
+        $kodeTeam = $pp06?->itemPlafonAnggaran()
+            ->where('team_id', $pkWorkflow->team_id)
+            ->value('kode_team');
+
         $basePath = $scope === 'team'
             ? "/team/workflows/pk/{$pkWorkflow->id}"
             : "/admin/workflows/pk/{$pkWorkflow->id}";
@@ -288,6 +295,11 @@ class PkWorkflowController extends Controller
                 'status' => $this->engine->getWorkflowStatus($history),
                 'history' => $this->historyFormatter->format($history),
                 'tipe' => $pkWorkflow->tipe,
+            ],
+            'kodeAnggaranContext' => [
+                'kode_team' => $kodeTeam,
+                'tim_nama' => $teamName,
+                'tahun' => $tahun ? (int) $tahun : null,
             ],
             'stepData' => [
                 'id' => $pk01Data->id,
@@ -479,10 +491,14 @@ class PkWorkflowController extends Controller
             sessionContext: [],
         );
 
-        // Notify PK02A + PK02B approvers (parallel fork)
+        // Notify PK02A + PK02B approvers (parallel fork — each gets their step link)
         $this->notifier->notify($pkWorkflow, 'pk01.submitted', [
             'actor_name' => $request->user()->name,
             'actor_role' => $this->resolveSessionRoleName(),
+            'permission_links' => [
+                'admin.workflows.pk.pk02a.approve' => route('admin.workflows.pk.pk02a.show', $pkWorkflow),
+                'admin.workflows.pk.pk02b.approve' => route('admin.workflows.pk.pk02b.show', $pkWorkflow),
+            ],
         ], $request->user()->id);
 
         return to_route('team.workflows.pk.show', $pkWorkflow)->with('success', 'PK01 berhasil disubmit.');
@@ -695,6 +711,8 @@ class PkWorkflowController extends Controller
         $this->notifier->notify($pkWorkflow, 'pk03.approved', [
             'actor_name' => $request->user()->name,
             'actor_role' => $this->resolveSessionRoleName(),
+            'admin_link' => route('admin.workflows.pk.pk04.show', $pkWorkflow),
+            'team_link' => route('team.workflows.pk.pk04.show', $pkWorkflow),
         ], $request->user()->id);
 
         $showRoute = route('admin.workflows.pk.show', $pkWorkflow);
@@ -788,6 +806,7 @@ class PkWorkflowController extends Controller
         $this->notifier->notify($pkWorkflow, 'pk03.rejected', [
             'actor_name' => $request->user()->name,
             'actor_role' => $this->resolveSessionRoleName(),
+            'team_link' => route('team.workflows.pk.pk01.show', [$pkWorkflow, $newPk01]),
         ], $request->user()->id);
 
         $showRoute = route('admin.workflows.pk.show', $pkWorkflow);
@@ -2032,6 +2051,11 @@ class PkWorkflowController extends Controller
             ? "PP-{$tahun} Revisi {$pp06->revision}"
             : null;
 
+        // Kode anggaran context for preview
+        $kodeTeam = $pp06?->itemPlafonAnggaran()
+            ->where('team_id', $pkWorkflow->team_id)
+            ->value('kode_team');
+
         $basePath = $scope === 'team'
             ? "/team/workflows/pk/{$pkWorkflow->id}"
             : "/admin/workflows/pk/{$pkWorkflow->id}";
@@ -2044,27 +2068,12 @@ class PkWorkflowController extends Controller
             "{$permPrefix}.terminate" => ['Batalkan Workflow', true],
         ];
 
-        // Budget context (PK02B only)
-        $budgetContext = null;
-        if ($thisStep === 'PK02B') {
-            $budgetCounter = $this->getBudgetCounters($pkWorkflow);
-            $thisTotal = $pk01Data
-                ? (float) $pk01Data->kegiatan()->with('anggaran')->get()
-                    ->flatMap(fn ($k) => $k->anggaran)->sum('nominal_anggaran')
-                : 0.0;
-            $isProposal = $pkWorkflow->tipe === 'proposal';
-
-            $budgetContext = [
-                'pp_label' => $budgetCounter['ppLabel'],
-                'plafon' => $budgetCounter['plafon'],
-                'sudah_ditetapkan' => $budgetCounter['accepted'],
-                'sedang_diajukan' => $budgetCounter['planned'],
-                'sisa' => $budgetCounter['sisa'],
-                'pk_ini' => $thisTotal,
-                'is_over_budget' => ! $isProposal && ($thisTotal + $budgetCounter['accepted']) > $budgetCounter['plafon'],
-                'is_proposal' => $isProposal,
-            ];
-        }
+        // Budget counter (same format as PK01)
+        $budgetCounter = $this->getBudgetCounters($pkWorkflow);
+        $thisTotal = $pk01Data
+            ? (float) $pk01Data->kegiatan()->with('anggaran')->get()
+                ->flatMap(fn ($k) => $k->anggaran)->sum('nominal_anggaran')
+            : 0.0;
 
         return Inertia::render("workflows/pk/{$thisStepLower}", [
             'workflow' => [
@@ -2078,6 +2087,11 @@ class PkWorkflowController extends Controller
             'previousCycles' => $previousCycles,
             'pk01Changes' => $pk01Changes,
             'pp06RevisionLabel' => $pp06RevisionLabel,
+            'kodeAnggaranContext' => [
+                'kode_team' => $kodeTeam,
+                'tim_nama' => $teamName,
+                'tahun' => $tahun ? (int) $tahun : null,
+            ],
             'parallelTrackStatus' => $parallelTrackStatus,
             'stepStatus' => $stepStatus,
             'canApprove' => $isStepActive && $scope === 'admin'
@@ -2086,7 +2100,16 @@ class PkWorkflowController extends Controller
                 && in_array("admin.workflows.pk.{$thisStepLower}.reject", $permissions),
             'canTerminate' => $isWorkflowActive && in_array("{$permPrefix}.terminate", $permissions),
             'canComment' => in_array("{$permPrefix}.comment", $permissions),
-            'budgetContext' => $budgetContext,
+            'budgetCounter' => [
+                'ppLabel' => $budgetCounter['ppLabel'],
+                'plafon' => $budgetCounter['plafon'],
+                'accepted' => $budgetCounter['accepted'],
+                'planned' => $budgetCounter['planned'],
+                'sisa' => $budgetCounter['sisa'],
+                'proposalAccepted' => $budgetCounter['proposalAccepted'],
+                'proposalPlanned' => $budgetCounter['proposalPlanned'],
+                'pkIni' => $thisTotal,
+            ],
             'actionRoles' => $this->resolveActionRoles($actionRolesMap),
             'activeRoleName' => $this->getActiveRoleName(),
             'scope' => $scope,
@@ -2191,6 +2214,7 @@ class PkWorkflowController extends Controller
             $this->notifier->notify($pkWorkflow, 'pk02.both_approved', [
                 'actor_name' => $request->user()->name,
                 'actor_role' => $this->resolveSessionRoleName(),
+                'link' => route('admin.workflows.pk.pk03.show', $pkWorkflow),
             ], $request->user()->id);
         } else {
             // At least one rejected → record PK03 rejection to trigger invalidation cascade,
@@ -2261,6 +2285,7 @@ class PkWorkflowController extends Controller
             $this->notifier->notify($pkWorkflow, 'pk02.rejected', [
                 'actor_name' => $request->user()->name,
                 'actor_role' => $this->resolveSessionRoleName(),
+                'team_link' => route('team.workflows.pk.pk01.show', [$pkWorkflow, $newPk01]),
             ], $request->user()->id);
         }
     }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import SectionCard from '@/components/workflow/section-card';
 
 // ────────────────────────────────────────────────────────────
@@ -98,11 +99,18 @@ export type ParallelTrackStatus = {
 // Component
 // ────────────────────────────────────────────────────────────
 
+export type KodeAnggaranContext = {
+    kode_team: string | null;
+    tim_nama: string | null;
+    tahun: number | null;
+};
+
 type Props = {
     pk01Data: Pk01ReadonlyData | null;
     previousCycles: PreviousCycle[];
     pk01Changes: Pk01Change[] | null;
     pp06RevisionLabel: string | null;
+    kodeAnggaranContext?: KodeAnggaranContext;
 };
 
 function formatRupiah(value: number): string {
@@ -113,7 +121,92 @@ function formatTanggal(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function Pk01ReadonlySection({ pk01Data, previousCycles, pk01Changes, pp06RevisionLabel }: Props) {
+function pad(val: string | number | null | undefined, len: number): string {
+    return String(val ?? '0').padStart(len, '0');
+}
+
+type KodeSegment = { value: string; label: string };
+
+export type KodeNames = {
+    bidang_nama?: string | null;
+    sub_bidang_nama?: string | null;
+    tim_nama?: string | null;
+    jenis_nama?: string | null;
+    kategori_nama?: string | null;
+};
+
+const BULAN_LABELS_SHORT = [
+    '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+function segLabel(type: string, nama?: string | null): string {
+    return nama ? `${type}: ${nama}` : type;
+}
+
+export function buildKodeSegments(
+    a: { kode_bidang: string; kode_sub_bidang: string; kode_jenis: string },
+    ctx: KodeAnggaranContext,
+    kodeKategori: string | null,
+    bulan: number | '' | 0,
+    names?: KodeNames,
+): { baru: KodeSegment[]; lama: KodeSegment[] } {
+    const bidang = pad(a.kode_bidang, 2);
+    const subBidang = pad(a.kode_sub_bidang, 2);
+    const tim = pad(ctx.kode_team, 2);
+    const jenis = pad(a.kode_jenis, 2);
+    const kategori = pad(kodeKategori, 2);
+    const tahun = pad(ctx.tahun, 4);
+    const bln = pad(bulan || 0, 2);
+    const bulanNum = typeof bulan === 'number' ? bulan : 0;
+
+    const baru: KodeSegment[] = [
+        { value: bidang, label: segLabel('Bidang', names?.bidang_nama) },
+        { value: subBidang, label: segLabel('Sub Bidang', names?.sub_bidang_nama) },
+        { value: tim, label: segLabel('Tim', names?.tim_nama) },
+        { value: jenis, label: segLabel('Jenis', names?.jenis_nama) },
+        { value: kategori, label: segLabel('Kategori', names?.kategori_nama) },
+        { value: '***', label: 'Program (ditetapkan saat kompilasi)' },
+        { value: '***', label: 'Kegiatan (ditetapkan saat kompilasi)' },
+        { value: '***', label: 'Anggaran (ditetapkan saat kompilasi)' },
+        { value: tahun, label: `Tahun: ${ctx.tahun ?? '-'}` },
+        { value: bln, label: `Bulan: ${BULAN_LABELS_SHORT[bulanNum] || '-'}` },
+        { value: '00', label: 'Revisi: 0' },
+    ];
+
+    const lama: KodeSegment[] = [
+        { value: bidang, label: segLabel('Bidang', names?.bidang_nama) },
+        { value: subBidang, label: segLabel('Sub Bidang', names?.sub_bidang_nama) },
+        { value: tim, label: segLabel('Tim', names?.tim_nama) },
+        { value: jenis, label: segLabel('Jenis', names?.jenis_nama) },
+        { value: kategori, label: segLabel('Kategori', names?.kategori_nama) },
+        { value: '***', label: 'Program (ditetapkan saat kompilasi)' },
+    ];
+
+    return { baru, lama };
+}
+
+export function KodePreviewCell({ segments }: { segments: KodeSegment[] }) {
+    return (
+        <span className="font-mono text-muted-foreground">
+            {segments.map((seg, i) => (
+                <span key={i}>
+                    {i > 0 && <span className="text-muted-foreground/50">.</span>}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="cursor-help border-b border-dotted border-muted-foreground/30 hover:text-foreground hover:border-foreground/50 transition-colors">
+                                {seg.value}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">{seg.label}</TooltipContent>
+                    </Tooltip>
+                </span>
+            ))}
+        </span>
+    );
+}
+
+export default function Pk01ReadonlySection({ pk01Data, previousCycles, pk01Changes, pp06RevisionLabel, kodeAnggaranContext }: Props) {
     const [showPrevious, setShowPrevious] = useState(false);
     const [showChanges, setShowChanges] = useState(false);
     const cycleNumber = previousCycles.length + 1;
@@ -150,7 +243,7 @@ export default function Pk01ReadonlySection({ pk01Data, previousCycles, pk01Chan
                                 <div key={cycle.cycle_number} className="space-y-2 rounded-md border bg-muted/20 p-3">
                                     <p className="text-xs font-medium">Pengisian ke-{cycle.cycle_number}</p>
                                     {cycle.pk01_data && (
-                                        <Pk01DataDisplay data={cycle.pk01_data} compact />
+                                        <Pk01DataDisplay data={cycle.pk01_data} compact kodeAnggaranContext={kodeAnggaranContext} />
                                     )}
                                     {cycle.rejection && (
                                         <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs dark:border-red-800 dark:bg-red-950">
@@ -206,7 +299,7 @@ export default function Pk01ReadonlySection({ pk01Data, previousCycles, pk01Chan
             )}
 
             {/* PK01 Data Display */}
-            <Pk01DataDisplay data={pk01Data} />
+            <Pk01DataDisplay data={pk01Data} kodeAnggaranContext={kodeAnggaranContext} />
 
             {/* PP06 revision label */}
             {pp06RevisionLabel && (
@@ -220,7 +313,7 @@ export default function Pk01ReadonlySection({ pk01Data, previousCycles, pk01Chan
 // Sub-components
 // ────────────────────────────────────────────────────────────
 
-function Pk01DataDisplay({ data, compact = false }: { data: Pk01ReadonlyData; compact?: boolean }) {
+function Pk01DataDisplay({ data, compact = false, kodeAnggaranContext }: { data: Pk01ReadonlyData; compact?: boolean; kodeAnggaranContext?: KodeAnggaranContext }) {
     return (
         <div className="space-y-4">
             {/* Program info */}
@@ -254,7 +347,7 @@ function Pk01DataDisplay({ data, compact = false }: { data: Pk01ReadonlyData; co
                         Kegiatan & Anggaran ({data.kegiatan.length})
                     </h4>
                     {data.kegiatan.map((k) => (
-                        <KegiatanCard key={k.id} kegiatan={k} compact={compact} />
+                        <KegiatanCard key={k.id} kegiatan={k} compact={compact} kodeAnggaranContext={kodeAnggaranContext} kodeKategori={data.kode_kategori} />
                     ))}
                 </div>
             )}
@@ -268,7 +361,7 @@ function Pk01DataDisplay({ data, compact = false }: { data: Pk01ReadonlyData; co
     );
 }
 
-function KegiatanCard({ kegiatan, compact = false }: { kegiatan: KegiatanDisplay; compact?: boolean }) {
+function KegiatanCard({ kegiatan, compact = false, kodeAnggaranContext, kodeKategori }: { kegiatan: KegiatanDisplay; compact?: boolean; kodeAnggaranContext?: KodeAnggaranContext; kodeKategori?: string | null }) {
     const [expanded, setExpanded] = useState(!compact);
     const kegiatanTotal = kegiatan.anggaran.reduce((sum, a) => sum + a.nominal_anggaran, 0);
 
@@ -292,20 +385,36 @@ function KegiatanCard({ kegiatan, compact = false }: { kegiatan: KegiatanDisplay
                     {/* Anggaran table */}
                     {kegiatan.anggaran.length > 0 && (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
+                            <table className="min-w-225 w-full text-xs">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
-                                        <th className="px-2 py-1.5 text-left font-medium">Bidang</th>
-                                        <th className="px-2 py-1.5 text-left font-medium">Sub Bidang</th>
-                                        <th className="px-2 py-1.5 text-left font-medium">Jenis</th>
-                                        <th className="px-2 py-1.5 text-left font-medium">Mata Anggaran</th>
-                                        <th className="px-2 py-1.5 text-left font-medium">Deskripsi</th>
-                                        <th className="px-2 py-1.5 text-right font-medium">Nominal (Rp)</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-48">Mata Anggaran</th>
+                                        <th className="px-2 py-1.5 text-right font-medium min-w-40">Nominal (Rp)</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-40">Deskripsi</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-40">Bidang</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-40">Sub Bidang</th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-40">Jenis</th>
+                                        {kodeAnggaranContext && (
+                                            <>
+                                                <th className="px-2 py-1.5 text-left font-medium min-w-56">Kode Baru</th>
+                                                <th className="px-2 py-1.5 text-left font-medium min-w-40">Kode Lama</th>
+                                            </>
+                                        )}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {kegiatan.anggaran.map((a) => (
+                                    {kegiatan.anggaran.map((a) => {
+                                        const segs = kodeAnggaranContext ? buildKodeSegments(a, kodeAnggaranContext, kodeKategori ?? null, kegiatan.bulan, {
+                                            bidang_nama: a.bidang_nama,
+                                            sub_bidang_nama: a.sub_bidang_nama,
+                                            jenis_nama: a.jenis_nama,
+                                            tim_nama: kodeAnggaranContext.tim_nama,
+                                        }) : null;
+                                        return (
                                         <tr key={a.id} className="border-b last:border-0">
+                                            <td className="px-2 py-1.5">{a.mata_anggaran}</td>
+                                            <td className="px-2 py-1.5 text-right tabular-nums font-medium">{formatRupiah(a.nominal_anggaran)}</td>
+                                            <td className="px-2 py-1.5 text-muted-foreground">{a.deskripsi_pk ?? '—'}</td>
                                             <td className="px-2 py-1.5">
                                                 <span className="font-mono">{a.kode_bidang}</span>
                                                 {a.bidang_nama && <span className="ml-1 text-muted-foreground">({a.bidang_nama})</span>}
@@ -318,11 +427,15 @@ function KegiatanCard({ kegiatan, compact = false }: { kegiatan: KegiatanDisplay
                                                 <span className="font-mono">{a.kode_jenis}</span>
                                                 {a.jenis_nama && <span className="ml-1 text-muted-foreground">({a.jenis_nama})</span>}
                                             </td>
-                                            <td className="px-2 py-1.5">{a.mata_anggaran}</td>
-                                            <td className="px-2 py-1.5 text-muted-foreground">{a.deskripsi_pk ?? '—'}</td>
-                                            <td className="px-2 py-1.5 text-right tabular-nums font-medium">{formatRupiah(a.nominal_anggaran)}</td>
+                                            {segs && (
+                                                <>
+                                                    <td className="px-2 py-1.5"><KodePreviewCell segments={segs.baru} /></td>
+                                                    <td className="px-2 py-1.5"><KodePreviewCell segments={segs.lama} /></td>
+                                                </>
+                                            )}
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -335,19 +448,19 @@ function KegiatanCard({ kegiatan, compact = false }: { kegiatan: KegiatanDisplay
                             <table className="w-full text-xs">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
+                                        <th className="px-2 py-1.5 text-left font-medium w-16">Kode</th>
                                         <th className="px-2 py-1.5 text-left font-medium">Pertanyaan</th>
                                         <th className="px-2 py-1.5 text-left font-medium w-24">Tipe</th>
                                         <th className="px-2 py-1.5 text-left font-medium w-20">Satuan</th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-16">Kode</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {kegiatan.kuisioner.map((q) => (
                                         <tr key={q.id} className="border-b last:border-0">
+                                            <td className="px-2 py-1.5 font-mono text-muted-foreground">{q.kode_kuisioner ?? '—'}</td>
                                             <td className="px-2 py-1.5">{q.pertanyaan}</td>
                                             <td className="px-2 py-1.5">{q.tipe}</td>
                                             <td className="px-2 py-1.5 text-muted-foreground">{q.satuan ?? '—'}</td>
-                                            <td className="px-2 py-1.5 font-mono text-muted-foreground">{q.kode_kuisioner ?? '—'}</td>
                                         </tr>
                                     ))}
                                 </tbody>
