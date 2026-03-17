@@ -103,6 +103,7 @@ export type KodeAnggaranContext = {
     kode_team: string | null;
     tim_nama: string | null;
     tahun: number | null;
+    tipe: 'raker' | 'proposal';
 };
 
 type Props = {
@@ -151,6 +152,8 @@ export function buildKodeSegments(
     bulan: number | '' | 0,
     names?: KodeNames,
 ): { baru: KodeSegment[]; lama: KodeSegment[] } {
+    const tipeCode = ctx.tipe === 'raker' ? 'R' : 'P';
+    const tipeLabel = ctx.tipe === 'raker' ? 'Raker' : 'Proposal';
     const bidang = pad(a.kode_bidang, 2);
     const subBidang = pad(a.kode_sub_bidang, 2);
     const tim = pad(ctx.kode_team, 2);
@@ -161,6 +164,7 @@ export function buildKodeSegments(
     const bulanNum = typeof bulan === 'number' ? bulan : 0;
 
     const baru: KodeSegment[] = [
+        { value: tipeCode, label: `Tipe: ${tipeLabel}` },
         { value: bidang, label: segLabel('Bidang', names?.bidang_nama) },
         { value: subBidang, label: segLabel('Sub Bidang', names?.sub_bidang_nama) },
         { value: tim, label: segLabel('Tim', names?.tim_nama) },
@@ -171,7 +175,8 @@ export function buildKodeSegments(
         { value: '***', label: 'Anggaran (ditetapkan saat kompilasi)' },
         { value: tahun, label: `Tahun: ${ctx.tahun ?? '-'}` },
         { value: bln, label: `Bulan: ${BULAN_LABELS_SHORT[bulanNum] || '-'}` },
-        { value: '00', label: 'Revisi: 0' },
+        { value: 'rev0', label: 'Revisi: 0' },
+        { value: 'M0', label: 'Tarik Maju: 0 (original)' },
     ];
 
     const lama: KodeSegment[] = [

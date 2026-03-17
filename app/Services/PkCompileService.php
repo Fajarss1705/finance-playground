@@ -107,6 +107,7 @@ class PkCompileService
                     $pk04Kegiatan,
                     $kodeTeam,
                     $tahun,
+                    $pkWorkflow->tipe,
                 );
             }
 
@@ -206,9 +207,9 @@ class PkCompileService
     /**
      * Generate kode anggaran (baru + lama formats) for a pk04_anggaran row.
      *
-     * Format Baru (11 segments):
-     * XX.XX.XX.XX.XX.XXX.XXX.XXX.XXXX.XX.XX
-     * Bidang.SubBidang.Tim.Jenis.Kategori.Program.Kegiatan.Anggaran.Tahun.Bulan.Revisi
+     * Format Baru (13 segments):
+     * T.XX.XX.XX.XX.XX.XXX.XXX.XXX.XXXX.XX.revN.MN
+     * Tipe.Bidang.SubBidang.Tim.Jenis.Kategori.Program.Kegiatan.Anggaran.Tahun.Bulan.Revisi.Tarik
      *
      * Format Lama (6 segments):
      * XX.XX.XX.XX.XX.XXX
@@ -220,7 +221,9 @@ class PkCompileService
         Pk04Kegiatan $kegiatan,
         string $kodeTeam,
         int $tahun,
+        string $tipe,
     ): void {
+        $tipeCode = $tipe === 'raker' ? 'R' : 'P';
         $bidang = str_pad($anggaran->kode_bidang ?? '00', 2, '0', STR_PAD_LEFT);
         $subBidang = str_pad($anggaran->kode_sub_bidang ?? '00', 2, '0', STR_PAD_LEFT);
         $tim = str_pad($kodeTeam, 2, '0', STR_PAD_LEFT);
@@ -231,12 +234,13 @@ class PkCompileService
         $anggaranNomer = str_pad((string) $anggaran->nomer_anggaran, 3, '0', STR_PAD_LEFT);
         $tahunStr = str_pad((string) $tahun, 4, '0', STR_PAD_LEFT);
         $bulan = str_pad((string) ($kegiatan->bulan ?? 0), 2, '0', STR_PAD_LEFT);
-        $revisi = str_pad((string) ($anggaran->revisi_terakhir ?? 0), 2, '0', STR_PAD_LEFT);
+        $revisi = 'rev'.($anggaran->revisi_terakhir ?? 0);
+        $tarik = 'M'.$this->resolveTarikDepth($anggaran);
 
         $kodeBaru = implode('.', [
-            $bidang, $subBidang, $tim, $jenis, $kategori,
+            $tipeCode, $bidang, $subBidang, $tim, $jenis, $kategori,
             $program, $kegiatanNomer, $anggaranNomer,
-            $tahunStr, $bulan, $revisi,
+            $tahunStr, $bulan, $revisi, $tarik,
         ]);
 
         $kodeLama = implode('.', [
@@ -247,6 +251,31 @@ class PkCompileService
             'kode_anggaran_baru' => $kodeBaru,
             'kode_anggaran_lama' => $kodeLama,
         ]);
+    }
+
+    /**
+     * Resolve tarik maju chain depth from previous_anggaran_id.
+     *
+     * M0 = original PK item, M1 = first tarik maju, M2 = chained, etc.
+     */
+    private function resolveTarikDepth(Pk04Anggaran $anggaran): int
+    {
+        if ($anggaran->source !== 'tarik_maju' || ! $anggaran->previous_anggaran_id) {
+            return 0;
+        }
+
+        $depth = 0;
+        $currentId = $anggaran->previous_anggaran_id;
+
+        while ($currentId) {
+            $depth++;
+            $prev = Pk04Anggaran::where('id', $currentId)
+                ->where('source', 'tarik_maju')
+                ->value('previous_anggaran_id');
+            $currentId = $prev;
+        }
+
+        return $depth;
     }
 
     /**
@@ -531,11 +560,11 @@ class PkCompileService
         // 1. SNAPSHOT: copy current live rows as frozen copies on OLD pk04
         $this->snapshotCurrentState($currentPk04);
 
-        // 2. CREATE new pk04_program_tahunan (preserves author + nomer_program)
+        // 2. CREATE new pk04_program_tahunan (preserves author + nomer_program + locked kode_kategori)
         $newPk04 = Pk04ProgramTahunan::create([
             'pk_workflow_id' => $pkWorkflow->id,
             'revision' => $newRevision,
-            'kode_kategori' => $draftData['kode_kategori'],
+            'kode_kategori' => $currentPk04->kode_kategori,
             'nama_program' => $draftData['nama_program'],
             'deskripsi_program' => $draftData['deskripsi_program'],
             'tujuan_program' => $draftData['tujuan_program'],
@@ -559,27 +588,21 @@ class PkCompileService
             }
         }
 
-        // 3. Process existing kegiatan: REASSIGN to new parent + APPLY changes, or DELETE
+        // 3. Process existing kegiatan: REASSIGN to new parent + APPLY editable changes (no deletion, bulan locked)
         $maxNomerKegiatan = (int) $currentPk04->kegiatan->max('nomer_kegiatan');
 
         foreach ($currentPk04->kegiatan as $kegiatan) {
-            if (isset($draftKegiatanById[$kegiatan->id])) {
-                $dk = $draftKegiatanById[$kegiatan->id];
+            $dk = $draftKegiatanById[$kegiatan->id] ?? [];
 
-                // Reassign to new parent + update kegiatan fields
-                $kegiatan->update([
-                    'pk04_program_tahunan_id' => $newPk04->id,
-                    'nama_kegiatan' => $dk['nama_kegiatan'],
-                    'bulan' => (int) $dk['bulan'],
-                ]);
+            // Reassign to new parent + update only nama_kegiatan (bulan is locked)
+            $kegiatan->update([
+                'pk04_program_tahunan_id' => $newPk04->id,
+                'nama_kegiatan' => $dk['nama_kegiatan'] ?? $kegiatan->nama_kegiatan,
+            ]);
 
+            if (! empty($dk)) {
                 $this->applyAnggaranChanges($kegiatan, $dk, $newRevision);
                 $this->applyKuisionerChanges($kegiatan, $dk);
-            } else {
-                // REMOVED kegiatan — delete row + children (locked items already validated)
-                $kegiatan->anggaran()->delete();
-                $kegiatan->kuisioner()->delete();
-                $kegiatan->delete();
             }
         }
 
@@ -624,11 +647,12 @@ class PkCompileService
             }
         }
 
-        // 5. REGENERATE kode_anggaran for ALL live anggaran (handles bulan/kategori changes)
+        // 5. REGENERATE kode_anggaran for ALL live anggaran
+        $tipe = $pkWorkflow->tipe;
         $newPk04->load(['kegiatan.anggaran']);
         foreach ($newPk04->kegiatan as $kegiatan) {
             foreach ($kegiatan->anggaran as $anggaran) {
-                $this->generateKodeAnggaran($anggaran, $newPk04, $kegiatan, $kodeTeam, $tahun);
+                $this->generateKodeAnggaran($anggaran, $newPk04, $kegiatan, $kodeTeam, $tahun, $tipe);
             }
         }
 
@@ -639,9 +663,12 @@ class PkCompileService
     }
 
     /**
-     * Validate that locked anggaran items in draft_data are unchanged.
+     * Validate PK05 revision draft against locking rules.
      *
-     * Also validates no kuisioner removed from kegiatan with locked anggaran.
+     * Locked fields (cannot change): kode_kategori, bulan, kode_bidang, kode_sub_bidang, kode_jenis.
+     * Editable fields: mata_anggaran, deskripsi_pk, nominal_anggaran, nama_kegiatan.
+     * No existing kegiatan or anggaran can be deleted. New ones can be added.
+     * Kuisioner can be added, edited, or deleted freely.
      *
      * @return list<string> Error messages (empty = valid)
      */
@@ -650,90 +677,65 @@ class PkCompileService
         $errors = [];
         $currentPk04->loadMissing(['kegiatan.anggaran', 'kegiatan.kuisioner']);
 
-        // Build flat maps
-        $lockedAnggaran = [];
-        $kegiatanWithLocked = [];
+        // 1. Program-level: kode_kategori locked
+        if (($currentPk04->kode_kategori ?? '') !== ($draftData['kode_kategori'] ?? '')) {
+            $errors[] = 'Kategori pelayanan tidak dapat diubah setelah kompilasi.';
+        }
 
-        foreach ($currentPk04->kegiatan as $kegiatan) {
-            foreach ($kegiatan->anggaran as $anggaran) {
-                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active';
-                if ($isLocked) {
-                    $lockedAnggaran[$anggaran->id] = $anggaran;
-                    $kegiatanWithLocked[$kegiatan->id] = true;
-                }
+        // Build draft kegiatan index
+        $draftKegiatanById = [];
+        foreach ($draftData['kegiatan'] ?? [] as $dk) {
+            if (! empty($dk['pk04_kegiatan_id'])) {
+                $draftKegiatanById[(int) $dk['pk04_kegiatan_id']] = $dk;
             }
         }
 
-        if (empty($lockedAnggaran)) {
-            return [];
-        }
+        // 2. Check each existing kegiatan
+        foreach ($currentPk04->kegiatan as $kegiatan) {
+            // Kegiatan cannot be deleted
+            if (! isset($draftKegiatanById[$kegiatan->id])) {
+                $errors[] = "Kegiatan \"{$kegiatan->nama_kegiatan}\" tidak dapat dihapus setelah kompilasi.";
 
-        // Build draft anggaran index by pk04_anggaran_id
-        $draftAnggaranById = [];
-        $draftKuisionerIdsByKegiatan = [];
+                continue;
+            }
 
-        foreach ($draftData['kegiatan'] ?? [] as $dk) {
-            $kId = $dk['pk04_kegiatan_id'] ?? null;
+            $dk = $draftKegiatanById[$kegiatan->id];
 
+            // Bulan locked
+            if ((int) $kegiatan->bulan !== (int) ($dk['bulan'] ?? 0)) {
+                $errors[] = "Bulan kegiatan \"{$kegiatan->nama_kegiatan}\" tidak dapat diubah setelah kompilasi.";
+            }
+
+            // Build draft anggaran index for this kegiatan
+            $draftAnggaranById = [];
             foreach ($dk['anggaran'] ?? [] as $da) {
                 if (! empty($da['pk04_anggaran_id'])) {
                     $draftAnggaranById[(int) $da['pk04_anggaran_id']] = $da;
                 }
             }
 
-            if ($kId) {
-                $draftKuisionerIdsByKegiatan[(int) $kId] = [];
-                foreach ($dk['kuisioner'] ?? [] as $dq) {
-                    if (! empty($dq['pk04_kuisioner_id'])) {
-                        $draftKuisionerIdsByKegiatan[(int) $kId][] = (int) $dq['pk04_kuisioner_id'];
+            // 3. Check each existing anggaran
+            foreach ($kegiatan->anggaran as $anggaran) {
+                // Anggaran cannot be deleted
+                if (! isset($draftAnggaranById[$anggaran->id])) {
+                    $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" tidak dapat dihapus setelah kompilasi.";
+
+                    continue;
+                }
+
+                $da = $draftAnggaranById[$anggaran->id];
+
+                // Kode fields locked
+                foreach (['kode_bidang', 'kode_sub_bidang', 'kode_jenis'] as $field) {
+                    if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
+                        $label = match ($field) {
+                            'kode_bidang' => 'Bidang',
+                            'kode_sub_bidang' => 'Sub Bidang',
+                            'kode_jenis' => 'Jenis',
+                        };
+                        $errors[] = "{$label} pada \"{$anggaran->mata_anggaran}\" tidak dapat diubah setelah kompilasi.";
                     }
                 }
-            }
-        }
-
-        // Check each locked anggaran
-        $fieldsToCheck = ['kode_bidang', 'kode_sub_bidang', 'kode_jenis', 'mata_anggaran', 'deskripsi_pk'];
-
-        foreach ($lockedAnggaran as $anggaranId => $anggaran) {
-            if (! isset($draftAnggaranById[$anggaranId])) {
-                $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" yang terkunci tidak dapat dihapus.";
-
-                continue;
-            }
-
-            $da = $draftAnggaranById[$anggaranId];
-            foreach ($fieldsToCheck as $field) {
-                if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
-                    $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" yang terkunci tidak dapat diubah.";
-
-                    continue 2;
-                }
-            }
-
-            if ((float) $anggaran->nominal_anggaran != (float) ($da['nominal_anggaran'] ?? 0)) {
-                $errors[] = "Item anggaran \"{$anggaran->mata_anggaran}\" yang terkunci tidak dapat diubah.";
-            }
-        }
-
-        // Check kuisioner removal from kegiatan with locked anggaran
-        foreach ($kegiatanWithLocked as $kegiatanId => $flag) {
-            $kegiatan = $currentPk04->kegiatan->firstWhere('id', $kegiatanId);
-            if (! $kegiatan) {
-                continue;
-            }
-
-            // Kegiatan must be in draft
-            if (! isset($draftKuisionerIdsByKegiatan[$kegiatanId])) {
-                continue; // Kegiatan removed — already caught by locked anggaran check
-            }
-
-            $currentKuisionerIds = $kegiatan->kuisioner->pluck('id')->toArray();
-            $draftKuisionerIds = $draftKuisionerIdsByKegiatan[$kegiatanId];
-            $removedIds = array_diff($currentKuisionerIds, $draftKuisionerIds);
-
-            foreach ($removedIds as $qId) {
-                $q = $kegiatan->kuisioner->firstWhere('id', $qId);
-                $errors[] = "Kuisioner \"{$q?->pertanyaan}\" tidak dapat dihapus dari kegiatan yang memiliki anggaran terkunci.";
             }
         }
 
@@ -752,8 +754,8 @@ class PkCompileService
         $changes = [];
         $currentPk04->loadMissing(['kegiatan.anggaran', 'kegiatan.kuisioner']);
 
-        // 1. Program-level fields
-        foreach (['kode_kategori', 'nama_program', 'deskripsi_program', 'tujuan_program'] as $field) {
+        // 1. Program-level editable fields (kode_kategori is locked)
+        foreach (['nama_program', 'deskripsi_program', 'tujuan_program'] as $field) {
             if (($currentPk04->$field ?? '') !== ($draftData[$field] ?? '')) {
                 $changes[] = [
                     'type' => 'program_changed',
@@ -781,29 +783,21 @@ class PkCompileService
             $changes[] = ['type' => 'kegiatan_added', 'nama_kegiatan' => $dk['nama_kegiatan'] ?? '', 'bulan' => $dk['bulan'] ?? null];
         }
 
-        // 3. Removed kegiatan
-        foreach ($currentKegiatanMap as $kId => $kegiatan) {
-            if (! isset($draftKegiatanById[$kId])) {
-                $changes[] = ['type' => 'kegiatan_removed', 'nama_kegiatan' => $kegiatan->nama_kegiatan];
-            }
-        }
+        // 3. Existing kegiatan cannot be removed (locked), skip removed diff
 
-        // 4. Changes within matched kegiatan
+        // 4. Changes within matched kegiatan (only editable fields)
         foreach ($draftKegiatanById as $kId => $dk) {
             $kegiatan = $currentKegiatanMap->get($kId);
             if (! $kegiatan) {
                 continue;
             }
 
-            // Kegiatan field changes
+            // Kegiatan: only nama_kegiatan is editable (bulan is locked)
             if (($kegiatan->nama_kegiatan ?? '') !== ($dk['nama_kegiatan'] ?? '')) {
                 $changes[] = ['type' => 'kegiatan_changed', 'pk04_kegiatan_id' => $kId, 'field' => 'nama_kegiatan', 'old' => $kegiatan->nama_kegiatan, 'new' => $dk['nama_kegiatan'] ?? ''];
             }
-            if ((int) $kegiatan->bulan !== (int) ($dk['bulan'] ?? 0)) {
-                $changes[] = ['type' => 'kegiatan_changed', 'pk04_kegiatan_id' => $kId, 'field' => 'bulan', 'old' => (int) $kegiatan->bulan, 'new' => (int) ($dk['bulan'] ?? 0)];
-            }
 
-            // Anggaran changes
+            // Anggaran changes (only editable fields: mata_anggaran, deskripsi_pk, nominal)
             $currentAnggaranMap = $kegiatan->anggaran->keyBy('id');
             $draftAnggaranById = [];
             $newDraftAnggaran = [];
@@ -815,11 +809,7 @@ class PkCompileService
                 }
             }
 
-            foreach ($currentAnggaranMap as $aId => $anggaran) {
-                if (! isset($draftAnggaranById[$aId])) {
-                    $changes[] = ['type' => 'anggaran_removed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $anggaran->mata_anggaran];
-                }
-            }
+            // Existing anggaran cannot be removed (locked), skip removed diff
 
             foreach ($newDraftAnggaran as $da) {
                 $changes[] = ['type' => 'anggaran_added', 'mata_anggaran' => $da['mata_anggaran'] ?? ''];
@@ -831,7 +821,7 @@ class PkCompileService
                     continue;
                 }
 
-                foreach (['kode_bidang', 'kode_sub_bidang', 'kode_jenis', 'mata_anggaran', 'deskripsi_pk'] as $field) {
+                foreach (['mata_anggaran', 'deskripsi_pk'] as $field) {
                     if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
                         $changes[] = ['type' => 'anggaran_changed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $da['mata_anggaran'] ?? $anggaran->mata_anggaran, 'field' => $field, 'old' => $anggaran->$field, 'new' => $da[$field] ?? null];
                     }
@@ -971,9 +961,9 @@ class PkCompileService
     /**
      * Apply anggaran changes from draft to existing kegiatan.
      *
-     * Locked items (pencairan or ditarik_maju) are untouched.
-     * Changed items are updated in place with revisi_terakhir set.
-     * New items are inserted. Missing items are deleted.
+     * Only editable fields (mata_anggaran, deskripsi_pk, nominal_anggaran) are updated.
+     * Kode fields (bidang, sub_bidang, jenis) are locked after compile.
+     * Existing anggaran cannot be deleted. New items can be inserted.
      */
     private function applyAnggaranChanges(Pk04Kegiatan $kegiatan, array $draftKegiatan, int $newRevision): void
     {
@@ -989,7 +979,7 @@ class PkCompileService
 
         $maxNomerAnggaran = (int) $kegiatan->anggaran->max('nomer_anggaran');
 
-        // Update or delete existing anggaran
+        // Update existing anggaran (editable fields only, no deletion)
         foreach ($kegiatan->anggaran as $anggaran) {
             if (isset($draftAnggaranById[$anggaran->id])) {
                 $da = $draftAnggaranById[$anggaran->id];
@@ -999,7 +989,7 @@ class PkCompileService
                     $changed = false;
                     $updateData = [];
 
-                    foreach (['kode_bidang', 'kode_sub_bidang', 'kode_jenis', 'mata_anggaran', 'deskripsi_pk'] as $field) {
+                    foreach (['mata_anggaran', 'deskripsi_pk'] as $field) {
                         if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
                             $changed = true;
                             $updateData[$field] = $da[$field] ?? null;
@@ -1016,11 +1006,8 @@ class PkCompileService
                         $anggaran->update($updateData);
                     }
                 }
-                // Locked: untouched (already reassigned via parent kegiatan)
-            } else {
-                // Removed — delete (locked items already validated)
-                $anggaran->delete();
             }
+            // Existing anggaran never deleted — validated by validateLockedItems
         }
 
         // Insert new anggaran

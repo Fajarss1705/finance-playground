@@ -176,10 +176,6 @@ export default function Pk05({
         setKegiatanList((prev) => prev.filter((_, i) => i !== index));
     }
 
-    function hasLockedAnggaran(kegiatan: Kegiatan): boolean {
-        return kegiatan.anggaran.some((a) => a.is_locked);
-    }
-
     // ── Form data builder ──
     function buildDraftData(): DraftData {
         return {
@@ -281,8 +277,8 @@ export default function Pk05({
                 <SectionCard title="Informasi Program">
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5 sm:col-span-2">
-                            <Label>Kategori Pelayanan <span className="text-destructive">*</span></Label>
-                            <Select value={kodeKategori} onValueChange={setKodeKategori} disabled={isReadonly}>
+                            <Label>Kategori Pelayanan <Lock className="ml-1 inline h-3 w-3 text-amber-500" /></Label>
+                            <Select value={kodeKategori} onValueChange={setKodeKategori} disabled>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Pilih kategori..." />
                                 </SelectTrigger>
@@ -292,6 +288,7 @@ export default function Pk05({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <p className="text-xs text-muted-foreground">Kategori tidak dapat diubah setelah kompilasi.</p>
                         </div>
                         <div className="space-y-1.5 sm:col-span-2">
                             <Label>Nama Program <span className="text-destructive">*</span></Label>
@@ -355,7 +352,7 @@ export default function Pk05({
                                 errors={errors}
                                 onUpdate={(updates) => updateKegiatan(kIdx, updates)}
                                 onRemove={() => removeKegiatan(kIdx)}
-                                canRemove={!hasLockedAnggaran(kegiatan)}
+                                canRemove={kegiatan.pk04_kegiatan_id === null}
                             />
                         ))}
                     </div>
@@ -444,6 +441,7 @@ function KegiatanCard({
     const [collapsed, setCollapsed] = useState(false);
     const ep = `draft_data.kegiatan.${index}`;
     const kegiatanTotal = kegiatan.anggaran.reduce((s, a) => s + (Number(a.nominal_anggaran) || 0), 0);
+    const isExistingKegiatan = kegiatan.pk04_kegiatan_id !== null;
 
     // Anggaran helpers
     function updateAnggaran(aIdx: number, updates: Partial<Anggaran>) {
@@ -473,8 +471,6 @@ function KegiatanCard({
         onUpdate({ kuisioner: kegiatan.kuisioner.filter((_, i) => i !== qIdx) });
     }
 
-    const hasLocked = kegiatan.anggaran.some((a) => a.is_locked);
-
     return (
         <div className="rounded-lg border">
             {/* Card header */}
@@ -487,8 +483,8 @@ function KegiatanCard({
                 {kegiatan.source && (
                     <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">{kegiatan.source}</Badge>
                 )}
-                {hasLocked && (
-                    <Badge variant="outline" className="gap-1 text-amber-600"><Lock className="h-3 w-3" /> Terkunci</Badge>
+                {kegiatan.pk04_kegiatan_id !== null && (
+                    <Badge variant="outline" className="gap-1 text-amber-600"><Lock className="h-3 w-3" /> Terkompilasi</Badge>
                 )}
                 <span className="ml-auto text-xs text-muted-foreground tabular-nums">Rp {new Intl.NumberFormat('id-ID').format(kegiatanTotal)}</span>
                 {!isReadonly && (
@@ -497,7 +493,7 @@ function KegiatanCard({
                         size="sm"
                         onClick={onRemove}
                         disabled={!canRemove}
-                        title={canRemove ? 'Hapus Kegiatan' : 'Tidak dapat dihapus: memiliki anggaran terkunci'}
+                        title={canRemove ? 'Hapus Kegiatan' : 'Kegiatan yang sudah dikompilasi tidak dapat dihapus'}
                         className="h-7 w-7 p-0"
                     >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -521,11 +517,11 @@ function KegiatanCard({
                             {errors[`${ep}.nama_kegiatan`] && <p className="text-xs text-destructive">{errors[`${ep}.nama_kegiatan`]}</p>}
                         </div>
                         <div className="space-y-1.5">
-                            <Label>Bulan <span className="text-destructive">*</span></Label>
+                            <Label>Bulan <span className="text-destructive">*</span>{isExistingKegiatan && <Lock className="ml-1 inline h-3 w-3 text-amber-500" />}</Label>
                             <Select
                                 value={kegiatan.bulan !== null ? String(kegiatan.bulan) : ''}
                                 onValueChange={(v) => onUpdate({ bulan: v === '' ? null : Number(v) })}
-                                disabled={isReadonly}
+                                disabled={isReadonly || isExistingKegiatan}
                             >
                                 <SelectTrigger>
                                     <SelectValue placeholder="Pilih bulan..." />
@@ -567,19 +563,22 @@ function KegiatanCard({
                                 </thead>
                                 <tbody>
                                     {kegiatan.anggaran.map((a, aIdx) => {
-                                        const isLocked = a.is_locked;
+                                        const isPencairanLocked = a.is_locked;
+                                        const isExistingAnggaran = a.pk04_anggaran_id !== null;
+                                        const isKodeLocked = isExistingAnggaran || isPencairanLocked;
+                                        const isFullyLocked = isPencairanLocked;
                                         const aep = `${ep}.anggaran.${aIdx}`;
                                         return (
-                                            <tr key={aIdx} className={`border-b last:border-0 ${isLocked ? 'bg-muted/40' : ''}`}>
+                                            <tr key={aIdx} className={`border-b last:border-0 ${isKodeLocked ? 'bg-muted/40' : ''}`}>
                                                 <td className="px-2 py-1 text-center">
-                                                    {isLocked && (
-                                                        <span title={a.lock_reason ?? 'Item terkunci'}>
+                                                    {isKodeLocked && (
+                                                        <span title={isPencairanLocked ? (a.lock_reason ?? 'Item terkunci (pencairan)') : 'Kode terkunci setelah kompilasi'}>
                                                             <Lock className="h-3.5 w-3.5 text-amber-500" />
                                                         </span>
                                                     )}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Select value={a.kode_bidang} onValueChange={(v) => updateAnggaran(aIdx, { kode_bidang: v })} disabled={isReadonly || isLocked}>
+                                                    <Select value={a.kode_bidang} onValueChange={(v) => updateAnggaran(aIdx, { kode_bidang: v })} disabled={isReadonly || isKodeLocked}>
                                                         <SelectTrigger className="h-8 text-xs">
                                                             <SelectValue placeholder="Pilih..." />
                                                         </SelectTrigger>
@@ -592,7 +591,7 @@ function KegiatanCard({
                                                     {errors[`${aep}.kode_bidang`] && <p className="text-xs text-destructive">{errors[`${aep}.kode_bidang`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Select value={a.kode_sub_bidang} onValueChange={(v) => updateAnggaran(aIdx, { kode_sub_bidang: v })} disabled={isReadonly || isLocked}>
+                                                    <Select value={a.kode_sub_bidang} onValueChange={(v) => updateAnggaran(aIdx, { kode_sub_bidang: v })} disabled={isReadonly || isKodeLocked}>
                                                         <SelectTrigger className="h-8 text-xs">
                                                             <SelectValue placeholder="Pilih..." />
                                                         </SelectTrigger>
@@ -605,7 +604,7 @@ function KegiatanCard({
                                                     {errors[`${aep}.kode_sub_bidang`] && <p className="text-xs text-destructive">{errors[`${aep}.kode_sub_bidang`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Select value={a.kode_jenis} onValueChange={(v) => updateAnggaran(aIdx, { kode_jenis: v })} disabled={isReadonly || isLocked}>
+                                                    <Select value={a.kode_jenis} onValueChange={(v) => updateAnggaran(aIdx, { kode_jenis: v })} disabled={isReadonly || isKodeLocked}>
                                                         <SelectTrigger className="h-8 text-xs">
                                                             <SelectValue placeholder="Pilih..." />
                                                         </SelectTrigger>
@@ -618,20 +617,20 @@ function KegiatanCard({
                                                     {errors[`${aep}.kode_jenis`] && <p className="text-xs text-destructive">{errors[`${aep}.kode_jenis`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Input value={a.mata_anggaran} onChange={(e) => updateAnggaran(aIdx, { mata_anggaran: e.target.value })} disabled={isReadonly || isLocked} className="h-8" maxLength={255} />
+                                                    <Input value={a.mata_anggaran} onChange={(e) => updateAnggaran(aIdx, { mata_anggaran: e.target.value })} disabled={isReadonly || isFullyLocked} className="h-8" maxLength={255} />
                                                     {errors[`${aep}.mata_anggaran`] && <p className="text-xs text-destructive">{errors[`${aep}.mata_anggaran`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Input value={a.deskripsi_pk} onChange={(e) => updateAnggaran(aIdx, { deskripsi_pk: e.target.value })} disabled={isReadonly || isLocked} className="h-8" />
+                                                    <Input value={a.deskripsi_pk} onChange={(e) => updateAnggaran(aIdx, { deskripsi_pk: e.target.value })} disabled={isReadonly || isFullyLocked} className="h-8" />
                                                     {errors[`${aep}.deskripsi_pk`] && <p className="text-xs text-destructive">{errors[`${aep}.deskripsi_pk`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <RupiahInput value={a.nominal_anggaran} onChange={(v) => updateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly || isLocked} className="h-8" min={0} />
+                                                    <RupiahInput value={a.nominal_anggaran} onChange={(v) => updateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly || isFullyLocked} className="h-8" min={0} />
                                                     {errors[`${aep}.nominal_anggaran`] && <p className="text-xs text-destructive">{errors[`${aep}.nominal_anggaran`]}</p>}
                                                 </td>
                                                 {!isReadonly && (
                                                     <td className="px-2 py-1">
-                                                        {!isLocked && (
+                                                        {!isExistingAnggaran && !isPencairanLocked && (
                                                             <Button variant="ghost" size="sm" onClick={() => removeAnggaran(aIdx)} className="h-8 w-8 p-0">
                                                                 <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                                             </Button>
@@ -678,7 +677,6 @@ function KegiatanCard({
                                     <tbody>
                                         {kegiatan.kuisioner.map((q, qIdx) => {
                                             const qep = `${ep}.kuisioner.${qIdx}`;
-                                            const canRemoveQ = !hasLocked;
                                             return (
                                                 <tr key={qIdx} className="border-b last:border-0">
                                                     <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground">
@@ -686,15 +684,9 @@ function KegiatanCard({
                                                     </td>
                                                     {!isReadonly && (
                                                         <td className="px-2 py-1.5">
-                                                            {canRemoveQ ? (
-                                                                <Button variant="ghost" size="sm" onClick={() => removeKuisioner(qIdx)} className="h-8 w-8 p-0">
-                                                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                                </Button>
-                                                            ) : (
-                                                                <span title="Tidak dapat dihapus: kegiatan memiliki anggaran terkunci">
-                                                                    <Lock className="mx-auto h-3.5 w-3.5 text-amber-500" />
-                                                                </span>
-                                                            )}
+                                                            <Button variant="ghost" size="sm" onClick={() => removeKuisioner(qIdx)} className="h-8 w-8 p-0">
+                                                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                            </Button>
                                                         </td>
                                                     )}
                                                     <td className="px-2 py-1.5">

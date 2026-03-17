@@ -1681,17 +1681,19 @@ it('generates correct kode anggaran format', function () {
     $pk04 = \App\Models\Pk\Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)->first();
     $anggaran = $pk04->kegiatan->first()->anggaran->first();
 
-    // Format Baru: XX.XX.XX.XX.XX.XXX.XXX.XXX.XXXX.XX.XX
-    // Bidang.SubBidang.Tim.Jenis.Kategori.Program.Kegiatan.Anggaran.Tahun.Bulan.Revisi
+    // Format Baru (13 segments): T.XX.XX.XX.XX.XX.XXX.XXX.XXX.XXXX.XX.revN.MN
+    // Tipe.Bidang.SubBidang.Tim.Jenis.Kategori.Program.Kegiatan.Anggaran.Tahun.Bulan.Revisi.Tarik
     $kodeBaru = $anggaran->kode_anggaran_baru;
     $segments = explode('.', $kodeBaru);
-    expect($segments)->toHaveCount(11)
-        ->and($segments[0])->toBe('B01')  // kode_bidang
-        ->and($segments[1])->toBe('SB01') // kode_sub_bidang (padded to 2 but SB01 is 4 chars)
-        ->and($segments[3])->toBe('J01')  // kode_jenis
-        ->and($segments[8])->toBe('2027') // tahun
-        ->and($segments[9])->toBe('03')   // bulan
-        ->and($segments[10])->toBe('00'); // revisi
+    expect($segments)->toHaveCount(13)
+        ->and($segments[0])->toBe('R')     // tipe (raker)
+        ->and($segments[1])->toBe('B01')   // kode_bidang
+        ->and($segments[2])->toBe('SB01')  // kode_sub_bidang
+        ->and($segments[4])->toBe('J01')   // kode_jenis
+        ->and($segments[9])->toBe('2027')  // tahun
+        ->and($segments[10])->toBe('03')   // bulan
+        ->and($segments[11])->toBe('rev0') // revisi
+        ->and($segments[12])->toBe('M0');  // tarik maju
 
     // Format Lama: XX.XX.XX.XX.XX.XXX
     $kodeLama = $anggaran->kode_anggaran_lama;

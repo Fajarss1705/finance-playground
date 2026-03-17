@@ -300,6 +300,7 @@ class PkWorkflowController extends Controller
                 'kode_team' => $kodeTeam,
                 'tim_nama' => $teamName,
                 'tahun' => $tahun ? (int) $tahun : null,
+                'tipe' => $pkWorkflow->tipe,
             ],
             'stepData' => [
                 'id' => $pk01Data->id,
@@ -2091,6 +2092,7 @@ class PkWorkflowController extends Controller
                 'kode_team' => $kodeTeam,
                 'tim_nama' => $teamName,
                 'tahun' => $tahun ? (int) $tahun : null,
+                'tipe' => $pkWorkflow->tipe,
             ],
             'parallelTrackStatus' => $parallelTrackStatus,
             'stepStatus' => $stepStatus,
