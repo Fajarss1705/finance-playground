@@ -37,6 +37,7 @@ type Workflow = {
 
 type Props = {
     workflow: Workflow;
+    teamName: string;
     pk01Data: Pk01ReadonlyData | null;
     previousCycles: PreviousCycle[];
     pk01Changes: Pk01Change[] | null;
@@ -57,6 +58,7 @@ type Props = {
 
 export default function Pk02a({
     workflow,
+    teamName,
     pk01Data,
     previousCycles,
     pk01Changes,
@@ -107,12 +109,15 @@ export default function Pk02a({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`PK02A: Approval Narasi — ${workflow.label}`} />
             <div className="space-y-6 p-6">
-                <div className="flex items-center gap-3">
-                    <Heading title="PK02A: Approval Narasi" description="Review narasi dan konten program kegiatan" />
-                    <StepStatusBadge status={stepStatus} />
-                    {workflow.tipe === 'proposal' && (
-                        <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">PK Proposal</Badge>
-                    )}
+                <div>
+                    <div className="flex items-center gap-3">
+                        <Heading title="PK02A: Approval Narasi" description="Review narasi dan konten program kegiatan" />
+                        <StepStatusBadge status={stepStatus} />
+                        {workflow.tipe === 'proposal' && (
+                            <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">PK Proposal</Badge>
+                        )}
+                    </div>
+                    <Badge variant="secondary" className="mt-1">{teamName}</Badge>
                 </div>
 
                 {(errors.approve || errors.reject) && (

@@ -600,6 +600,11 @@ class PkWorkflowController extends Controller
             ? "PP-{$tahun} Revisi {$pp06->revision}"
             : null;
 
+        // Kode anggaran context for preview
+        $kodeTeam = $pp06?->itemPlafonAnggaran()
+            ->where('team_id', $pkWorkflow->team_id)
+            ->value('kode_team');
+
         $basePath = $scope === 'team'
             ? "/team/workflows/pk/{$pkWorkflow->id}"
             : "/admin/workflows/pk/{$pkWorkflow->id}";
@@ -612,6 +617,13 @@ class PkWorkflowController extends Controller
             "{$permPrefix}.terminate" => ['Batalkan Workflow', true],
         ];
 
+        // Budget counter (same format as PK02A/PK02B)
+        $budgetCounter = $this->getBudgetCounters($pkWorkflow);
+        $thisTotal = $pk01Data
+            ? (float) $pk01Data->kegiatan()->with('anggaran')->get()
+                ->flatMap(fn ($k) => $k->anggaran)->sum('nominal_anggaran')
+            : 0.0;
+
         return Inertia::render('workflows/pk/pk03', [
             'workflow' => [
                 'id' => $pkWorkflow->id,
@@ -620,10 +632,17 @@ class PkWorkflowController extends Controller
                 'history' => $this->historyFormatter->format($history),
                 'tipe' => $pkWorkflow->tipe,
             ],
+            'teamName' => $teamName,
             'pk01Data' => $pk01Display,
             'previousCycles' => $previousCycles,
             'pk01Changes' => $pk01Changes,
             'pp06RevisionLabel' => $pp06RevisionLabel,
+            'kodeAnggaranContext' => [
+                'kode_team' => $kodeTeam,
+                'tim_nama' => $teamName,
+                'tahun' => $tahun ? (int) $tahun : null,
+                'tipe' => $pkWorkflow->tipe,
+            ],
             'parallelApprovals' => $parallelApprovals,
             'stepStatus' => $stepStatus,
             'canApprove' => $isStepActive && $scope === 'admin'
@@ -632,6 +651,16 @@ class PkWorkflowController extends Controller
                 && in_array('admin.workflows.pk.pk03.reject', $permissions),
             'canTerminate' => $isWorkflowActive && in_array("{$permPrefix}.terminate", $permissions),
             'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'budgetCounter' => [
+                'ppLabel' => $budgetCounter['ppLabel'],
+                'plafon' => $budgetCounter['plafon'],
+                'accepted' => $budgetCounter['accepted'],
+                'planned' => $budgetCounter['planned'],
+                'sisa' => $budgetCounter['sisa'],
+                'proposalAccepted' => $budgetCounter['proposalAccepted'],
+                'proposalPlanned' => $budgetCounter['proposalPlanned'],
+                'pkIni' => $thisTotal,
+            ],
             'actionRoles' => $this->resolveActionRoles($actionRolesMap),
             'activeRoleName' => $this->getActiveRoleName(),
             'scope' => $scope,
@@ -2084,6 +2113,7 @@ class PkWorkflowController extends Controller
                 'history' => $this->historyFormatter->format($history),
                 'tipe' => $pkWorkflow->tipe,
             ],
+            'teamName' => $teamName,
             'pk01Data' => $pk01Display,
             'previousCycles' => $previousCycles,
             'pk01Changes' => $pk01Changes,
