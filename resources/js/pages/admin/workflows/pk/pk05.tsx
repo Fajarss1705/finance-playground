@@ -315,7 +315,7 @@ export default function Pk05({
                         </div>
                         <div className="space-y-1.5 sm:col-span-2">
                             <Label>Nama Program <span className="text-destructive">*</span></Label>
-                            <Input value={namaProgram} onChange={(e) => setNamaProgram(e.target.value)} disabled={isReadonly} maxLength={255} />
+                            <Textarea className="resize-y" rows={1} value={namaProgram} onChange={(e) => setNamaProgram(e.target.value.replace(/\n/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly} maxLength={255} />
                         </div>
                         <div className="space-y-1.5">
                             <Label>Deskripsi Program <span className="text-destructive">*</span></Label>
@@ -577,8 +577,8 @@ function KegiatanCard({
                     Kegiatan {index + 1}
                     {kegiatan.nama_kegiatan && <span className="font-normal text-muted-foreground">: {kegiatan.nama_kegiatan}</span>}
                 </button>
-                {kegiatan.source && (
-                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">{kegiatan.source}</Badge>
+                {kegiatan.source === 'pabd' && (
+                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Tarik Maju</Badge>
                 )}
                 {kegiatan.pk04_kegiatan_id !== null && (
                     <Badge variant="outline" className="gap-1 text-amber-600"><Lock className="h-3 w-3" /> Terkompilasi</Badge>
@@ -605,9 +605,12 @@ function KegiatanCard({
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5">
                             <Label>Nama Kegiatan <span className="text-destructive">*</span></Label>
-                            <Input
+                            <Textarea
+                                className="resize-y"
+                                rows={1}
                                 value={kegiatan.nama_kegiatan}
-                                onChange={(e) => onUpdate({ nama_kegiatan: e.target.value })}
+                                onChange={(e) => onUpdate({ nama_kegiatan: e.target.value.replace(/\n/g, '') })}
+                                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                                 disabled={isReadonly}
                                 maxLength={255}
                             />
@@ -649,12 +652,12 @@ function KegiatanCard({
                                 <thead>
                                     <tr className="border-b bg-muted/50">
                                         <th className="px-2 py-1.5 text-left font-medium w-8" />
-                                        <th className="px-2 py-1.5 text-left font-medium w-36">Bidang <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-36">Sub Bidang <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-36">Jenis <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium min-w-32">Mata Anggaran <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium min-w-32">Deskripsi <span className="text-destructive">*</span></th>
-                                        <th className="px-2 py-1.5 text-left font-medium w-40">Nominal (Rp) <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-48 w-1/4">Mata Anggaran<br /><span className="text-muted-foreground font-normal">(Item Anggaran)</span> <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-44">Nominal (Rp) <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-44">Deskripsi <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-52">Bidang <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-52">Sub Bidang <span className="text-destructive">*</span></th>
+                                        <th className="px-2 py-1.5 text-left font-medium min-w-52">Jenis <span className="text-destructive">*</span></th>
                                         {!isReadonly && <th className="px-2 py-1.5 w-10" />}
                                     </tr>
                                 </thead>
@@ -673,6 +676,18 @@ function KegiatanCard({
                                                             <Lock className="h-3.5 w-3.5 text-amber-500" />
                                                         </span>
                                                     )}
+                                                </td>
+                                                <td className="px-2 py-1">
+                                                    <Textarea className="min-h-8 text-xs resize-y" rows={1} value={a.mata_anggaran} onChange={(e) => updateAnggaran(aIdx, { mata_anggaran: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly || isFullyLocked} maxLength={255} />
+                                                    {errors[`${aep}.mata_anggaran`] && <p className="text-xs text-destructive">{errors[`${aep}.mata_anggaran`]}</p>}
+                                                </td>
+                                                <td className="px-2 py-1">
+                                                    <RupiahInput value={a.nominal_anggaran} onChange={(v) => updateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly || isFullyLocked} className="h-8" min={0} />
+                                                    {errors[`${aep}.nominal_anggaran`] && <p className="text-xs text-destructive">{errors[`${aep}.nominal_anggaran`]}</p>}
+                                                </td>
+                                                <td className="px-2 py-1">
+                                                    <Textarea className="min-h-8 text-xs resize-y" rows={1} value={a.deskripsi_pk} onChange={(e) => updateAnggaran(aIdx, { deskripsi_pk: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly || isFullyLocked} />
+                                                    {errors[`${aep}.deskripsi_pk`] && <p className="text-xs text-destructive">{errors[`${aep}.deskripsi_pk`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
                                                     <Select value={a.kode_bidang} onValueChange={(v) => updateAnggaran(aIdx, { kode_bidang: v })} disabled={isReadonly || isKodeLocked}>
@@ -713,18 +728,6 @@ function KegiatanCard({
                                                     </Select>
                                                     {errors[`${aep}.kode_jenis`] && <p className="text-xs text-destructive">{errors[`${aep}.kode_jenis`]}</p>}
                                                 </td>
-                                                <td className="px-2 py-1">
-                                                    <Input value={a.mata_anggaran} onChange={(e) => updateAnggaran(aIdx, { mata_anggaran: e.target.value })} disabled={isReadonly || isFullyLocked} className="h-8" maxLength={255} />
-                                                    {errors[`${aep}.mata_anggaran`] && <p className="text-xs text-destructive">{errors[`${aep}.mata_anggaran`]}</p>}
-                                                </td>
-                                                <td className="px-2 py-1">
-                                                    <Input value={a.deskripsi_pk} onChange={(e) => updateAnggaran(aIdx, { deskripsi_pk: e.target.value })} disabled={isReadonly || isFullyLocked} className="h-8" />
-                                                    {errors[`${aep}.deskripsi_pk`] && <p className="text-xs text-destructive">{errors[`${aep}.deskripsi_pk`]}</p>}
-                                                </td>
-                                                <td className="px-2 py-1">
-                                                    <RupiahInput value={a.nominal_anggaran} onChange={(v) => updateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly || isFullyLocked} className="h-8" min={0} />
-                                                    {errors[`${aep}.nominal_anggaran`] && <p className="text-xs text-destructive">{errors[`${aep}.nominal_anggaran`]}</p>}
-                                                </td>
                                                 {!isReadonly && (
                                                     <td className="px-2 py-1">
                                                         {!isExistingAnggaran && !isPencairanLocked && (
@@ -740,8 +743,9 @@ function KegiatanCard({
                                 </tbody>
                                 <tfoot>
                                     <tr className="border-t bg-muted/30 font-medium">
-                                        <td className="px-2 py-2" colSpan={6}>Subtotal</td>
+                                        <td className="px-2 py-2" colSpan={2}>Subtotal</td>
                                         <td className="px-2 py-2 tabular-nums">{formatRupiah(kegiatanTotal)}</td>
+                                        <td colSpan={4} />
                                         {!isReadonly && <td />}
                                     </tr>
                                 </tfoot>
@@ -771,9 +775,9 @@ function KegiatanCard({
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b bg-muted/50">
-                                            <th className="px-2 py-1.5 text-left font-medium w-20">Kode</th>
                                             {!isReadonly && <th className="px-2 py-1.5 w-10" />}
-                                            <th className="px-2 py-1.5 text-left font-medium">Pertanyaan <span className="text-destructive">*</span></th>
+                                            <th className="px-2 py-1.5 text-left font-medium w-20">Kode</th>
+                                            <th className="px-2 py-1.5 text-left font-medium min-w-48">Pertanyaan <span className="text-destructive">*</span></th>
                                             <th className="px-2 py-1.5 text-left font-medium w-36">Tipe <span className="text-destructive">*</span></th>
                                             <th className="px-2 py-1.5 text-left font-medium w-28">Satuan</th>
                                         </tr>
@@ -783,9 +787,6 @@ function KegiatanCard({
                                             const qep = `${ep}.kuisioner.${qIdx}`;
                                             return (
                                                 <tr key={qIdx} className="border-b last:border-0">
-                                                    <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground">
-                                                        {q.kode_kuisioner || '—'}
-                                                    </td>
                                                     {!isReadonly && (
                                                         <td className="px-2 py-1.5">
                                                             <Button variant="ghost" size="sm" onClick={() => removeKuisioner(qIdx)} className="h-8 w-8 p-0">
@@ -793,8 +794,11 @@ function KegiatanCard({
                                                             </Button>
                                                         </td>
                                                     )}
+                                                    <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground">
+                                                        {q.kode_kuisioner || '—'}
+                                                    </td>
                                                     <td className="px-2 py-1.5">
-                                                        <Input value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value })} disabled={isReadonly || !!q.kode_kuisioner} className="h-8" maxLength={255} />
+                                                        <Textarea className="min-h-8 text-xs resize-y" rows={1} value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly || !!q.kode_kuisioner} maxLength={255} />
                                                         {errors[`${qep}.pertanyaan`] && <p className="text-xs text-destructive">{errors[`${qep}.pertanyaan`]}</p>}
                                                     </td>
                                                     <td className="px-2 py-1.5">
