@@ -322,28 +322,29 @@ function Pk01DataDisplay({ data, compact = false, kodeAnggaranContext }: { data:
     return (
         <div className="space-y-4">
             {/* Program info */}
-            <div className={compact ? 'grid gap-1 text-xs' : 'grid gap-2 text-sm'}>
-                <div>
-                    <span className="text-muted-foreground">Kategori Pelayanan:</span>{' '}
+            {compact ? (
+                <div className="grid gap-1 text-xs">
+                    <div>
+                        <span className="text-muted-foreground">Kategori Pelayanan:</span>{' '}
+                        <span className="font-medium">{data.kode_kategori}{data.kategori_nama ? ` - ${data.kategori_nama}` : ''}</span>
+                    </div>
+                    <div>
+                        <span className="text-muted-foreground">Nama Program:</span>{' '}
+                        <span className="font-medium">{data.nama_program ?? '—'}</span>
+                    </div>
+                </div>
+            ) : (
+                <div className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-4 text-sm">
+                    <span className="text-muted-foreground whitespace-nowrap">Kategori Pelayanan</span>
                     <span className="font-medium">{data.kode_kategori}{data.kategori_nama ? ` - ${data.kategori_nama}` : ''}</span>
-                </div>
-                <div>
-                    <span className="text-muted-foreground">Nama Program:</span>{' '}
+                    <span className="text-muted-foreground whitespace-nowrap">Nama Program</span>
                     <span className="font-medium">{data.nama_program ?? '—'}</span>
+                    <span className="text-muted-foreground whitespace-nowrap">Deskripsi Program</span>
+                    <span className="whitespace-pre-line">{data.deskripsi_program ?? '—'}</span>
+                    <span className="text-muted-foreground whitespace-nowrap">Tujuan Program</span>
+                    <span className="whitespace-pre-line">{data.tujuan_program ?? '—'}</span>
                 </div>
-                {!compact && (
-                    <>
-                        <div>
-                            <span className="text-muted-foreground">Deskripsi Program:</span>{' '}
-                            <span>{data.deskripsi_program ?? '—'}</span>
-                        </div>
-                        <div>
-                            <span className="text-muted-foreground">Tujuan Program:</span>{' '}
-                            <span>{data.tujuan_program ?? '—'}</span>
-                        </div>
-                    </>
-                )}
-            </div>
+            )}
 
             {/* Kegiatan */}
             {data.kegiatan.length > 0 && (

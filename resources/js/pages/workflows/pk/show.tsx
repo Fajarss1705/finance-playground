@@ -277,7 +277,7 @@ export default function PkShow({
                         if (step === 'PK01' && entry.id) return `${base}/pk01/${entry.id}`;
                         if (['PK02A', 'PK02B', 'PK03'].includes(step)) return `${base}/${step.toLowerCase()}`;
                         if (step === 'PK04') return `${base}/pk04${entry.revision !== undefined ? `?revision=${entry.revision}` : ''}`;
-                        if (step === 'PK05') return `${base}/pk05`;
+                        if (step === 'PK05' && entry.id) return `${base}/pk05/${entry.id}`;
                         return null;
                     }}
                 />
@@ -290,7 +290,7 @@ export default function PkShow({
                             {canRevise && (
                                 <Button
                                     variant="secondary"
-                                    onClick={() => router.post(`${scopeBase}/workflows/pk/${workflow.id}/pk05/create`)}
+                                    onClick={() => router.post(`${scopeBase}/workflows/pk/${workflow.id}/pk05`)}
                                 >
                                     Revisi
                                 </Button>

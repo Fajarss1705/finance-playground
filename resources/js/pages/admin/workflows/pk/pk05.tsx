@@ -1,6 +1,6 @@
 import { Head, usePage, router } from '@inertiajs/react';
 import { useState, useMemo } from 'react';
-import { ChevronDown, ChevronUp, Lock, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, Lock, Plus, Trash2 } from 'lucide-react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,7 @@ import type { BreadcrumbItem } from '@/types';
 // ────────────────────────────────────────────────────────────
 
 type KodeRef = { kode: string; nama: string };
+type KuisionerTemplate = { kode: string; pertanyaan: string; tipe: string; satuan: string | null };
 
 type Anggaran = {
     pk04_anggaran_id: number | null;
@@ -92,6 +93,7 @@ type Props = {
     canSubmit: boolean;
     canComment: boolean;
     pp06Kodes: Pp06Kodes;
+    kuisionerTemplates: KuisionerTemplate[];
     budgetContext: BudgetContext | null;
     pkType: string;
     actionRoles: ActionRole[];
@@ -127,7 +129,7 @@ function emptyKegiatan(): Kegiatan {
 
 export default function Pk05({
     workflow, stepData, mode, canDraft, canSubmit, canComment,
-    pp06Kodes, budgetContext, pkType, actionRoles, activeRoleName,
+    pp06Kodes, kuisionerTemplates, budgetContext, pkType, actionRoles, activeRoleName,
 }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
@@ -174,6 +176,27 @@ export default function Pk05({
 
     function removeKegiatan(index: number) {
         setKegiatanList((prev) => prev.filter((_, i) => i !== index));
+    }
+
+    // ── Kuisioner template picker ──
+    const [templatePickerIdx, setTemplatePickerIdx] = useState<number | null>(null);
+
+    function addFromTemplate(kegiatanIdx: number, templates: KuisionerTemplate[]) {
+        setKegiatanList((prev) => prev.map((k, i) => {
+            if (i !== kegiatanIdx) return k;
+            const existing = new Set(k.kuisioner.map((q) => q.kode_kuisioner).filter(Boolean));
+            const newItems: Kuisioner[] = templates
+                .filter((t) => !existing.has(t.kode))
+                .map((t) => ({
+                    pk04_kuisioner_id: null,
+                    kode_kuisioner: t.kode,
+                    pertanyaan: t.pertanyaan,
+                    tipe: t.tipe,
+                    satuan: t.satuan,
+                }));
+            return { ...k, kuisioner: [...k.kuisioner, ...newItems] };
+        }));
+        setTemplatePickerIdx(null);
     }
 
     // ── Form data builder ──
@@ -349,10 +372,12 @@ export default function Pk05({
                                 kegiatan={kegiatan}
                                 isReadonly={isReadonly}
                                 pp06Kodes={pp06Kodes}
+                                kuisionerTemplates={kuisionerTemplates}
                                 errors={errors}
                                 onUpdate={(updates) => updateKegiatan(kIdx, updates)}
                                 onRemove={() => removeKegiatan(kIdx)}
                                 canRemove={kegiatan.pk04_kegiatan_id === null}
+                                onOpenTemplatePicker={() => setTemplatePickerIdx(kIdx)}
                             />
                         ))}
                     </div>
@@ -392,7 +417,77 @@ export default function Pk05({
                     </div>
                 )}
             </div>
+
+            {/* Kuisioner Template Picker Modal */}
+            {templatePickerIdx !== null && (
+                <KuisionerTemplatePicker
+                    templates={kuisionerTemplates}
+                    existingKodes={new Set(kegiatanList[templatePickerIdx]?.kuisioner.map((q) => q.kode_kuisioner).filter(Boolean) as string[])}
+                    onConfirm={(selected) => addFromTemplate(templatePickerIdx, selected)}
+                    onClose={() => setTemplatePickerIdx(null)}
+                />
+            )}
         </AppLayout>
+    );
+}
+
+// ────────────────────────────────────────────────────────────
+// KuisionerTemplatePicker
+// ────────────────────────────────────────────────────────────
+
+function KuisionerTemplatePicker({ templates, existingKodes, onConfirm, onClose }: {
+    templates: KuisionerTemplate[];
+    existingKodes: Set<string>;
+    onConfirm: (selected: KuisionerTemplate[]) => void;
+    onClose: () => void;
+}) {
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+
+    function toggle(kode: string) {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(kode)) next.delete(kode);
+            else next.add(kode);
+            return next;
+        });
+    }
+
+    const available = templates.filter((t) => !existingKodes.has(t.kode));
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+            <div className="mx-4 max-h-[80vh] w-full max-w-lg overflow-hidden rounded-lg bg-background shadow-lg" onClick={(e) => e.stopPropagation()}>
+                <div className="border-b px-4 py-3">
+                    <h3 className="font-medium">Tambah Kuisioner dari Template PP</h3>
+                    <p className="text-xs text-muted-foreground">Pilih pertanyaan kuisioner dari template yang sudah didefinisikan.</p>
+                </div>
+                <div className="max-h-[50vh] overflow-y-auto p-4">
+                    {available.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Semua template sudah ditambahkan.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {available.map((t) => (
+                                <label key={t.kode} className="flex cursor-pointer items-start gap-3 rounded border p-3 hover:bg-muted/50">
+                                    <input type="checkbox" checked={selected.has(t.kode)} onChange={() => toggle(t.kode)} className="mt-0.5" />
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium">{t.pertanyaan}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Tipe: {t.tipe}{t.satuan ? ` · Satuan: ${t.satuan}` : ''} · Kode: {t.kode}
+                                        </p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <div className="flex justify-end gap-2 border-t px-4 py-3">
+                    <Button variant="outline" size="sm" onClick={onClose}>Batal</Button>
+                    <Button size="sm" onClick={() => onConfirm(templates.filter((t) => selected.has(t.kode)))} disabled={selected.size === 0}>
+                        Tambahkan ({selected.size})
+                    </Button>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -427,16 +522,18 @@ function BudgetItem({ label, value, highlight }: { label: string; value: number;
 // ────────────────────────────────────────────────────────────
 
 function KegiatanCard({
-    index, kegiatan, isReadonly, pp06Kodes, errors, onUpdate, onRemove, canRemove,
+    index, kegiatan, isReadonly, pp06Kodes, kuisionerTemplates, errors, onUpdate, onRemove, canRemove, onOpenTemplatePicker,
 }: {
     index: number;
     kegiatan: Kegiatan;
     isReadonly: boolean;
     pp06Kodes: Pp06Kodes;
+    kuisionerTemplates: KuisionerTemplate[];
     errors: Record<string, string>;
     onUpdate: (updates: Partial<Kegiatan>) => void;
     onRemove: () => void;
     canRemove: boolean;
+    onOpenTemplatePicker: () => void;
 }) {
     const [collapsed, setCollapsed] = useState(false);
     const ep = `draft_data.kegiatan.${index}`;
@@ -657,9 +754,16 @@ function KegiatanCard({
                         <div className="mb-2 flex items-center justify-between">
                             <h4 className="text-sm font-medium">Kuisioner ({kegiatan.kuisioner.length})</h4>
                             {!isReadonly && (
-                                <Button variant="outline" size="sm" onClick={addKuisioner}>
-                                    <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Kuisioner
-                                </Button>
+                                <div className="flex gap-1">
+                                    {kuisionerTemplates.length > 0 && (
+                                        <Button variant="outline" size="sm" onClick={onOpenTemplatePicker}>
+                                            <FileText className="mr-1 h-3.5 w-3.5" /> Dari Template
+                                        </Button>
+                                    )}
+                                    <Button variant="outline" size="sm" onClick={addKuisioner}>
+                                        <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Custom
+                                    </Button>
+                                </div>
                             )}
                         </div>
                         {kegiatan.kuisioner.length > 0 && (
@@ -690,7 +794,7 @@ function KegiatanCard({
                                                         </td>
                                                     )}
                                                     <td className="px-2 py-1.5">
-                                                        <Input value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value })} disabled={isReadonly} className="h-8" maxLength={255} />
+                                                        <Input value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value })} disabled={isReadonly || !!q.kode_kuisioner} className="h-8" maxLength={255} />
                                                         {errors[`${qep}.pertanyaan`] && <p className="text-xs text-destructive">{errors[`${qep}.pertanyaan`]}</p>}
                                                     </td>
                                                     <td className="px-2 py-1.5">
@@ -701,7 +805,7 @@ function KegiatanCard({
                                                                 if (e.target.value === 'Kualitatif') updates.satuan = null;
                                                                 updateKuisioner(qIdx, updates);
                                                             }}
-                                                            disabled={isReadonly}
+                                                            disabled={isReadonly || !!q.kode_kuisioner}
                                                             className="h-8 w-full rounded-md border bg-background px-2 text-sm"
                                                         >
                                                             {tipePresets.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -712,7 +816,7 @@ function KegiatanCard({
                                                         <Input
                                                             value={q.satuan ?? ''}
                                                             onChange={(e) => updateKuisioner(qIdx, { satuan: e.target.value || null })}
-                                                            disabled={isReadonly || q.tipe === 'Kualitatif'}
+                                                            disabled={isReadonly || !!q.kode_kuisioner || q.tipe === 'Kualitatif'}
                                                             className="h-8"
                                                             placeholder={q.tipe === 'Kualitatif' ? '—' : 'wajib'}
                                                             maxLength={100}

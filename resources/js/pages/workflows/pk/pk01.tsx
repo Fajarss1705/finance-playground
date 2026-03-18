@@ -116,6 +116,7 @@ type Props = {
     isPp07Active: boolean;
     actionRoles: ActionRole[];
     activeRoleName: string | null;
+    teamName: string;
     scope: 'team' | 'admin';
     basePath: string;
 };
@@ -134,7 +135,7 @@ export default function Pk01({
     workflow, stepData, kodeKategori, kodeBidang, kodeSubBidang, kodeJenis,
     kuisionerTemplates, budgetCounter, kodeAnggaranContext, mode, canDraft, canSubmit, canTerminate,
     canComment, isRejectionReentry, rejectionNotes, isPp07Active,
-    actionRoles, activeRoleName, scope, basePath,
+    actionRoles, activeRoleName, teamName, scope, basePath,
 }: Props) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const [processing, setProcessing] = useState(false);
@@ -275,11 +276,12 @@ export default function Pk01({
                 {/* Header */}
                 <div className="flex items-center gap-3">
                     <Heading title="PK01: Program Kegiatan" description="Formulir program, kegiatan, anggaran, dan kuisioner" />
-                    <StepStatusBadge mode={mode} />
+                    <StepStatusBadge mode={mode} isRejectionReentry={isRejectionReentry} scope={scope} />
                     {workflow.tipe === 'proposal' && (
                         <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">PK Proposal</Badge>
                     )}
                 </div>
+                <Badge variant="secondary">{teamName}</Badge>
 
                 {/* PP07 Active Warning */}
                 {isPp07Active && !isReadonly && (
@@ -459,7 +461,14 @@ export default function Pk01({
 // StepStatusBadge
 // ────────────────────────────────────────────────────────────
 
-function StepStatusBadge({ mode }: { mode: string }) {
+function StepStatusBadge({ mode, isRejectionReentry, scope }: { mode: string; isRejectionReentry: boolean; scope: string }) {
+    if (isRejectionReentry) {
+        return <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">Menunggu Revisi</Badge>;
+    }
+    if (scope === 'admin' && mode === 'readonly') {
+        // Admin always sees readonly — check if this is a completed submit or still active
+        return <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Sudah Disubmit</Badge>;
+    }
     const config: Record<string, { label: string; className: string }> = {
         readonly: { label: 'Sudah Disubmit', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
         edit: { label: 'Draft', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
@@ -792,15 +801,15 @@ function KegiatanCard({
                                                     {q.kode_kuisioner || '—'}
                                                 </td>
                                                 <td className="px-2 py-1 align-top">
-                                                    <Textarea className="min-h-8 text-xs resize-y" rows={1} value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly} maxLength={255} />
+                                                    <Textarea className="min-h-8 text-xs resize-y" rows={1} value={q.pertanyaan} onChange={(e) => updateKuisioner(qIdx, { pertanyaan: e.target.value.replace(/\n/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }} disabled={isReadonly || !!q.kode_kuisioner} maxLength={255} />
                                                     {errors[`${ep}.kuisioner.${qIdx}.pertanyaan`] && <p className="text-xs text-destructive">{errors[`${ep}.kuisioner.${qIdx}.pertanyaan`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Input className="h-8 text-xs" value={q.tipe} onChange={(e) => updateKuisioner(qIdx, { tipe: e.target.value })} disabled={isReadonly} maxLength={50} />
+                                                    <Input className="h-8 text-xs" value={q.tipe} onChange={(e) => updateKuisioner(qIdx, { tipe: e.target.value })} disabled={isReadonly || !!q.kode_kuisioner} maxLength={50} />
                                                     {errors[`${ep}.kuisioner.${qIdx}.tipe`] && <p className="text-xs text-destructive">{errors[`${ep}.kuisioner.${qIdx}.tipe`]}</p>}
                                                 </td>
                                                 <td className="px-2 py-1">
-                                                    <Input className="h-8 text-xs" value={q.satuan} onChange={(e) => updateKuisioner(qIdx, { satuan: e.target.value })} disabled={isReadonly} maxLength={100} />
+                                                    <Input className="h-8 text-xs" value={q.satuan} onChange={(e) => updateKuisioner(qIdx, { satuan: e.target.value })} disabled={isReadonly || !!q.kode_kuisioner} maxLength={100} />
                                                 </td>
                                             </tr>
                                         ))}

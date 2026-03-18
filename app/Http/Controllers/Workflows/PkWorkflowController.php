@@ -352,6 +352,7 @@ class PkWorkflowController extends Controller
                 "{$permPrefix}.terminate" => ['Batalkan Workflow', true],
             ]),
             'activeRoleName' => $this->getActiveRoleName(),
+            'teamName' => $teamName,
             'scope' => $scope,
             'basePath' => $basePath,
         ]);
@@ -1356,6 +1357,7 @@ class PkWorkflowController extends Controller
             'canSubmit' => ! $isSubmitted && in_array('admin.workflows.pk.pk05.submit', $permissions),
             'canComment' => in_array('admin.workflows.pk.comment', $permissions),
             'pp06Kodes' => $pp06Kodes,
+            'kuisionerTemplates' => $pp06Kodes['kuisioner'],
             'budgetContext' => $budgetContext,
             'pkType' => $pkWorkflow->tipe,
             'actionRoles' => $this->resolveActionRoles([
@@ -1729,8 +1731,8 @@ class PkWorkflowController extends Controller
             if ($code === 'PK04') {
                 return "{$base}/pk04";
             }
-            if ($code === 'PK05') {
-                return "{$base}/pk05";
+            if ($code === 'PK05' && $dataId) {
+                return "{$base}/pk05/{$dataId}";
             }
 
             return null;
