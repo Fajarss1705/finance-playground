@@ -259,6 +259,11 @@ class WorkflowNotifier
             ],
             'pk03.rejected' => 'team.workflows.pk.pk01.draft',
 
+            // PABD workflow events
+            'pabd01.submitted_change' => 'team.workflows.pabd.pabd02a.draft',
+            'pabd01.submitted_skip' => 'admin.workflows.pabd.pabd03.approve',
+            'pabd.pk04_staleness_reset' => 'team.workflows.pabd.pabd01.submit',
+
             default => null,
         };
     }
@@ -322,6 +327,11 @@ class WorkflowNotifier
             'pk03.approved' => ['disetujui', 'RAKER (PK03)', 'Program Tahunan (PK04) telah dibuat.'],
             'pk03.rejected' => ['ditolak', 'RAKER (PK03)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
 
+            // PABD workflow events
+            'pabd01.submitted_change' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Silakan lanjutkan pengisian Perubahan Anggaran (PABD02A).'],
+            'pabd01.submitted_skip' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Tidak ada perubahan anggaran. Silakan review dan setujui/tolak transfer (PABD03).'],
+            'pabd.pk04_staleness_reset' => ['direset', 'Checklist Pencairan (PABD01)', 'PK04 telah direvisi. Silakan review ulang checklist pencairan.'],
+
             default => [
                 $context['action_verb'] ?? 'diproses',
                 $context['step_label'] ?? 'Step',
@@ -345,6 +355,14 @@ class WorkflowNotifier
             $pk01 = $workflow->latestPk01();
 
             return $pk01?->nama_program ? "PK-{$pk01->nama_program}" : 'PK-Baru';
+        }
+
+        if (method_exists($workflow, 'latestPabd01')) {
+            $teamName = $workflow->team?->name ?? 'Tim';
+            $bulanNames = [1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'];
+            $bulan = $bulanNames[$workflow->bulan_anggaran] ?? (string) $workflow->bulan_anggaran;
+
+            return "PABD-{$teamName}-{$bulan}/{$workflow->tahun_anggaran}";
         }
 
         return 'Workflow';

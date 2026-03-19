@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\Workflows\PpWorkflowController;
 use App\Http\Controllers\Admin\WorkspaceController;
+use App\Http\Controllers\Workflows\PabdWorkflowController;
 use App\Http\Controllers\Workflows\PkWorkflowController;
 use Illuminate\Support\Facades\Route;
 
@@ -132,13 +133,14 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::post('/{pkWorkflow}/pk05/{pk05Data}/submit', [PkWorkflowController::class, 'pk05Submit'])->name('pk05.submit');
         });
 
-        // Workflow prototypes — PABD (admin scope)
+        // PABD Workflow (admin scope)
         Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {
-            Route::inertia('/', 'admin/workflows/pabd/index')->name('index');
-            Route::inertia('/pabd-uuid-001', 'admin/workflows/pabd/show')->name('show');
-            Route::inertia('/pabd-uuid-001/pabd02b', 'admin/workflows/pabd/pabd02b')->name('pabd02b.show');
-            Route::inertia('/pabd-uuid-001/pabd03', 'admin/workflows/pabd/pabd03')->name('pabd03.show');
-            Route::inertia('/pabd-uuid-001/pabd05', 'admin/workflows/pabd/pabd05')->name('pabd05.show');
+            Route::get('/', [PabdWorkflowController::class, 'index'])->name('index');
+            Route::get('/{pabdWorkflow}', [PabdWorkflowController::class, 'show'])->name('show');
+            Route::post('/{pabdWorkflow}/comment', [PabdWorkflowController::class, 'comment'])->name('comment');
+
+            // PABD01 (admin scope — read-only)
+            Route::get('/{pabdWorkflow}/pabd01/{pabd01Data}', [PabdWorkflowController::class, 'pabd01Show'])->name('pabd01.show');
         });
 
         // Workflow prototypes — PRBL (admin scope)

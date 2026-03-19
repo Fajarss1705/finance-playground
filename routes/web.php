@@ -5,6 +5,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SwitcherController;
 use App\Http\Controllers\Team\TeamDashboardController;
 use App\Http\Controllers\VerifyController;
+use App\Http\Controllers\Workflows\PabdWorkflowController;
 use App\Http\Controllers\Workflows\PkWorkflowController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
@@ -78,14 +79,16 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::get('/{pkWorkflow}/pk04/export/zip', [PkWorkflowController::class, 'pk04ExportZip'])->name('pk04.export.zip');
         });
 
-        // Workflow prototypes — PABD (team scope)
+        // PABD Workflow (team scope)
         Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {
-            Route::inertia('/', 'team/workflows/pabd/index')->name('index');
-            Route::inertia('/pabd-uuid-001', 'team/workflows/pabd/show')->name('show');
-            Route::inertia('/pabd-uuid-001/pabd01', 'team/workflows/pabd/pabd01')->name('pabd01.show');
-            Route::inertia('/pabd-uuid-001/pabd02a', 'team/workflows/pabd/pabd02a')->name('pabd02a.show');
-            Route::inertia('/pabd-uuid-001/pabd04', 'team/workflows/pabd/pabd04')->name('pabd04.show');
-            Route::inertia('/pabd-uuid-001/pabd05', 'team/workflows/pabd/pabd05')->name('pabd05.show');
+            Route::get('/', [PabdWorkflowController::class, 'index'])->name('index');
+            Route::get('/{pabdWorkflow}', [PabdWorkflowController::class, 'show'])->name('show');
+            Route::post('/{pabdWorkflow}/comment', [PabdWorkflowController::class, 'comment'])->name('comment');
+
+            // PABD01
+            Route::get('/{pabdWorkflow}/pabd01/{pabd01Data}', [PabdWorkflowController::class, 'pabd01Show'])->name('pabd01.show');
+            Route::post('/{pabdWorkflow}/pabd01/{pabd01Data}/draft', [PabdWorkflowController::class, 'pabd01Draft'])->name('pabd01.draft');
+            Route::post('/{pabdWorkflow}/pabd01/{pabd01Data}/submit', [PabdWorkflowController::class, 'pabd01Submit'])->name('pabd01.submit');
         });
 
         // Workflow prototypes — PRBL (team scope)
