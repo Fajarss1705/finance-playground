@@ -6,6 +6,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCurrentUrl } from '@/hooks/use-current-url';
 import { usePermission } from '@/hooks/use-permission';
 import type { NavItem } from '@/types';
@@ -36,16 +37,23 @@ export function NavMain({
             <SidebarMenu>
                 {visibleItems.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                        <SidebarMenuButton
-                            asChild
-                            isActive={isCurrentUrl(item.href)}
-                            tooltip={{ children: item.title }}
-                        >
-                            <Link href={item.href} prefetch>
-                                {item.icon && <item.icon className={iconClassName} />}
-                                <span className={`truncate ${item.emphasis ? 'font-semibold' : ''}`}>{item.title}</span>
-                            </Link>
-                        </SidebarMenuButton>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <SidebarMenuButton
+                                    asChild
+                                    isActive={isCurrentUrl(item.href)}
+                                    tooltip={{ children: item.title }}
+                                >
+                                    <Link href={item.href} prefetch>
+                                        {item.icon && <item.icon className={iconClassName} />}
+                                        <span className={`truncate ${item.emphasis ? 'font-semibold' : ''}`}>{item.title}</span>
+                                    </Link>
+                                </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" align="center">
+                                {item.title}
+                            </TooltipContent>
+                        </Tooltip>
                     </SidebarMenuItem>
                 ))}
             </SidebarMenu>

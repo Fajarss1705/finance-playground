@@ -5,6 +5,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SwitcherController;
 use App\Http\Controllers\Team\TeamDashboardController;
 use App\Http\Controllers\VerifyController;
+use App\Http\Controllers\Workflows\PkWorkflowController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
@@ -47,6 +48,35 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
     Route::prefix('team')->name('team.')->group(function () {
         Route::get('/', TeamDashboardController::class)->name('index');
         Route::get('files', [FileController::class, 'team'])->name('files.index');
+
+        // PK Workflow (team scope)
+        Route::prefix('workflows/pk')->name('workflows.pk.')->group(function () {
+            Route::get('/', [PkWorkflowController::class, 'index'])->name('index');
+            Route::post('/create/{ppWorkflow}', [PkWorkflowController::class, 'create'])->name('create');
+            Route::get('/{pkWorkflow}', [PkWorkflowController::class, 'show'])->name('show');
+            Route::post('/{pkWorkflow}/comment', [PkWorkflowController::class, 'comment'])->name('comment');
+            Route::post('/{pkWorkflow}/terminate', [PkWorkflowController::class, 'terminate'])->name('terminate');
+
+            // PK01
+            Route::get('/{pkWorkflow}/pk01/{pk01Data}', [PkWorkflowController::class, 'pk01Show'])->name('pk01.show');
+            Route::post('/{pkWorkflow}/pk01/{pk01Data}/draft', [PkWorkflowController::class, 'pk01Draft'])->name('pk01.draft');
+            Route::post('/{pkWorkflow}/pk01/{pk01Data}/submit', [PkWorkflowController::class, 'pk01Submit'])->name('pk01.submit');
+
+            // PK02A (team scope — read-only)
+            Route::get('/{pkWorkflow}/pk02a', [PkWorkflowController::class, 'pk02aShow'])->name('pk02a.show');
+
+            // PK02B (team scope — read-only)
+            Route::get('/{pkWorkflow}/pk02b', [PkWorkflowController::class, 'pk02bShow'])->name('pk02b.show');
+
+            // PK03 (team scope — read-only)
+            Route::get('/{pkWorkflow}/pk03', [PkWorkflowController::class, 'pk03Show'])->name('pk03.show');
+
+            // PK04 (team scope — show + export)
+            Route::get('/{pkWorkflow}/pk04', [PkWorkflowController::class, 'pk04Show'])->name('pk04.show');
+            Route::get('/{pkWorkflow}/pk04/export/pdf', [PkWorkflowController::class, 'pk04ExportPdf'])->name('pk04.export.pdf');
+            Route::get('/{pkWorkflow}/pk04/export/excel', [PkWorkflowController::class, 'pk04ExportExcel'])->name('pk04.export.excel');
+            Route::get('/{pkWorkflow}/pk04/export/zip', [PkWorkflowController::class, 'pk04ExportZip'])->name('pk04.export.zip');
+        });
 
         // Workflow prototypes — PABD (team scope)
         Route::prefix('workflows/pabd')->name('workflows.pabd.')->group(function () {

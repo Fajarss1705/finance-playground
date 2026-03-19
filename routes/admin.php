@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\Workflows\PpWorkflowController;
 use App\Http\Controllers\Admin\WorkspaceController;
+use App\Http\Controllers\Workflows\PkWorkflowController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
@@ -90,6 +91,45 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{ppWorkflow}/pp07/{pp07Data}', [PpWorkflowController::class, 'pp07Show'])->name('pp07.show');
             Route::post('/{ppWorkflow}/pp07/{pp07Data}/draft', [PpWorkflowController::class, 'pp07Draft'])->name('pp07.draft');
             Route::post('/{ppWorkflow}/pp07/{pp07Data}/submit', [PpWorkflowController::class, 'pp07Submit'])->name('pp07.submit');
+        });
+
+        // PK Workflow (admin scope — read-only for PK01)
+        Route::prefix('workflows/pk')->name('workflows.pk.')->group(function () {
+            Route::get('/', [PkWorkflowController::class, 'index'])->name('index');
+            Route::get('/{pkWorkflow}', [PkWorkflowController::class, 'show'])->name('show');
+            Route::post('/{pkWorkflow}/comment', [PkWorkflowController::class, 'comment'])->name('comment');
+            Route::post('/{pkWorkflow}/terminate', [PkWorkflowController::class, 'terminate'])->name('terminate');
+            Route::delete('/{pkWorkflow}', [PkWorkflowController::class, 'destroy'])->name('destroy');
+
+            // PK01 (read-only for admin)
+            Route::get('/{pkWorkflow}/pk01/{pk01Data}', [PkWorkflowController::class, 'pk01Show'])->name('pk01.show');
+
+            // PK02A (admin scope — show + approve/reject)
+            Route::get('/{pkWorkflow}/pk02a', [PkWorkflowController::class, 'pk02aShow'])->name('pk02a.show');
+            Route::post('/{pkWorkflow}/pk02a/approve', [PkWorkflowController::class, 'pk02aApprove'])->name('pk02a.approve');
+            Route::post('/{pkWorkflow}/pk02a/reject', [PkWorkflowController::class, 'pk02aReject'])->name('pk02a.reject');
+
+            // PK02B (admin scope — show + approve/reject)
+            Route::get('/{pkWorkflow}/pk02b', [PkWorkflowController::class, 'pk02bShow'])->name('pk02b.show');
+            Route::post('/{pkWorkflow}/pk02b/approve', [PkWorkflowController::class, 'pk02bApprove'])->name('pk02b.approve');
+            Route::post('/{pkWorkflow}/pk02b/reject', [PkWorkflowController::class, 'pk02bReject'])->name('pk02b.reject');
+
+            // PK03 (admin scope — show + approve/reject)
+            Route::get('/{pkWorkflow}/pk03', [PkWorkflowController::class, 'pk03Show'])->name('pk03.show');
+            Route::post('/{pkWorkflow}/pk03/approve', [PkWorkflowController::class, 'pk03Approve'])->name('pk03.approve');
+            Route::post('/{pkWorkflow}/pk03/reject', [PkWorkflowController::class, 'pk03Reject'])->name('pk03.reject');
+
+            // PK04 (admin scope — show + export)
+            Route::get('/{pkWorkflow}/pk04', [PkWorkflowController::class, 'pk04Show'])->name('pk04.show');
+            Route::get('/{pkWorkflow}/pk04/export/pdf', [PkWorkflowController::class, 'pk04ExportPdf'])->name('pk04.export.pdf');
+            Route::get('/{pkWorkflow}/pk04/export/excel', [PkWorkflowController::class, 'pk04ExportExcel'])->name('pk04.export.excel');
+            Route::get('/{pkWorkflow}/pk04/export/zip', [PkWorkflowController::class, 'pk04ExportZip'])->name('pk04.export.zip');
+
+            // PK05 (admin scope — revision)
+            Route::post('/{pkWorkflow}/pk05', [PkWorkflowController::class, 'pk05Create'])->name('pk05.create');
+            Route::get('/{pkWorkflow}/pk05/{pk05Data}', [PkWorkflowController::class, 'pk05Show'])->name('pk05.show');
+            Route::post('/{pkWorkflow}/pk05/{pk05Data}/draft', [PkWorkflowController::class, 'pk05Draft'])->name('pk05.draft');
+            Route::post('/{pkWorkflow}/pk05/{pk05Data}/submit', [PkWorkflowController::class, 'pk05Submit'])->name('pk05.submit');
         });
 
         // Workflow prototypes — PABD (admin scope)

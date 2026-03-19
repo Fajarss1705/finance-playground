@@ -10,3 +10,7 @@ export function cn(...inputs: ClassValue[]) {
 export function toUrl(url: NonNullable<InertiaLinkProps['href']>): string {
     return typeof url === 'string' ? url : url.url;
 }
+
+export function formatRupiah(value: number): string {
+    return new Intl.NumberFormat('id-ID').format(value);
+}

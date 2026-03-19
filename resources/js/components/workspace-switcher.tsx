@@ -40,36 +40,41 @@ export function WorkspaceSwitcher() {
                     <ChevronsUpDown className="ml-1 size-4 shrink-0 opacity-50" />
                 </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-64" align="start">
+            <DropdownMenuContent className="max-h-[calc(100vh-4rem)] w-64 overflow-y-auto" align="start">
                 {workspaces.map(({ workspace, roles }, idx) => (
-                    <div key={workspace.id}>
-                        {idx > 0 && <DropdownMenuSeparator />}
+                    <div key={workspace.id} className="mx-1.5 my-1 rounded-lg border bg-muted/30 p-1.5 dark:bg-muted/20">
                         <DropdownMenuLabel className="text-xs text-muted-foreground">
                             {workspace.name}
                         </DropdownMenuLabel>
-                        <DropdownMenuGroup>
-                            {roles.map((role) => {
-                                const isActive =
-                                    activeRole.id === role.id &&
-                                    activeWorkspace.id === workspace.id;
+                        {Object.entries(
+                            roles.reduce<Record<string, typeof roles>>((groups, role) => {
+                                const key = role.team.name;
+                                (groups[key] ??= []).push(role);
+                                return groups;
+                            }, {}),
+                        ).map(([teamName, teamRoles]) => (
+                            <DropdownMenuGroup key={`${workspace.id}-${teamName}`} className="mt-1 rounded-md border bg-background/60 p-1 dark:bg-background/40">
+                                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground/70 px-2 py-1">
+                                    {teamName}
+                                </DropdownMenuLabel>
+                                {teamRoles.map((role) => {
+                                    const isActive =
+                                        activeRole.id === role.id &&
+                                        activeWorkspace.id === workspace.id;
 
-                                return (
-                                    <DropdownMenuItem
-                                        key={`${workspace.id}-${role.id}`}
-                                        onClick={() => handleSwitch(role.id, workspace.id)}
-                                        className="flex items-center justify-between"
-                                    >
-                                        <div>
+                                    return (
+                                        <DropdownMenuItem
+                                            key={`${workspace.id}-${role.id}`}
+                                            onClick={() => handleSwitch(role.id, workspace.id)}
+                                            className={`flex items-center justify-between ${isActive ? 'bg-accent font-semibold' : ''}`}
+                                        >
                                             <div className="font-medium">{role.name}</div>
-                                            <div className="text-xs text-muted-foreground">
-                                                {role.team.name}
-                                            </div>
-                                        </div>
-                                        {isActive && <Check className="size-4 shrink-0" />}
-                                    </DropdownMenuItem>
-                                );
-                            })}
-                        </DropdownMenuGroup>
+                                            {isActive && <Check className="size-4 shrink-0" />}
+                                        </DropdownMenuItem>
+                                    );
+                                })}
+                            </DropdownMenuGroup>
+                        ))}
                     </div>
                 ))}
             </DropdownMenuContent>

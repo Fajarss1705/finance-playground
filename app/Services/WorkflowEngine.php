@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\WorkflowDefinition;
 use App\Enums\StepType;
 use App\Enums\WorkflowType;
+use App\Workflows\PkWorkflowDefinition;
 use App\Workflows\PpWorkflowDefinition;
 use Illuminate\Database\Eloquent\Model;
 
@@ -20,6 +21,7 @@ class WorkflowEngine
     {
         return match ($type) {
             WorkflowType::PP => new PpWorkflowDefinition,
+            WorkflowType::PK => new PkWorkflowDefinition,
             default => throw new \InvalidArgumentException("No definition for workflow type: {$type->value}"),
         };
     }
@@ -136,10 +138,21 @@ class WorkflowEngine
             }
 
             $info = $statuses[$code];
+            $displayStatus = $info['status'];
+
+            // Parallel approval steps without rejectionTarget are engine-'completed'
+            // even when rejected (so the join gate works). Override display to 'rejected'.
+            if ($displayStatus === 'completed'
+                && $definition->stepType($code) === StepType::Approval
+                && $definition->rejectionTarget($code) === null
+                && $this->getLatestAction($code, $history) === 'rejected') {
+                $displayStatus = 'rejected';
+            }
+
             $steps[] = [
                 'code' => $code,
                 'label' => $definition->stepLabel($code),
-                'status' => $info['status'],
+                'status' => $displayStatus,
                 'url' => $urlResolver($code, $info['dataId']),
                 'stepType' => $definition->stepType($code)->value,
             ];
@@ -192,7 +205,9 @@ class WorkflowEngine
             if ($code === $rejection['step']) {
                 $status = 'rejected';
             } else {
-                $status = 'completed';
+                // Check if this step voted 'rejected' in the window (e.g. parallel approval)
+                $lastAction = $this->getLastActionInWindow($code, $history, $windowStart, $windowEnd);
+                $status = $lastAction === 'rejected' ? 'rejected' : 'completed';
             }
 
             $dataId = $this->getDataIdInWindow($code, $history, $windowStart, $windowEnd);
@@ -321,6 +336,37 @@ class WorkflowEngine
         }
 
         return $cycles;
+    }
+
+    /**
+     * Get the last action for a step within a time window.
+     *
+     * @param  list<array<string, mixed>>  $history
+     */
+    private function getLastActionInWindow(string $code, array $history, ?string $windowStart, string $windowEnd): ?string
+    {
+        $lastAction = null;
+
+        foreach ($history as $entry) {
+            $entryStep = $entry['step'] ?? '';
+            $entryTime = $entry['at'] ?? '';
+
+            if ($entryStep !== $code) {
+                continue;
+            }
+
+            if ($windowStart !== null && $entryTime <= $windowStart) {
+                continue;
+            }
+
+            if ($entryTime > $windowEnd) {
+                break;
+            }
+
+            $lastAction = $entry['action'] ?? null;
+        }
+
+        return $lastAction;
     }
 
     /**
@@ -487,6 +533,14 @@ class WorkflowEngine
         // Has a valid completing action after last relevant rejection?
         if ($this->hasValidCompletingAction($code, $history, $rejections)) {
             return 'completed';
+        }
+
+        // For parallel approval steps without rejectionTarget, 'rejected' also completes the step.
+        // The join gate (not the engine) handles the rejection cascade for these steps.
+        if ($stepType === StepType::Approval && $definition->rejectionTarget($code) === null) {
+            if ($this->hasValidAction($code, 'rejected', $history, $rejections)) {
+                return 'completed';
+            }
         }
 
         // Was this step skipped?

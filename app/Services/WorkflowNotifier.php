@@ -18,7 +18,7 @@ class WorkflowNotifier
     /**
      * Notify users after a workflow event.
      *
-     * @param  array{actor_name?: string, actor_role?: string, link?: string, step_label?: string, next_instruction?: string}  $context
+     * @param  array{actor_name?: string, actor_role?: string, link?: string, admin_link?: string, team_link?: string, step_label?: string, next_instruction?: string}  $context
      */
     public function notify(
         Model $workflow,
@@ -54,6 +54,8 @@ class WorkflowNotifier
 
             $seen[$userId] = true;
 
+            $link = $this->resolveRecipientLink($template['link'], $context, $recipient['role']);
+
             try {
                 $this->notificationService->send(
                     $recipient['user'],
@@ -61,7 +63,7 @@ class WorkflowNotifier
                     $workspace,
                     $template['subject'],
                     $template['body'],
-                    $template['link'],
+                    $link,
                 );
                 $sent++;
             } catch (\Throwable $e) {
@@ -78,6 +80,48 @@ class WorkflowNotifier
     }
 
     /**
+     * Resolve the appropriate link for a recipient based on their role.
+     *
+     * Supports three strategies:
+     * 1. permission_links: map of permission name → URL (picks first match)
+     * 2. admin_link / team_link: scope-based resolution
+     * 3. Fallback to default link
+     */
+    private function resolveRecipientLink(?string $defaultLink, array $context, Role $role): ?string
+    {
+        // Strategy 1: permission-based links (for parallel fork where each recipient has a different step)
+        $permissionLinks = $context['permission_links'] ?? null;
+
+        if ($permissionLinks) {
+            $rolePermissions = $role->permissions()->pluck('name');
+
+            foreach ($permissionLinks as $permission => $link) {
+                if ($rolePermissions->contains($permission)) {
+                    return $link;
+                }
+            }
+        }
+
+        // Strategy 2: scope-based links
+        $adminLink = $context['admin_link'] ?? null;
+        $teamLink = $context['team_link'] ?? null;
+
+        if ($adminLink === null && $teamLink === null) {
+            return $defaultLink;
+        }
+
+        $isTeamRole = $role->permissions()
+            ->where('name', 'like', 'team.%')
+            ->exists();
+
+        if ($isTeamRole && $teamLink) {
+            return $teamLink;
+        }
+
+        return $adminLink ?? $teamLink ?? $defaultLink;
+    }
+
+    /**
      * Resolve recipients based on event type.
      *
      * @return list<array{user: User, role: Role}>
@@ -88,13 +132,29 @@ class WorkflowNotifier
             return $this->resolveHistoryRecipients($workflow);
         }
 
-        $targetPermission = $this->getTargetPermission($event);
+        $targetPermissions = $this->getTargetPermission($event);
 
-        if ($targetPermission === null) {
+        if ($targetPermissions === null) {
             return [];
         }
 
-        return $this->resolvePermissionRecipients($workspace, $targetPermission);
+        // Support single string or array of permissions (parallel fork)
+        $permissions = is_array($targetPermissions) ? $targetPermissions : [$targetPermissions];
+
+        $recipients = [];
+        $seen = [];
+
+        foreach ($permissions as $permission) {
+            foreach ($this->resolvePermissionRecipients($workspace, $permission) as $r) {
+                $key = $r['user']->id.':'.$r['role']->id;
+                if (! isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $recipients[] = $r;
+                }
+            }
+        }
+
+        return $recipients;
     }
 
     /**
@@ -166,9 +226,11 @@ class WorkflowNotifier
     }
 
     /**
-     * Map event → target permission for recipient resolution.
+     * Map event → target permission(s) for recipient resolution.
+     *
+     * @return string|list<string>|null
      */
-    private function getTargetPermission(string $event): ?string
+    private function getTargetPermission(string $event): string|array|null
     {
         return match ($event) {
             // PP workflow events
@@ -179,6 +241,24 @@ class WorkflowNotifier
             'pp05.approved' => 'admin.workflows.pp.pp06.show',
             'pp05.rejected' => 'admin.workflows.pp.pp01.draft',
             'pp07.submitted' => 'admin.workflows.pp.pp06.show',
+
+            // PK workflow events (parallel fork: PK01 → PK02A + PK02B)
+            'pk01.submitted' => [
+                'admin.workflows.pk.pk02a.approve',
+                'admin.workflows.pk.pk02b.approve',
+            ],
+
+            // PK02A + PK02B join gate outcomes
+            'pk02.both_approved' => 'admin.workflows.pk.pk03.approve',
+            'pk02.rejected' => 'team.workflows.pk.pk01.draft',
+
+            // PK03 linear outcomes
+            'pk03.approved' => [
+                'team.workflows.pk.pk04.show',
+                'admin.workflows.pk.pk04.show',
+            ],
+            'pk03.rejected' => 'team.workflows.pk.pk01.draft',
+
             default => null,
         };
     }
@@ -226,6 +306,7 @@ class WorkflowNotifier
         }
 
         return match ($event) {
+            // PP workflow events
             'pp01.submitted' => ['disubmit', 'Rencana Periode (PP01)', 'Silakan lanjutkan pengisian Pertanyaan Kuisioner (PP02).'],
             'pp02.submitted' => ['disubmit', 'Pertanyaan Kuisioner (PP02)', 'Silakan lanjutkan pengisian Plafon Anggaran (PP03).'],
             'pp03.submitted' => ['disubmit', 'Plafon Anggaran (PP03)', 'Silakan lanjutkan pengisian Dokumen SOP (PP04).'],
@@ -233,6 +314,14 @@ class WorkflowNotifier
             'pp05.approved' => ['disetujui', 'Persetujuan (PP05)', 'Periode Tahunan (PP06) telah dikompilasi.'],
             'pp05.rejected' => ['ditolak', 'Persetujuan (PP05)', 'Flow dikembalikan ke PP01 untuk perbaikan.'],
             'pp07.submitted' => ['disubmit', 'Revisi (PP07)', 'Periode Tahunan (PP06) telah diperbarui.'],
+
+            // PK workflow events
+            'pk01.submitted' => ['disubmit', 'Program Kegiatan (PK01)', 'Silakan review dan approve Narasi (PK02A) dan Anggaran (PK02B).'],
+            'pk02.both_approved' => ['disetujui', 'Approval Narasi & Anggaran (PK02A/PK02B)', 'Silakan lanjutkan ke RAKER (PK03).'],
+            'pk02.rejected' => ['ditolak', 'Approval Narasi/Anggaran (PK02A/PK02B)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
+            'pk03.approved' => ['disetujui', 'RAKER (PK03)', 'Program Tahunan (PK04) telah dibuat.'],
+            'pk03.rejected' => ['ditolak', 'RAKER (PK03)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
+
             default => [
                 $context['action_verb'] ?? 'diproses',
                 $context['step_label'] ?? 'Step',
@@ -250,6 +339,12 @@ class WorkflowNotifier
             $pp01 = $workflow->latestPp01();
 
             return $pp01?->tahun ? "PP-{$pp01->tahun}" : 'PP-Baru';
+        }
+
+        if (method_exists($workflow, 'latestPk01')) {
+            $pk01 = $workflow->latestPk01();
+
+            return $pk01?->nama_program ? "PK-{$pk01->nama_program}" : 'PK-Baru';
         }
 
         return 'Workflow';
