@@ -141,6 +141,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
             // PABD01 (admin scope — read-only)
             Route::get('/{pabdWorkflow}/pabd01/{pabd01Data}', [PabdWorkflowController::class, 'pabd01Show'])->name('pabd01.show');
+
+            // PABD02A (admin scope — read-only)
+            Route::get('/{pabdWorkflow}/pabd02a/{pabd02aData}', [PabdWorkflowController::class, 'pabd02aShow'])->name('pabd02a.show');
         });
 
         // Workflow prototypes — PRBL (admin scope)

@@ -6,12 +6,18 @@ use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Workflows\Pabd01DraftRequest;
 use App\Http\Requests\Workflows\Pabd01SubmitRequest;
+use App\Http\Requests\Workflows\Pabd02aDraftRequest;
+use App\Http\Requests\Workflows\Pabd02aSubmitRequest;
 use App\Http\Requests\Workflows\PabdCommentRequest;
 use App\Models\Pabd\Pabd01Data;
 use App\Models\Pabd\Pabd02aData;
+use App\Models\Pabd\Pabd02aItemPerubahan;
 use App\Models\Pabd\PabdWorkflow;
+use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
 use App\Models\Pk\Pk04ProgramTahunan;
+use App\Models\Pk\PkWorkflow;
+use App\Models\Pp\Pp06PeriodeTahunan;
 use App\Models\Role;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
@@ -19,6 +25,7 @@ use App\Services\HistoryFormatter;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -359,6 +366,666 @@ class PabdWorkflowController extends Controller
 
         return to_route('team.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'PABD01 berhasil disubmit.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD02A — Perubahan Anggaran
+    // ──────────────────────────────────────
+
+    public function pabd02aShow(PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): Response|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd02a.show");
+
+        // Staleness check
+        $stalenessResult = $this->detectPk04Staleness($pabdWorkflow);
+        if ($stalenessResult['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $stalenessResult['changed_pks']);
+
+            return Inertia::location(route("{$scope}.workflows.pabd.show", $pabdWorkflow));
+        }
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $history = $pabdWorkflow->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+
+        // Resolve mode
+        $mode = $this->resolveMode($statuses, 'PABD02A');
+        if (($statuses['PABD02A']['dataId'] ?? null) !== null && $statuses['PABD02A']['dataId'] !== $pabd02aData->id) {
+            $mode = 'readonly';
+        }
+        if ($scope === 'admin') {
+            $mode = 'readonly';
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = "{$scope}.workflows.pabd";
+        $isEditable = in_array($mode, ['edit', 'create']) && $scope === 'team';
+
+        // Load existing items with relations
+        $existingItems = $pabd02aData->itemPerubahan()
+            ->with([
+                'pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan',
+                'pkWorkflow.pk01Data' => fn ($q) => $q->latest('id'),
+                'files',
+            ])
+            ->get();
+
+        $formattedItems = $existingItems->map(fn (Pabd02aItemPerubahan $item) => $this->formatPabd02aItem($item))->values();
+
+        // PABD01 checklist (readonly)
+        $latestPabd01 = $pabdWorkflow->latestPabd01();
+        $pabd01ChecklistData = $latestPabd01 ? $this->resolveAnggaranItems($latestPabd01, $pabdWorkflow) : [];
+        $pabd01Submitter = $this->resolvePabd01Submitter($history);
+
+        // Future anggaran for tarik maju picker
+        $futureAnggaranItems = $this->resolveFutureAnggaran(
+            $pabdWorkflow,
+            $existingItems->where('tipe_perubahan', 'tarik_maju')->pluck('pk04_anggaran_id')->filter()->all(),
+        );
+
+        // PP06 kode references for proposal baru
+        $pp06 = $pabdWorkflow->ppWorkflow?->latestPp06();
+        $kodeRefs = $this->loadPp06KodeReferences($pp06);
+
+        // Budget counter
+        $budgetCounter = $this->getBudgetCounters($pabdWorkflow);
+
+        // Labels
+        $teamName = $pabdWorkflow->team?->name ?? 'Unknown';
+        $bulanNames = $this->bulanNames();
+        $bulanLabel = $bulanNames[$pabdWorkflow->bulan_anggaran] ?? (string) $pabdWorkflow->bulan_anggaran;
+        $label = "PABD-{$teamName}-{$bulanLabel}/{$pabdWorkflow->tahun_anggaran}";
+
+        $basePath = $scope === 'team'
+            ? "/team/workflows/pabd/{$pabdWorkflow->id}"
+            : "/admin/workflows/pabd/{$pabdWorkflow->id}";
+
+        // Stepper
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($pabdWorkflow, $scope): ?string {
+            $base = "/{$scope}/workflows/pabd/{$pabdWorkflow->id}";
+            if ($dataId) {
+                $stepLower = strtolower($code);
+
+                return "{$base}/{$stepLower}/{$dataId}";
+            }
+
+            return null;
+        });
+
+        return Inertia::render('workflows/pabd/pabd02a', [
+            'workflow' => [
+                'id' => $pabdWorkflow->id,
+                'label' => $label,
+                'status' => $this->engine->getWorkflowStatus($history),
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
+            ],
+            'stepData' => [
+                'id' => $pabd02aData->id,
+                'items' => $formattedItems,
+                'updated_at' => $pabd02aData->updated_at->toIso8601String(),
+            ],
+            'pabd01ChecklistData' => $pabd01ChecklistData,
+            'pabd01Submitter' => $pabd01Submitter,
+            'futureAnggaranItems' => $futureAnggaranItems,
+            'kodeRefs' => $kodeRefs,
+            'budgetCounter' => $budgetCounter,
+            'workflowMeta' => [
+                'bulan_anggaran' => $pabdWorkflow->bulan_anggaran,
+                'bulan_label' => $bulanLabel,
+                'tahun_anggaran' => $pabdWorkflow->tahun_anggaran,
+                'team_name' => $teamName,
+            ],
+            'mode' => $mode,
+            'canDraft' => $isEditable && in_array("{$permPrefix}.pabd02a.draft", $permissions),
+            'canSubmit' => $isEditable && in_array("{$permPrefix}.pabd02a.submit", $permissions),
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'actionRoles' => $this->resolveActionRoles([
+                'team.workflows.pabd.pabd02a.draft' => ['Simpan Draft', false],
+                'team.workflows.pabd.pabd02a.submit' => ['Submit', true],
+                "{$permPrefix}.comment" => ['Komentar', false],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'teamName' => $teamName,
+            'scope' => $scope,
+            'basePath' => $basePath,
+        ]);
+    }
+
+    public function pabd02aDraft(Pabd02aDraftRequest $request, PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->ensureTeamOwnership($pabdWorkflow);
+        $this->checkPermission('team.workflows.pabd.pabd02a.draft');
+        $this->ensureStepActive($pabdWorkflow, 'PABD02A');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD02A', $pabd02aData->id);
+
+        // Staleness guard
+        $stalenessResult = $this->detectPk04Staleness($pabdWorkflow);
+        if ($stalenessResult['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $stalenessResult['changed_pks']);
+
+            return to_route('team.workflows.pabd.show', $pabdWorkflow)
+                ->with('warning', 'PK04 telah direvisi. Checklist pencairan dikembalikan ke PABD01 dengan data terbaru.');
+        }
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd02aData, $validated['expected_updated_at']);
+
+        // Sync items
+        $this->syncPabd02aItems($pabd02aData, $validated['items'] ?? [], $pabdWorkflow, $request, isDraft: true);
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pabd02aData,
+            'pabd.pabd02a.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        $this->engine->recordAction(
+            workflow: $pabdWorkflow,
+            step: 'PABD02A',
+            action: 'drafted',
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            table: 'pabd02a_data',
+            dataId: $pabd02aData->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
+            extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+        );
+
+        return to_route('team.workflows.pabd.pabd02a.show', [$pabdWorkflow, $pabd02aData])
+            ->with('success', 'Draft PABD02A berhasil disimpan.');
+    }
+
+    public function pabd02aSubmit(Pabd02aSubmitRequest $request, PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->ensureTeamOwnership($pabdWorkflow);
+        $this->checkPermission('team.workflows.pabd.pabd02a.submit');
+        $this->ensureStepActive($pabdWorkflow, 'PABD02A');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD02A', $pabd02aData->id);
+
+        // Staleness guard
+        $stalenessResult = $this->detectPk04Staleness($pabdWorkflow);
+        if ($stalenessResult['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $stalenessResult['changed_pks']);
+
+            return to_route('team.workflows.pabd.show', $pabdWorkflow)
+                ->with('warning', 'PK04 telah direvisi. Checklist pencairan dikembalikan ke PABD01 dengan data terbaru.');
+        }
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd02aData, $validated['expected_updated_at']);
+
+        // Additional validation: unique pk04_anggaran_id per submission
+        $tarikMajuIds = collect($validated['items'])
+            ->where('tipe_perubahan', 'tarik_maju')
+            ->pluck('pk04_anggaran_id')
+            ->filter();
+        if ($tarikMajuIds->count() !== $tarikMajuIds->unique()->count()) {
+            abort(422, 'Setiap anggaran hanya dapat ditarik satu kali per pengajuan.');
+        }
+
+        // Validate bulan_tujuan constraints for tarik_maju items
+        foreach ($validated['items'] as $idx => $item) {
+            if ($item['tipe_perubahan'] === 'tarik_maju') {
+                $bulanAwal = $item['bulan_awal'] ?? 0;
+                $bulanTujuan = $item['bulan_tujuan'] ?? 0;
+                $currentMonth = (int) now()->month;
+
+                if ($bulanTujuan >= $bulanAwal) {
+                    abort(422, "Bulan tujuan harus lebih kecil dari bulan asal (item #{$idx}).");
+                }
+                if ($bulanTujuan < $currentMonth) {
+                    abort(422, "Bulan tujuan tidak boleh di masa lalu (item #{$idx}).");
+                }
+            }
+        }
+
+        // Validate proposal_baru items have files
+        foreach ($validated['items'] as $idx => $item) {
+            if ($item['tipe_perubahan'] === 'proposal_baru') {
+                $itemFiles = $request->file("items.{$idx}.item_files", []);
+                // Check existing files from previously drafted items
+                $hasExistingFiles = false;
+                $existingItem = $pabd02aData->itemPerubahan()
+                    ->where('tipe_perubahan', 'proposal_baru')
+                    ->skip($idx)
+                    ->first();
+                if ($existingItem && $existingItem->files()->count() > 0) {
+                    $hasExistingFiles = true;
+                }
+                if (empty($itemFiles) && ! $hasExistingFiles) {
+                    abort(422, "Dokumen proposal wajib dilampirkan (item #{$idx}).");
+                }
+            }
+        }
+
+        // Sync items
+        $this->syncPabd02aItems($pabd02aData, $validated['items'], $pabdWorkflow, $request, isDraft: false);
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pabd02aData,
+            'pabd.pabd02a.submit',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        // Record PABD02A submitted
+        $this->engine->recordAction(
+            workflow: $pabdWorkflow,
+            step: 'PABD02A',
+            action: 'submitted',
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            table: 'pabd02a_data',
+            dataId: $pabd02aData->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
+            extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+        );
+
+        // Activate PABD02B
+        $pabd02bData = \App\Models\Pabd\Pabd02bData::create([
+            'pabd_workflow_id' => $pabdWorkflow->id,
+        ]);
+
+        $this->engine->recordAction(
+            workflow: $pabdWorkflow,
+            step: 'PABD02B',
+            action: 'created',
+            userId: null,
+            sessionContext: [],
+            table: 'pabd02b_data',
+            dataId: $pabd02bData->id,
+        );
+
+        $this->notifier->notify($pabdWorkflow, 'pabd02a.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('team.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'PABD02A berhasil disubmit. Menunggu approval BU.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD02A Helpers
+    // ──────────────────────────────────────
+
+    /**
+     * Sync pabd02a_item_perubahan rows from form data.
+     * For proposal_baru items, create/update draft PK Proposals.
+     */
+    private function syncPabd02aItems(Pabd02aData $pabd02aData, array $items, PabdWorkflow $pabdWorkflow, $request, bool $isDraft): void
+    {
+        // Collect existing items for cleanup
+        $existingItemIds = $pabd02aData->itemPerubahan()->pluck('id')->all();
+        $processedIds = [];
+
+        foreach ($items as $idx => $itemData) {
+            $tipe = $itemData['tipe_perubahan'] ?? null;
+
+            // Draft: skip items without tipe
+            if ($isDraft && empty($tipe)) {
+                continue;
+            }
+
+            $itemAttrs = [
+                'pabd02a_data_id' => $pabd02aData->id,
+                'tipe_perubahan' => $tipe,
+                'pk04_anggaran_id' => $tipe === 'tarik_maju' ? ($itemData['pk04_anggaran_id'] ?? null) : null,
+                'bulan_awal' => $tipe === 'tarik_maju' ? ($itemData['bulan_awal'] ?? null) : null,
+                'bulan_tujuan' => $tipe === 'tarik_maju' ? ($itemData['bulan_tujuan'] ?? null) : null,
+                'komentar' => $itemData['komentar'] ?? null,
+            ];
+
+            // Handle proposal_baru: create/update PK Proposal
+            if ($tipe === 'proposal_baru' && ! empty($itemData['proposal'])) {
+                $pkWorkflowId = $this->createOrUpdateDraftProposal(
+                    $pabdWorkflow,
+                    $itemData['proposal'],
+                    $itemData['_existing_pk_workflow_id'] ?? null,
+                    $isDraft,
+                );
+                $itemAttrs['pk_workflow_id'] = $pkWorkflowId;
+            }
+
+            // Create the item row (always re-create — simpler than diffing)
+            $perubahanItem = $pabd02aData->itemPerubahan()->create($itemAttrs);
+            $processedIds[] = $perubahanItem->id;
+
+            // Store per-item files
+            $itemFiles = $request->file("items.{$idx}.item_files", []);
+            if (! empty($itemFiles)) {
+                $sessionContext = $this->getSessionContext();
+                $this->commentService->storeFiles(
+                    $itemFiles,
+                    $perubahanItem,
+                    'pabd.pabd02a.item',
+                    $request->user()->id,
+                    $sessionContext,
+                );
+            }
+        }
+
+        // Delete items not in current submission (and soft-delete orphaned proposals)
+        $toDelete = array_diff($existingItemIds, $processedIds);
+        if (! empty($toDelete)) {
+            $orphanedProposals = $pabd02aData->itemPerubahan()
+                ->whereIn('id', $toDelete)
+                ->whereNotNull('pk_workflow_id')
+                ->pluck('pk_workflow_id');
+
+            foreach ($orphanedProposals as $pkWorkflowId) {
+                PkWorkflow::find($pkWorkflowId)?->delete();
+            }
+
+            $pabd02aData->itemPerubahan()->whereIn('id', $toDelete)->delete();
+        }
+
+        $pabd02aData->touch();
+    }
+
+    /**
+     * Create or update a draft PK Proposal for a proposal_baru item.
+     */
+    private function createOrUpdateDraftProposal(PabdWorkflow $pabdWorkflow, array $proposalData, ?int $existingPkWorkflowId, bool $isDraft): int
+    {
+        $pkWorkflow = $existingPkWorkflowId ? PkWorkflow::find($existingPkWorkflowId) : null;
+
+        if (! $pkWorkflow) {
+            $sessionContext = $this->getSessionContext();
+            $pkWorkflow = PkWorkflow::create([
+                'uuid' => (string) Str::uuid(),
+                'workspace_id' => $pabdWorkflow->workspace_id,
+                'team_id' => $pabdWorkflow->team_id,
+                'pp_workflow_id' => $pabdWorkflow->pp_workflow_id,
+                'tipe' => 'proposal',
+                'created_by_user_id' => request()->user()?->id,
+                'created_by_role_id' => $sessionContext['role'] ?? null,
+                'created_by_team_id' => $pabdWorkflow->team_id,
+                'created_by_org_id' => $sessionContext['org'] ?? $pabdWorkflow->team?->organization_id,
+                'history' => [],
+            ]);
+        }
+
+        // Upsert pk01_data
+        $pk01Data = $pkWorkflow->pk01Data()->latest('id')->first();
+        if (! $pk01Data) {
+            $pk01Data = Pk01Data::create([
+                'pk_workflow_id' => $pkWorkflow->id,
+                'kode_kategori' => $proposalData['kode_kategori'] ?? null,
+                'nama_program' => $proposalData['nama_program'] ?? null,
+                'deskripsi_program' => $proposalData['deskripsi_program'] ?? null,
+                'tujuan_program' => $proposalData['tujuan_program'] ?? null,
+            ]);
+        } else {
+            $pk01Data->update([
+                'kode_kategori' => $proposalData['kode_kategori'] ?? $pk01Data->kode_kategori,
+                'nama_program' => $proposalData['nama_program'] ?? $pk01Data->nama_program,
+                'deskripsi_program' => $proposalData['deskripsi_program'] ?? $pk01Data->deskripsi_program,
+                'tujuan_program' => $proposalData['tujuan_program'] ?? $pk01Data->tujuan_program,
+            ]);
+        }
+
+        // Sync kegiatan (delete-recreate pattern from PK)
+        $pk01Data->kegiatan()->delete();
+
+        foreach ($proposalData['kegiatan'] ?? [] as $kData) {
+            if ($isDraft && empty($kData['nama_kegiatan']) && empty($kData['anggaran'] ?? [])) {
+                continue;
+            }
+
+            $kegiatan = $pk01Data->kegiatan()->create([
+                'nama_kegiatan' => $kData['nama_kegiatan'] ?? null,
+                'bulan' => $kData['bulan'] ?? null,
+            ]);
+
+            foreach ($kData['anggaran'] ?? [] as $aData) {
+                if ($isDraft && empty($aData['mata_anggaran']) && empty($aData['kode_bidang']) && ($aData['nominal_anggaran'] ?? 0) == 0) {
+                    continue;
+                }
+
+                $kegiatan->anggaran()->create([
+                    'kode_bidang' => $aData['kode_bidang'] ?? null,
+                    'kode_sub_bidang' => $aData['kode_sub_bidang'] ?? null,
+                    'kode_jenis' => $aData['kode_jenis'] ?? null,
+                    'mata_anggaran' => $aData['mata_anggaran'] ?? null,
+                    'deskripsi_pk' => $aData['deskripsi_pk'] ?? null,
+                    'nominal_anggaran' => $aData['nominal_anggaran'] ?? 0,
+                ]);
+            }
+
+            foreach ($kData['kuisioner'] ?? [] as $qData) {
+                if ($isDraft && empty($qData['pertanyaan'])) {
+                    continue;
+                }
+
+                $kegiatan->kuisioner()->create([
+                    'kode_kuisioner' => $qData['kode_kuisioner'] ?? null,
+                    'pertanyaan' => $qData['pertanyaan'] ?? null,
+                    'tipe' => $qData['tipe'] ?? 'Kualitatif',
+                    'satuan' => $qData['satuan'] ?? null,
+                ]);
+            }
+        }
+
+        return $pkWorkflow->id;
+    }
+
+    /**
+     * Format a single pabd02a_item_perubahan for frontend display.
+     *
+     * @return array<string, mixed>
+     */
+    private function formatPabd02aItem(Pabd02aItemPerubahan $item): array
+    {
+        $bulanNames = $this->bulanNames();
+        $result = [
+            'id' => $item->id,
+            'tipe_perubahan' => $item->tipe_perubahan,
+            'pk04_anggaran_id' => $item->pk04_anggaran_id,
+            'bulan_awal' => $item->bulan_awal,
+            'bulan_tujuan' => $item->bulan_tujuan,
+            'pk_workflow_id' => $item->pk_workflow_id,
+            'komentar' => $item->komentar,
+            'files' => $item->files->map(fn ($f) => [
+                'id' => $f->id,
+                'name' => $f->original_name ?? $f->name,
+                'url' => $f->path ? asset("storage/{$f->path}") : null,
+            ])->values(),
+        ];
+
+        // Tarik maju: enrich with anggaran details
+        if ($item->tipe_perubahan === 'tarik_maju' && $item->pk04Anggaran) {
+            $anggaran = $item->pk04Anggaran;
+            $kegiatan = $anggaran->pk04Kegiatan;
+            $program = $kegiatan?->pk04ProgramTahunan;
+
+            $result['anggaran_detail'] = [
+                'program_name' => $program?->nama_program,
+                'kode_kategori' => $program?->kode_kategori,
+                'kegiatan_name' => $kegiatan?->nama_kegiatan,
+                'bulan' => $kegiatan?->bulan,
+                'bulan_label' => $bulanNames[$kegiatan?->bulan ?? 0] ?? null,
+                'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                'mata_anggaran' => $anggaran->mata_anggaran,
+                'nominal' => (float) $anggaran->nominal_anggaran,
+            ];
+            $result['bulan_awal_label'] = $bulanNames[$item->bulan_awal ?? 0] ?? null;
+            $result['bulan_tujuan_label'] = $bulanNames[$item->bulan_tujuan ?? 0] ?? null;
+        }
+
+        // Proposal baru: enrich with PK01 data
+        if ($item->tipe_perubahan === 'proposal_baru' && $item->pkWorkflow) {
+            $pk01 = $item->pkWorkflow->pk01Data?->sortByDesc('id')->first();
+            if ($pk01) {
+                $pk01->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+                $result['proposal'] = [
+                    'kode_kategori' => $pk01->kode_kategori,
+                    'nama_program' => $pk01->nama_program,
+                    'deskripsi_program' => $pk01->deskripsi_program,
+                    'tujuan_program' => $pk01->tujuan_program,
+                    'kegiatan' => $pk01->kegiatan->map(fn ($k) => [
+                        'nama_kegiatan' => $k->nama_kegiatan,
+                        'bulan' => $k->bulan,
+                        'anggaran' => $k->anggaran->map(fn ($a) => [
+                            'kode_bidang' => $a->kode_bidang,
+                            'kode_sub_bidang' => $a->kode_sub_bidang,
+                            'kode_jenis' => $a->kode_jenis,
+                            'mata_anggaran' => $a->mata_anggaran,
+                            'deskripsi_pk' => $a->deskripsi_pk,
+                            'nominal_anggaran' => (float) $a->nominal_anggaran,
+                        ])->values(),
+                        'kuisioner' => $k->kuisioner->map(fn ($q) => [
+                            'kode_kuisioner' => $q->kode_kuisioner,
+                            'pertanyaan' => $q->pertanyaan,
+                            'tipe' => $q->tipe,
+                            'satuan' => $q->satuan,
+                        ])->values(),
+                    ])->values(),
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Resolve future-month PK04 anggaran for tarik maju picker.
+     *
+     * @param  list<int>  $excludeAnggaranIds  Already-selected anggaran IDs
+     * @return list<array>
+     */
+    private function resolveFutureAnggaran(PabdWorkflow $pabdWorkflow, array $excludeAnggaranIds): array
+    {
+        $bulan = $pabdWorkflow->bulan_anggaran;
+        $teamId = $pabdWorkflow->team_id;
+        $ppWorkflowId = $pabdWorkflow->pp_workflow_id;
+        $workspaceId = $pabdWorkflow->workspace_id;
+
+        // Get latest PK04 finals for this team
+        $pk04Finals = Pk04ProgramTahunan::query()
+            ->whereHas('pkWorkflow', fn ($q) => $q
+                ->where('team_id', $teamId)
+                ->where('pp_workflow_id', $ppWorkflowId)
+                ->where('workspace_id', $workspaceId)
+                ->whereNull('deleted_at')
+            )
+            ->get()
+            ->groupBy('pk_workflow_id')
+            ->map(fn ($group) => $group->sortByDesc('revision')->first());
+
+        $bulanNames = $this->bulanNames();
+        $grouped = [];
+
+        foreach ($pk04Finals as $pk04) {
+            $anggaranItems = Pk04Anggaran::query()
+                ->whereHas('pk04Kegiatan', fn ($q) => $q
+                    ->where('pk04_program_tahunan_id', $pk04->id)
+                    ->where('bulan', '>', $bulan)  // Future months only
+                )
+                ->where('status_item', 'active')
+                ->where('nominal_anggaran', '>', 0)
+                ->with('pk04Kegiatan')
+                ->get();
+
+            foreach ($anggaranItems as $anggaran) {
+                $kegiatan = $anggaran->pk04Kegiatan;
+                $programKey = $pk04->id;
+
+                if (! isset($grouped[$programKey])) {
+                    $grouped[$programKey] = [
+                        'program_id' => $pk04->id,
+                        'program_name' => $pk04->nama_program,
+                        'kode_kategori' => $pk04->kode_kategori,
+                        'kegiatan' => [],
+                    ];
+                }
+
+                $kegiatanKey = $kegiatan->id;
+                if (! isset($grouped[$programKey]['kegiatan'][$kegiatanKey])) {
+                    $grouped[$programKey]['kegiatan'][$kegiatanKey] = [
+                        'kegiatan_id' => $kegiatan->id,
+                        'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                        'bulan' => $kegiatan->bulan,
+                        'bulan_label' => $bulanNames[$kegiatan->bulan] ?? (string) $kegiatan->bulan,
+                        'anggaran' => [],
+                    ];
+                }
+
+                $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
+                    'pk04_anggaran_id' => $anggaran->id,
+                    'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                    'mata_anggaran' => $anggaran->mata_anggaran,
+                    'nominal' => (float) $anggaran->nominal_anggaran,
+                    'disabled' => in_array($anggaran->id, $excludeAnggaranIds),
+                ];
+            }
+        }
+
+        // Convert keyed maps to arrays
+        $result = [];
+        foreach ($grouped as $programData) {
+            $programData['kegiatan'] = array_values($programData['kegiatan']);
+            $result[] = $programData;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Load PP06 kode reference data for proposal baru dropdowns.
+     *
+     * @return array{kategori: list<array>, bidang: list<array>, subBidang: list<array>, jenis: list<array>, kuisioner: list<array>}
+     */
+    private function loadPp06KodeReferences(?Pp06PeriodeTahunan $pp06): array
+    {
+        if (! $pp06) {
+            return ['kategori' => [], 'bidang' => [], 'subBidang' => [], 'jenis' => [], 'kuisioner' => []];
+        }
+
+        return [
+            'kategori' => $pp06->kodeKategoriPelayanan()->orderBy('kode')->get(['kode', 'nama'])->toArray(),
+            'bidang' => $pp06->kodeBidangPelayanan()->orderBy('kode')->get(['kode', 'nama'])->toArray(),
+            'subBidang' => $pp06->kodeSubBidangPelayanan()->orderBy('kode')->get(['kode', 'nama'])->toArray(),
+            'jenis' => $pp06->kodeJenisProgram()->orderBy('kode')->get(['kode', 'nama'])->toArray(),
+            'kuisioner' => $pp06->itemKuisioner()->orderBy('kode')->get(['kode', 'pertanyaan', 'tipe', 'satuan'])->toArray(),
+        ];
+    }
+
+    /**
+     * Resolve PABD01 submitter info from history.
+     *
+     * @return array{name: string, role: string, at: string}|null
+     */
+    private function resolvePabd01Submitter(array $history): ?array
+    {
+        $formatted = $this->historyFormatter->format($history);
+        foreach (array_reverse($formatted) as $entry) {
+            if (($entry['step'] ?? '') === 'PABD01' && ($entry['action'] ?? '') === 'submitted') {
+                return [
+                    'name' => $entry['by_name'] ?? 'Unknown',
+                    'role' => $entry['role_name'] ?? '',
+                    'team' => $entry['team_name'] ?? '',
+                    'at' => $entry['at'] ?? '',
+                ];
+            }
+        }
+
+        return null;
     }
 
     // ──────────────────────────────────────
