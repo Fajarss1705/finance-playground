@@ -263,6 +263,9 @@ class WorkflowNotifier
             'pabd01.submitted_change' => 'team.workflows.pabd.pabd02a.draft',
             'pabd01.submitted_skip' => 'admin.workflows.pabd.pabd03.approve',
             'pabd.pk04_staleness_reset' => 'team.workflows.pabd.pabd01.submit',
+            'pabd02a.submitted' => 'admin.workflows.pabd.pabd02b.approve',
+            'pabd02b.approved' => 'team.workflows.pabd.pabd01.submit',
+            'pabd02b.rejected' => 'team.workflows.pabd.pabd01.submit',
 
             default => null,
         };
@@ -331,6 +334,9 @@ class WorkflowNotifier
             'pabd01.submitted_change' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Silakan lanjutkan pengisian Perubahan Anggaran (PABD02A).'],
             'pabd01.submitted_skip' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Tidak ada perubahan anggaran. Silakan review dan setujui/tolak transfer (PABD03).'],
             'pabd.pk04_staleness_reset' => ['direset', 'Checklist Pencairan (PABD01)', 'PK04 telah direvisi. Silakan review ulang checklist pencairan.'],
+            'pabd02a.submitted' => ['disubmit', 'Perubahan Anggaran (PABD02A)', 'Silakan review dan setujui/tolak perubahan anggaran (PABD02B).'],
+            'pabd02b.approved' => ['disetujui', 'Persetujuan Perubahan (PABD02B)', 'Perubahan anggaran disetujui. PK04 telah di-recompile. Silakan review ulang checklist pencairan.'],
+            'pabd02b.rejected' => ['ditolak', 'Persetujuan Perubahan (PABD02B)', 'Perubahan anggaran ditolak. Silakan review ulang checklist pencairan.'],
 
             default => [
                 $context['action_verb'] ?? 'diproses',

@@ -8,13 +8,18 @@ use App\Http\Requests\Workflows\Pabd01DraftRequest;
 use App\Http\Requests\Workflows\Pabd01SubmitRequest;
 use App\Http\Requests\Workflows\Pabd02aDraftRequest;
 use App\Http\Requests\Workflows\Pabd02aSubmitRequest;
+use App\Http\Requests\Workflows\Pabd02bApproveRequest;
+use App\Http\Requests\Workflows\Pabd02bDraftRequest;
+use App\Http\Requests\Workflows\Pabd02bRejectRequest;
 use App\Http\Requests\Workflows\PabdCommentRequest;
 use App\Models\Pabd\Pabd01Data;
 use App\Models\Pabd\Pabd02aData;
 use App\Models\Pabd\Pabd02aItemPerubahan;
+use App\Models\Pabd\Pabd02bData;
 use App\Models\Pabd\PabdWorkflow;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
+use App\Models\Pk\Pk04AnggaranCatatanPerubahan;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp06PeriodeTahunan;
@@ -22,9 +27,11 @@ use App\Models\Role;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
+use App\Services\PkCompileService;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -37,6 +44,7 @@ class PabdWorkflowController extends Controller
         private HistoryFormatter $historyFormatter,
         private CommentService $commentService,
         private WorkflowNotifier $notifier,
+        private PkCompileService $compileService,
     ) {}
 
     // ──────────────────────────────────────
@@ -641,6 +649,13 @@ class PabdWorkflowController extends Controller
             'pabd_workflow_id' => $pabdWorkflow->id,
         ]);
 
+        // Create pabd02b_item_review rows (1:1 with PABD02A items)
+        foreach ($pabd02aData->itemPerubahan as $perubahanItem) {
+            $pabd02bData->itemReview()->create([
+                'pabd02a_item_perubahan_id' => $perubahanItem->id,
+            ]);
+        }
+
         $this->engine->recordAction(
             workflow: $pabdWorkflow,
             step: 'PABD02B',
@@ -1026,6 +1041,564 @@ class PabdWorkflowController extends Controller
         }
 
         return null;
+    }
+
+    // ──────────────────────────────────────
+    // PABD02B — Approval Perubahan
+    // ──────────────────────────────────────
+
+    public function pabd02bShow(PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd02b.show");
+
+        // Staleness detection (runs on show)
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+            $newPabd01 = $pabdWorkflow->latestPabd01();
+
+            return Inertia::location(route(
+                $scope === 'team' ? 'team.workflows.pabd.pabd01.show' : 'admin.workflows.pabd.pabd01.show',
+                ['pabdWorkflow' => $pabdWorkflow->id, 'pabd01Data' => $newPabd01->id],
+            ));
+        }
+
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD02B', $pabd02bData->id);
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $statuses = $this->engine->getStepStatuses($definition, $pabdWorkflow->history ?? []);
+        $permissions = $this->session->getActivePermissions();
+
+        $isActive = ($statuses['PABD02B']['status'] ?? '') === 'active';
+        $canDraft = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd02b.draft', $permissions);
+        $canApprove = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd02b.approve', $permissions);
+        $canReject = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd02b.reject', $permissions);
+        $canComment = in_array("{$scope}.workflows.pabd.comment", $permissions);
+        $mode = ($canDraft || $canApprove || $canReject) ? 'edit' : 'readonly';
+
+        // Load PABD02B review items with related PABD02A items
+        $pabd02bData->load(['itemReview.pabd02aItemPerubahan.files', 'itemReview.pabd02aItemPerubahan.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan', 'itemReview.pabd02aItemPerubahan.pkWorkflow.pk01Data.kegiatan.anggaran', 'itemReview.pabd02aItemPerubahan.pkWorkflow.pk01Data.kegiatan.kuisioner']);
+
+        $reviewItems = $pabd02bData->itemReview->map(function ($review) {
+            $perubahanItem = $review->pabd02aItemPerubahan;
+            $formatted = $this->formatPabd02aItem($perubahanItem);
+            $formatted['pabd02b_item_review_id'] = $review->id;
+            $formatted['komentar_approval'] = $review->komentar_approval;
+
+            // Kode diff preview for tarik_maju items
+            if ($perubahanItem->tipe_perubahan === 'tarik_maju' && $perubahanItem->pk04Anggaran) {
+                $formatted['kode_preview'] = $this->computeKodePreview($perubahanItem);
+            }
+
+            return $formatted;
+        })->values();
+
+        // PABD01 checklist data
+        $latestPabd01 = $pabdWorkflow->latestPabd01();
+        $pabd01ChecklistData = $latestPabd01 ? $this->resolveAnggaranItems($latestPabd01, $pabdWorkflow) : [];
+        $pabd01Submitter = $this->resolvePabd01Submitter($pabdWorkflow->history ?? []);
+
+        // PABD02A submitter
+        $pabd02aSubmitter = $this->resolvePabd02aSubmitter($pabdWorkflow->history ?? []);
+
+        // Stepper + history
+        $stepperData = $this->engine->getStepperData($definition, $pabdWorkflow->history ?? [], function (string $code, ?int $dataId) use ($pabdWorkflow, $scope): ?string {
+            $base = "/{$scope}/workflows/pabd/{$pabdWorkflow->id}";
+            if ($dataId) {
+                $stepLower = strtolower($code);
+
+                return "{$base}/{$stepLower}/{$dataId}";
+            }
+
+            return null;
+        });
+        $formattedHistory = $this->historyFormatter->format($pabdWorkflow->history ?? []);
+
+        // Action roles
+        $actionRoles = $this->resolveActionRoles([
+            'admin.workflows.pabd.pabd02b.draft' => ['Simpan Draft', false],
+            'admin.workflows.pabd.pabd02b.approve' => ['Setujui', true],
+            'admin.workflows.pabd.pabd02b.reject' => ['Tolak', false],
+        ]);
+
+        // Budget counters
+        $budgetCounter = $this->getBudgetCounters($pabdWorkflow);
+
+        // Cycle info
+        $cycle = $statuses['PABD02B']['cycle'] ?? 1;
+
+        // Previous cycles data (pattern F)
+        $previousCycles = $this->resolvePreviousCycles($pabdWorkflow, 'PABD02B', $pabd02bData->id);
+
+        // PABD01 previous cycles
+        $pabd01PreviousCycles = $this->resolvePreviousCycles($pabdWorkflow, 'PABD01', $latestPabd01?->id);
+
+        // PABD02A previous cycles
+        $latestPabd02a = Pabd02aData::where('pabd_workflow_id', $pabdWorkflow->id)->latest('id')->first();
+        $pabd02aPreviousCycles = $this->resolvePreviousCycles($pabdWorkflow, 'PABD02A', $latestPabd02a?->id);
+
+        // Change summary counts
+        $tarikMajuCount = $reviewItems->where('tipe_perubahan', 'tarik_maju')->count();
+        $proposalBaruCount = $reviewItems->where('tipe_perubahan', 'proposal_baru')->count();
+
+        return Inertia::render('workflows/pabd/pabd02b', [
+            'scope' => $scope,
+            'mode' => $mode,
+            'canDraft' => $canDraft,
+            'canApprove' => $canApprove,
+            'canReject' => $canReject,
+            'canComment' => $canComment,
+            'canTerminate' => false,
+
+            'workflow' => [
+                'id' => $pabdWorkflow->id,
+                'uuid' => $pabdWorkflow->uuid,
+                'team_name' => $pabdWorkflow->team?->name,
+                'bulan_anggaran' => $pabdWorkflow->bulan_anggaran,
+                'bulan_label' => $this->bulanNames()[$pabdWorkflow->bulan_anggaran] ?? (string) $pabdWorkflow->bulan_anggaran,
+                'tahun_anggaran' => $pabdWorkflow->tahun_anggaran,
+            ],
+            'stepData' => [
+                'id' => $pabd02bData->id,
+                'updated_at' => $pabd02bData->updated_at?->toIso8601String(),
+                'items' => $reviewItems,
+            ],
+            'cycle' => $cycle,
+            'previousCycles' => $previousCycles,
+
+            'pabd01ChecklistData' => $pabd01ChecklistData,
+            'pabd01Submitter' => $pabd01Submitter,
+            'pabd01Cycle' => $statuses['PABD01']['cycle'] ?? 1,
+            'pabd01PreviousCycles' => $pabd01PreviousCycles,
+
+            'pabd02aSubmitter' => $pabd02aSubmitter,
+            'pabd02aCycle' => $statuses['PABD02A']['cycle'] ?? 1,
+            'pabd02aPreviousCycles' => $pabd02aPreviousCycles,
+
+            'tarikMajuCount' => $tarikMajuCount,
+            'proposalBaruCount' => $proposalBaruCount,
+
+            'budgetCounter' => $budgetCounter,
+            'stepStatuses' => $statuses,
+            'stepperData' => $stepperData,
+            'history' => $formattedHistory,
+            'actionRoles' => $actionRoles,
+            'activeRoleName' => $this->getActiveRoleName(),
+        ]);
+    }
+
+    public function pabd02bDraft(Pabd02bDraftRequest $request, PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd02b.draft');
+
+        // Staleness detection
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+
+            return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+                ->with('error', 'PK04 telah direvisi. PABD direset ke PABD01.');
+        }
+
+        $this->ensureStepActive($pabdWorkflow, 'PABD02B');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD02B', $pabd02bData->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd02bData, $validated['expected_updated_at']);
+
+        // Save per-item komentar_approval
+        $this->saveItemReviews($pabd02bData, $validated['items'] ?? []);
+
+        $sessionContext = $this->getSessionContext();
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $pabd02bData,
+            'pabd.pabd02b.draft',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        $this->engine->recordAction(
+            workflow: $pabdWorkflow,
+            step: 'PABD02B',
+            action: 'drafted',
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            table: 'pabd02b_data',
+            dataId: $pabd02bData->id,
+            notes: $validated['notes'] ?? null,
+            files: ! empty($fileIds) ? $fileIds : null,
+            extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+        );
+
+        return back()->with('success', 'Draft PABD02B berhasil disimpan.');
+    }
+
+    public function pabd02bApprove(Pabd02bApproveRequest $request, PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd02b.approve');
+
+        // Staleness detection
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+
+            return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+                ->with('error', 'PK04 telah direvisi. PABD direset ke PABD01.');
+        }
+
+        $this->ensureStepActive($pabdWorkflow, 'PABD02B');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD02B', $pabd02bData->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd02bData, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($pabdWorkflow, $pabd02bData, $validated, $request, $sessionContext) {
+            // 1. Save per-item komentar_approval
+            $this->saveItemReviews($pabd02bData, $validated['items'] ?? []);
+
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $pabd02bData,
+                'pabd.pabd02b.approve',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            // 2. Record approved
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD02B',
+                action: 'approved',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: [
+                    'reviewed' => ['pabd02b_data_id' => $pabd02bData->id],
+                    'pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow),
+                ],
+            );
+
+            // 3. Process tarik_maju items (grouped by PK)
+            $pabd02bData->load(['itemReview.pabd02aItemPerubahan.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow']);
+            $tarikMajuByPk = [];
+            $allPerubahanItems = [];
+
+            foreach ($pabd02bData->itemReview as $review) {
+                $perubahan = $review->pabd02aItemPerubahan;
+                $allPerubahanItems[] = ['review' => $review, 'perubahan' => $perubahan];
+
+                if ($perubahan->tipe_perubahan === 'tarik_maju' && $perubahan->pk04Anggaran) {
+                    $pkWorkflow = $perubahan->pk04Anggaran->pk04Kegiatan?->pk04ProgramTahunan?->pkWorkflow;
+                    if ($pkWorkflow) {
+                        $tarikMajuByPk[$pkWorkflow->id] ??= ['workflow' => $pkWorkflow, 'items' => []];
+                        $tarikMajuByPk[$pkWorkflow->id]['items'][] = [
+                            'pk04_anggaran_id' => $perubahan->pk04_anggaran_id,
+                            'bulan_tujuan' => $perubahan->bulan_tujuan,
+                            'pabd_workflow_id' => $pabdWorkflow->id,
+                        ];
+                    }
+                }
+            }
+
+            foreach ($tarikMajuByPk as $pkData) {
+                $this->compileService->recompileFromTarikMaju($pkData['workflow'], $pkData['items']);
+            }
+
+            // 4. Process proposal_baru items
+            foreach ($allPerubahanItems as $itemData) {
+                $perubahan = $itemData['perubahan'];
+                if ($perubahan->tipe_perubahan === 'proposal_baru' && $perubahan->pk_workflow_id) {
+                    $proposalWorkflow = PkWorkflow::find($perubahan->pk_workflow_id);
+                    if ($proposalWorkflow) {
+                        $this->compileService->compileProposalToPk04($proposalWorkflow, $pabdWorkflow->id);
+                    }
+                }
+            }
+
+            // 5. Insert pk04_anggaran_catatan_perubahan per item
+            $this->compileCatatanPerubahan($allPerubahanItems, $pabdWorkflow->id, 'approved');
+
+            // 6. Cycle back to PABD01 (engine handles via cycleTarget)
+            $freshPabd01 = $this->createFreshPabd01Data($pabdWorkflow);
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD01',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+                table: 'pabd01_data',
+                dataId: $freshPabd01->id,
+                extra: ['reason' => 'pabd02b_approved'],
+            );
+        });
+
+        // Notify team
+        $this->notifier->notify($pabdWorkflow, 'pabd02b.approved', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Perubahan anggaran disetujui. PK04 telah di-recompile. Checklist pencairan baru telah dibuat.');
+    }
+
+    public function pabd02bReject(Pabd02bRejectRequest $request, PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd02b.reject');
+
+        // Staleness detection
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+
+            return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+                ->with('error', 'PK04 telah direvisi. PABD direset ke PABD01.');
+        }
+
+        $this->ensureStepActive($pabdWorkflow, 'PABD02B');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD02B', $pabd02bData->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd02bData, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($pabdWorkflow, $pabd02bData, $validated, $request, $sessionContext) {
+            // 1. Save per-item komentar_approval
+            $this->saveItemReviews($pabd02bData, $validated['items'] ?? []);
+
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $pabd02bData,
+                'pabd.pabd02b.reject',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            // 2. Record rejected
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD02B',
+                action: 'rejected',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'],
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: [
+                    'reviewed' => ['pabd02b_data_id' => $pabd02bData->id],
+                    'pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow),
+                ],
+            );
+
+            // 3. Soft-delete draft PK Proposals from proposal_baru items
+            $pabd02bData->load(['itemReview.pabd02aItemPerubahan']);
+            $allPerubahanItems = [];
+
+            foreach ($pabd02bData->itemReview as $review) {
+                $perubahan = $review->pabd02aItemPerubahan;
+                $allPerubahanItems[] = ['review' => $review, 'perubahan' => $perubahan];
+
+                if ($perubahan->tipe_perubahan === 'proposal_baru' && $perubahan->pk_workflow_id) {
+                    PkWorkflow::find($perubahan->pk_workflow_id)?->delete();
+                }
+            }
+
+            // 4. Insert pk04_anggaran_catatan_perubahan for tarik_maju items (audit)
+            $this->compileCatatanPerubahan($allPerubahanItems, $pabdWorkflow->id, 'rejected');
+
+            // 5. Cycle back to PABD01
+            $freshPabd01 = $this->createFreshPabd01Data($pabdWorkflow);
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD01',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+                table: 'pabd01_data',
+                dataId: $freshPabd01->id,
+                extra: ['reason' => 'pabd02b_rejected'],
+            );
+        });
+
+        // Notify team
+        $this->notifier->notify($pabdWorkflow, 'pabd02b.rejected', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Perubahan anggaran ditolak. Checklist pencairan baru telah dibuat.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD02B Helpers
+    // ──────────────────────────────────────
+
+    /**
+     * Save per-item komentar_approval on pabd02b_item_review rows.
+     */
+    private function saveItemReviews(Pabd02bData $pabd02bData, array $items): void
+    {
+        foreach ($items as $itemData) {
+            $reviewId = $itemData['pabd02b_item_review_id'] ?? null;
+            if (! $reviewId) {
+                continue;
+            }
+
+            $pabd02bData->itemReview()
+                ->where('id', $reviewId)
+                ->update(['komentar_approval' => $itemData['komentar_approval'] ?? null]);
+        }
+
+        $pabd02bData->touch();
+    }
+
+    /**
+     * Insert pk04_anggaran_catatan_perubahan per change item.
+     *
+     * @param  list<array{review: mixed, perubahan: Pabd02aItemPerubahan}>  $allItems
+     */
+    private function compileCatatanPerubahan(array $allItems, int $pabdWorkflowId, string $outcome): void
+    {
+        foreach ($allItems as $itemData) {
+            $perubahan = $itemData['perubahan'];
+            $review = $itemData['review'];
+
+            // Only create catatan for tarik_maju items (they have pk04_anggaran_id)
+            if ($perubahan->tipe_perubahan !== 'tarik_maju' || ! $perubahan->pk04_anggaran_id) {
+                continue;
+            }
+
+            Pk04AnggaranCatatanPerubahan::create([
+                'pk04_anggaran_id' => $perubahan->pk04_anggaran_id,
+                'pabd_workflow_id' => $pabdWorkflowId,
+                'tipe_perubahan' => 'tarik_maju',
+                'catatan_pemohon' => $perubahan->komentar,
+                'catatan_approval' => $review->komentar_approval,
+            ]);
+        }
+    }
+
+    /**
+     * Compute kode anggaran preview for a tarik_maju item.
+     *
+     * Shows what the new kode will look like after recompile:
+     * - bulan segment changes from bulan_awal → bulan_tujuan
+     * - tarik depth increments by 1
+     * - revisi uses current revision + 1
+     *
+     * @return array{current_kode: string, preview_kode: string}
+     */
+    private function computeKodePreview(Pabd02aItemPerubahan $item): array
+    {
+        $anggaran = $item->pk04Anggaran;
+        $currentKode = $anggaran->kode_anggaran_baru ?? '';
+
+        if (empty($currentKode)) {
+            return ['current_kode' => '', 'preview_kode' => ''];
+        }
+
+        $segments = explode('.', $currentKode);
+        if (count($segments) < 13) {
+            return ['current_kode' => $currentKode, 'preview_kode' => $currentKode];
+        }
+
+        // Bulan segment (index 10): change to bulan_tujuan
+        $segments[10] = str_pad((string) $item->bulan_tujuan, 2, '0', STR_PAD_LEFT);
+
+        // Revision segment (index 11): increment
+        $currentRev = (int) str_replace('rev', '', $segments[11]);
+        $segments[11] = 'rev'.($currentRev + 1);
+
+        // Tarik depth segment (index 12): increment
+        $currentDepth = (int) str_replace('M', '', $segments[12]);
+        $segments[12] = 'M'.($currentDepth + 1);
+
+        return [
+            'current_kode' => $currentKode,
+            'preview_kode' => implode('.', $segments),
+        ];
+    }
+
+    /**
+     * Resolve PABD02A submitter info from history.
+     *
+     * @return array{name: string, role: string, team: string, at: string}|null
+     */
+    private function resolvePabd02aSubmitter(array $history): ?array
+    {
+        $formatted = $this->historyFormatter->format($history);
+        foreach (array_reverse($formatted) as $entry) {
+            if (($entry['step'] ?? '') === 'PABD02A' && ($entry['action'] ?? '') === 'submitted') {
+                return [
+                    'name' => $entry['by_name'] ?? 'Unknown',
+                    'role' => $entry['role_name'] ?? '',
+                    'team' => $entry['team_name'] ?? '',
+                    'at' => $entry['at'] ?? '',
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve previous cycles for a step (pattern F — collapsed previous data).
+     *
+     * @return list<array{cycle: int, dataId: int|null}>
+     */
+    private function resolvePreviousCycles(PabdWorkflow $pabdWorkflow, string $step, ?int $currentDataId): array
+    {
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $stepDef = $definition->steps()[$step] ?? null;
+        if (! $stepDef) {
+            return [];
+        }
+
+        $table = $stepDef['table'] ?? null;
+        if (! $table) {
+            return [];
+        }
+
+        // Find all data rows for this step, excluding current
+        $modelClass = match ($table) {
+            'pabd01_data' => Pabd01Data::class,
+            'pabd02a_data' => Pabd02aData::class,
+            'pabd02b_data' => Pabd02bData::class,
+            default => null,
+        };
+
+        if (! $modelClass) {
+            return [];
+        }
+
+        $allDataIds = $modelClass::where('pabd_workflow_id', $pabdWorkflow->id)
+            ->orderBy('id')
+            ->pluck('id');
+
+        $cycles = [];
+        $cycleNum = 0;
+        foreach ($allDataIds as $dataId) {
+            $cycleNum++;
+            if ($currentDataId !== null && $dataId === $currentDataId) {
+                continue;
+            }
+            $cycles[] = ['cycle' => $cycleNum, 'dataId' => $dataId];
+        }
+
+        return $cycles;
     }
 
     // ──────────────────────────────────────

@@ -9,6 +9,7 @@ use App\Models\Pabd\PabdWorkflow;
 use App\Models\Permission;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
+use App\Models\Pk\Pk04AnggaranCatatanPerubahan;
 use App\Models\Pk\Pk04Kegiatan;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
@@ -965,6 +966,666 @@ it('rejects PABD02A draft with stale expected_updated_at', function () {
     $response = $this->post(route('team.workflows.pabd.pabd02a.draft', [
         'pabdWorkflow' => $pabdWorkflow->id,
         'pabd02aData' => $pabd02a->id,
+    ]), [
+        'expected_updated_at' => '2020-01-01T00:00:00+00:00',
+    ]);
+
+    $response->assertStatus(409);
+});
+
+// ── PABD02B Helpers ──
+
+/**
+ * Advance a PABD workflow to PABD02B active state.
+ *
+ * Creates PABD02A items (tarik_maju or proposal_baru), submits PABD02A,
+ * and creates PABD02B with item_review rows.
+ *
+ * @param  string  $itemType  'tarik_maju' or 'proposal_baru'
+ */
+function setupPabd02bActive(
+    $workspace,
+    $team,
+    $ppWorkflow,
+    $pk04,
+    int $bulan,
+    $user,
+    $role,
+    string $itemType = 'tarik_maju',
+    ?Pk04Anggaran $futureAnggaran = null,
+    ?PkWorkflow $pkWorkflow = null,
+): array {
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, $bulan, $user, $role);
+
+    $engine = new WorkflowEngine;
+
+    // Create PABD02A item(s)
+    if ($itemType === 'tarik_maju' && $futureAnggaran) {
+        Pabd02aItemPerubahan::create([
+            'pabd02a_data_id' => $pabd02a->id,
+            'tipe_perubahan' => 'tarik_maju',
+            'pk04_anggaran_id' => $futureAnggaran->id,
+            'bulan_awal' => $futureAnggaran->pk04Kegiatan->bulan,
+            'bulan_tujuan' => $bulan,
+            'komentar' => 'Perlu dana lebih awal untuk kegiatan bulan ini.',
+        ]);
+    } elseif ($itemType === 'proposal_baru' && $pkWorkflow) {
+        Pabd02aItemPerubahan::create([
+            'pabd02a_data_id' => $pabd02a->id,
+            'tipe_perubahan' => 'proposal_baru',
+            'pk_workflow_id' => $pkWorkflow->id,
+            'komentar' => 'Program baru untuk pelayanan pemuda.',
+        ]);
+    } else {
+        throw new \RuntimeException('setupPabd02bActive requires futureAnggaran for tarik_maju or pkWorkflow for proposal_baru');
+    }
+
+    // Record PABD02A submitted
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD02A',
+        action: 'submitted',
+        userId: $user->id,
+        sessionContext: ['role' => $role->id, 'team' => $team->id, 'org' => $team->organization_id, 'workspace' => $workspace->id],
+        table: 'pabd02a_data',
+        dataId: $pabd02a->id,
+    );
+
+    // Create PABD02B data
+    $pabd02b = Pabd02bData::create([
+        'pabd_workflow_id' => $pabdWorkflow->id,
+    ]);
+
+    // Create pabd02b_item_review rows (1:1 with PABD02A items)
+    foreach ($pabd02a->itemPerubahan()->get() as $item) {
+        $pabd02b->itemReview()->create([
+            'pabd02a_item_perubahan_id' => $item->id,
+        ]);
+    }
+
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD02B',
+        action: 'created',
+        userId: null,
+        sessionContext: [],
+        table: 'pabd02b_data',
+        dataId: $pabd02b->id,
+    );
+
+    return [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b];
+}
+
+/**
+ * Create a PK Proposal workflow with PK01 data (for proposal_baru items).
+ */
+function setupPkProposal($workspace, $team, $ppWorkflow, $user, $role): PkWorkflow
+{
+    $org = $role->team->organization;
+
+    $proposalWorkflow = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'proposal',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $team->id,
+        'created_by_org_id' => $org->id,
+        'history' => [],
+    ]);
+
+    $pk01 = Pk01Data::create([
+        'pk_workflow_id' => $proposalWorkflow->id,
+        'kode_kategori' => 'K01',
+        'nama_program' => 'Program Pelayanan Pemuda',
+        'deskripsi_program' => 'Deskripsi program pelayanan pemuda',
+        'tujuan_program' => 'Tujuan program pelayanan pemuda',
+    ]);
+
+    $kegiatan = $pk01->kegiatan()->create([
+        'nama_kegiatan' => 'Retreat Pemuda',
+        'bulan' => 5,
+    ]);
+
+    $kegiatan->anggaran()->create([
+        'kode_bidang' => 'B01',
+        'kode_sub_bidang' => 'SB01',
+        'kode_jenis' => 'J01',
+        'mata_anggaran' => 'Konsumsi Retreat',
+        'deskripsi_pk' => 'Konsumsi retreat pemuda',
+        'nominal_anggaran' => 5000000,
+    ]);
+
+    $kegiatan->kuisioner()->create([
+        'pertanyaan' => 'Berapa jumlah peserta?',
+        'tipe' => 'Kuantitatif',
+        'satuan' => 'orang',
+    ]);
+
+    return $proposalWorkflow;
+}
+
+// ── PABD02B Show ──
+
+it('shows PABD02B page with review items for admin scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        'admin.workflows.pabd.pabd02b.approve',
+        'admin.workflows.pabd.pabd02b.reject',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $response = $this->get(route('admin.workflows.pabd.pabd02b.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd02b')
+            ->where('mode', 'edit')
+            ->where('scope', 'admin')
+            ->where('canDraft', true)
+            ->where('canApprove', true)
+            ->where('canReject', true)
+            ->has('stepData.items', 1)
+            ->has('pabd01ChecklistData')
+            ->has('pabd02aSubmitter')
+            ->has('budgetCounter')
+            ->where('tarikMajuCount', 1)
+            ->where('proposalBaruCount', 0)
+        );
+});
+
+it('shows PABD02B as readonly for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'team.workflows.pabd.pabd02b.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $response = $this->get(route('team.workflows.pabd.pabd02b.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd02b')
+            ->where('mode', 'readonly')
+            ->where('scope', 'team')
+            ->where('canDraft', false)
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+// ── PABD02B Draft ──
+
+it('saves PABD02B draft with per-item komentar_approval', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.draft', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Perlu penjelasan lebih detail mengenai urgensi.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    $reviewItem->refresh();
+    expect($reviewItem->komentar_approval)->toBe('Perlu penjelasan lebih detail mengenai urgensi.');
+
+    $pabdWorkflow->refresh();
+    $lastEntry = collect($pabdWorkflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['step'])->toBe('PABD02B');
+});
+
+// ── PABD02B Approve (tarik_maju) ──
+
+it('approves PABD02B with tarik_maju item and recompiles PK04', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        'admin.workflows.pabd.pabd02b.approve',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+    $originalNominal = $futureAnggaran->nominal_anggaran;
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.approve', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Disetujui, urgensi jelas.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    // Verify old anggaran was zeroed with status_item='ditarik_maju'
+    $futureAnggaran->refresh();
+    expect((float) $futureAnggaran->nominal_anggaran)->toBe(0.0)
+        ->and($futureAnggaran->status_item)->toBe('ditarik_maju');
+
+    // Verify new PK04 was created (revision incremented)
+    $newPk04 = Pk04ProgramTahunan::where('pk_workflow_id', $pkWorkflow->id)
+        ->orderByDesc('revision')
+        ->first();
+    expect($newPk04->revision)->toBe(1);
+
+    // Verify new kegiatan created in destination month (bulan=3) with source='tarik_maju'
+    $newKegiatan = Pk04Kegiatan::where('pk04_program_tahunan_id', $newPk04->id)
+        ->where('source', 'tarik_maju')
+        ->first();
+    expect($newKegiatan)->not->toBeNull()
+        ->and($newKegiatan->bulan)->toBe(3);
+
+    // Verify new anggaran carries original nominal
+    $newAnggaran = Pk04Anggaran::where('pk04_kegiatan_id', $newKegiatan->id)->first();
+    expect($newAnggaran)->not->toBeNull()
+        ->and((float) $newAnggaran->nominal_anggaran)->toBe((float) $originalNominal)
+        ->and($newAnggaran->source)->toBe('tarik_maju')
+        ->and($newAnggaran->previous_anggaran_id)->toBe($futureAnggaran->id);
+
+    // Verify catatan_perubahan was created
+    $catatan = Pk04AnggaranCatatanPerubahan::where('pk04_anggaran_id', $futureAnggaran->id)
+        ->where('pabd_workflow_id', $pabdWorkflow->id)
+        ->first();
+    expect($catatan)->not->toBeNull()
+        ->and($catatan->tipe_perubahan)->toBe('tarik_maju')
+        ->and($catatan->catatan_approval)->toBe('Disetujui, urgensi jelas.');
+
+    // Verify cycle-back: PABD02B invalidated by own cycle-back, PABD01 is active again
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    // After approve cycle-back: PABD01=active (re-created), PABD02A/02B=pending (invalidated)
+    expect($statuses['PABD01']['status'])->toBe('active')
+        ->and($statuses['PABD02A']['status'])->toBe('pending')
+        ->and($statuses['PABD02B']['status'])->toBe('pending');
+
+    // Fresh PABD01 should exist with updated snapshot
+    $freshPabd01 = $pabdWorkflow->latestPabd01();
+    expect($freshPabd01->id)->not->toBe($pabd01->id)
+        ->and($freshPabd01->pk04_revisions_snapshot[$newPk04->id])->toBe(1);
+});
+
+// ── PABD02B Approve (proposal_baru) ──
+
+it('approves PABD02B with proposal_baru item and compiles to PK04', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        'admin.workflows.pabd.pabd02b.approve',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+
+    // Create a PK Proposal
+    $proposalWorkflow = setupPkProposal($workspace, $team, $ppWorkflow, $user, $role);
+
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'proposal_baru', pkWorkflow: $proposalWorkflow,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.approve', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Program disetujui.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    // Verify PK Proposal was compiled to PK04
+    $proposalPk04 = Pk04ProgramTahunan::where('pk_workflow_id', $proposalWorkflow->id)->first();
+    expect($proposalPk04)->not->toBeNull()
+        ->and($proposalPk04->nama_program)->toBe('Program Pelayanan Pemuda')
+        ->and($proposalPk04->revision)->toBe(0);
+
+    // Verify PK04 kegiatan and anggaran created
+    $proposalKegiatan = Pk04Kegiatan::where('pk04_program_tahunan_id', $proposalPk04->id)->first();
+    expect($proposalKegiatan)->not->toBeNull()
+        ->and($proposalKegiatan->nama_kegiatan)->toBe('Retreat Pemuda')
+        ->and($proposalKegiatan->source)->toBe('proposal')
+        ->and($proposalKegiatan->source_pabd_workflow_id)->toBe($pabdWorkflow->id);
+
+    $proposalAnggaran = Pk04Anggaran::where('pk04_kegiatan_id', $proposalKegiatan->id)->first();
+    expect($proposalAnggaran)->not->toBeNull()
+        ->and((float) $proposalAnggaran->nominal_anggaran)->toBe(5000000.0)
+        ->and($proposalAnggaran->source)->toBe('proposal');
+
+    // Verify cycle-back: PABD01=active, PABD02A/02B=pending (invalidated by approve cycle-back)
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    expect($statuses['PABD01']['status'])->toBe('active')
+        ->and($statuses['PABD02A']['status'])->toBe('pending')
+        ->and($statuses['PABD02B']['status'])->toBe('pending');
+});
+
+// ── PABD02B Reject ──
+
+it('rejects PABD02B, soft-deletes proposals, and cycles back to PABD01', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        'admin.workflows.pabd.pabd02b.reject',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+
+    // Create a PK Proposal for proposal_baru
+    $proposalWorkflow = setupPkProposal($workspace, $team, $ppWorkflow, $user, $role);
+
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'proposal_baru', pkWorkflow: $proposalWorkflow,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Program belum sesuai prioritas.',
+            ],
+        ],
+        'notes' => 'Proposal ditolak karena belum sesuai dengan prioritas tahunan.',
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    // Verify PK Proposal was soft-deleted
+    $proposalWorkflow->refresh();
+    expect($proposalWorkflow->trashed())->toBeTrue();
+
+    // PK Proposal should NOT have PK04 compiled (rejected before compile)
+    $proposalPk04 = Pk04ProgramTahunan::where('pk_workflow_id', $proposalWorkflow->id)->first();
+    expect($proposalPk04)->toBeNull();
+
+    // Verify cycle-back: PABD01=active, PABD02A/02B=pending (invalidated by reject cycle-back)
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    expect($statuses['PABD01']['status'])->toBe('active')
+        ->and($statuses['PABD02A']['status'])->toBe('pending')
+        ->and($statuses['PABD02B']['status'])->toBe('pending');
+
+    // History should have 'rejected'
+    $rejectEntries = collect($pabdWorkflow->history)->where('action', 'rejected');
+    expect($rejectEntries)->toHaveCount(1);
+});
+
+it('rejects PABD02B with tarik_maju item and creates catatan_perubahan audit', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        'admin.workflows.pabd.pabd02b.reject',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Tarik maju tidak disetujui.',
+            ],
+        ],
+        'notes' => 'Perubahan anggaran ditolak. Silakan ajukan kembali dengan justifikasi yang lebih kuat.',
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    // Verify old anggaran NOT modified (reject doesn't recompile)
+    $futureAnggaran->refresh();
+    expect((float) $futureAnggaran->nominal_anggaran)->toBe(3000000.0)
+        ->and($futureAnggaran->status_item)->toBe('active');
+
+    // Verify catatan_perubahan was created for audit
+    $catatan = Pk04AnggaranCatatanPerubahan::where('pk04_anggaran_id', $futureAnggaran->id)
+        ->where('pabd_workflow_id', $pabdWorkflow->id)
+        ->first();
+    expect($catatan)->not->toBeNull()
+        ->and($catatan->tipe_perubahan)->toBe('tarik_maju')
+        ->and($catatan->catatan_approval)->toBe('Tarik maju tidak disetujui.');
+
+    // Verify cycle-back: PABD01=active, PABD02A/02B=pending (invalidated by reject cycle-back)
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    expect($statuses['PABD01']['status'])->toBe('active')
+        ->and($statuses['PABD02A']['status'])->toBe('pending')
+        ->and($statuses['PABD02B']['status'])->toBe('pending');
+});
+
+// ── PABD02B Permission Denial ──
+
+it('denies PABD02B approve without approve permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        // No approve permission
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.approve', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Test',
+            ],
+        ],
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertForbidden();
+});
+
+it('denies PABD02B reject without reject permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        // No reject permission
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [
+            [
+                'pabd02b_item_review_id' => $reviewItem->id,
+                'komentar_approval' => 'Test',
+            ],
+        ],
+        'notes' => 'Ditolak karena alasan yang jelas dan lengkap.',
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertForbidden();
+});
+
+// ── PABD02B Optimistic Locking ──
+
+it('rejects PABD02B draft with stale expected_updated_at', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $response = $this->post(route('admin.workflows.pabd.pabd02b.draft', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
     ]), [
         'expected_updated_at' => '2020-01-01T00:00:00+00:00',
     ]);

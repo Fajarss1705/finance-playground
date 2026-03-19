@@ -94,6 +94,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::get('/{pabdWorkflow}/pabd02a/{pabd02aData}', [PabdWorkflowController::class, 'pabd02aShow'])->name('pabd02a.show');
             Route::post('/{pabdWorkflow}/pabd02a/{pabd02aData}/draft', [PabdWorkflowController::class, 'pabd02aDraft'])->name('pabd02a.draft');
             Route::post('/{pabdWorkflow}/pabd02a/{pabd02aData}/submit', [PabdWorkflowController::class, 'pabd02aSubmit'])->name('pabd02a.submit');
+
+            // PABD02B (team scope — read-only)
+            Route::get('/{pabdWorkflow}/pabd02b/{pabd02bData}', [PabdWorkflowController::class, 'pabd02bShow'])->name('pabd02b.show');
         });
 
         // Workflow prototypes — PRBL (team scope)
