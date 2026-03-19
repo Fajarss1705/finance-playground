@@ -188,6 +188,7 @@ class HistoryFormatter
             'approved' => 'disetujui',
             'rejected' => 'ditolak',
             'completed' => 'diselesaikan',
+            'reset' => 'direset',
             default => "di-{$action}",
         };
 

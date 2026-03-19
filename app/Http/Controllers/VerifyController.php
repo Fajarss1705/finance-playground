@@ -24,6 +24,18 @@ class VerifyController extends Controller
             return $this->verifyPk04($pk04, $code, $pkCompileService);
         }
 
+        // TODO: PABD05 — uncomment when Pabd05PengajuanBulanan model exists
+        // $pabd05 = Pabd05PengajuanBulanan::where('verification_code', $code)->first();
+        // if ($pabd05) {
+        //     return $this->verifyPabd05($pabd05, $code);
+        // }
+
+        // TODO: PRBL05 — uncomment when Prbl05PelaporanBulanan model exists
+        // $prbl05 = Prbl05PelaporanBulanan::where('verification_code', $code)->first();
+        // if ($prbl05) {
+        //     return $this->verifyPrbl05($prbl05, $code);
+        // }
+
         return response()->json([
             'status' => 'not_found',
             'message' => 'Kode verifikasi tidak ditemukan.',
