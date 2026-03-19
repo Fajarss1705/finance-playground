@@ -5,6 +5,7 @@ use App\Models\Pabd\Pabd01ItemAnggaran;
 use App\Models\Pabd\Pabd02aData;
 use App\Models\Pabd\Pabd02aItemPerubahan;
 use App\Models\Pabd\Pabd02bData;
+use App\Models\Pabd\Pabd04Data;
 use App\Models\Pabd\PabdWorkflow;
 use App\Models\Permission;
 use App\Models\Pk\Pk01Data;
@@ -1631,4 +1632,295 @@ it('rejects PABD02B draft with stale expected_updated_at', function () {
     ]);
 
     $response->assertStatus(409);
+});
+
+// ── PABD03 Helpers ──
+
+/**
+ * Advance a PABD workflow to PABD03 active state.
+ * (PABD01 submitted with ada_perubahan=false → PABD02A+02B skipped → PABD03 active)
+ */
+function setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, $bulan, $user, $role): array
+{
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, $bulan, $user, $role);
+
+    $items = $pabd01->itemAnggaran;
+
+    // Mark items as dicairkan
+    foreach ($items as $item) {
+        $item->update(['dicairkan' => true]);
+    }
+
+    $engine = new WorkflowEngine;
+
+    // Submit PABD01 with ada_perubahan = false
+    $pabd01->update(['ada_perubahan' => false]);
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD01',
+        action: 'submitted',
+        userId: $user->id,
+        sessionContext: ['role' => $role->id, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id],
+        table: 'pabd01_data',
+        dataId: $pabd01->id,
+    );
+
+    // Skip PABD02A + PABD02B
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD02A',
+        action: 'skipped',
+        userId: null,
+        sessionContext: [],
+    );
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD02B',
+        action: 'skipped',
+        userId: null,
+        sessionContext: [],
+    );
+
+    // Record PABD03 created
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD03',
+        action: 'created',
+        userId: null,
+        sessionContext: [],
+        extra: ['triggered_by' => ['user_id' => $user->id, 'step' => 'PABD01', 'action' => 'submitted']],
+    );
+
+    return [$pabdWorkflow, $pabd01];
+}
+
+// ── PABD03 Show ──
+
+it('shows PABD03 page for admin with approve/reject permissions', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        'admin.workflows.pabd.pabd03.approve',
+        'admin.workflows.pabd.pabd03.reject',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('admin.workflows.pabd.pabd03.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd03')
+            ->where('mode', 'edit')
+            ->where('scope', 'admin')
+            ->where('canApprove', true)
+            ->where('canReject', true)
+            ->has('pabd01ChecklistData', 1)
+            ->has('summaryTotals')
+            ->has('bankDetails')
+        );
+});
+
+it('shows PABD03 as readonly for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd03.show',
+        'team.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.pabd03.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd03')
+            ->where('mode', 'readonly')
+            ->where('scope', 'team')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+// ── PABD03 Approve ──
+
+it('approves PABD03 and creates PABD04 with Tier 2 pk04 lock', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        'admin.workflows.pabd.pabd03.approve',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd03.approve', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Transfer disetujui.',
+    ]);
+
+    $response->assertRedirect();
+
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    // PABD03 completed, PABD04 active
+    expect($statuses['PABD03']['status'])->toBe('completed')
+        ->and($statuses['PABD04']['status'])->toBe('active');
+
+    // PABD04 data row created
+    $pabd04 = Pabd04Data::where('pabd_workflow_id', $pabdWorkflow->id)->first();
+    expect($pabd04)->not->toBeNull();
+
+    // Verify Tier 2 PK04 lock: status_pencairan = 'menunggu_pencairan'
+    $ang1->refresh();
+    $ang2->refresh();
+    expect($ang1->status_pencairan)->toBe('menunggu_pencairan')
+        ->and($ang1->pencairan_pabd_workflow_id)->toBe($pabdWorkflow->id)
+        ->and($ang2->status_pencairan)->toBe('menunggu_pencairan')
+        ->and($ang2->pencairan_pabd_workflow_id)->toBe($pabdWorkflow->id);
+
+    // History contains approved + PABD04 created
+    $actions = collect($pabdWorkflow->history)->pluck('action')->all();
+    expect($actions)->toContain('approved');
+    $pabd04CreatedEntry = collect($pabdWorkflow->history)->firstWhere('step', 'PABD04');
+    expect($pabd04CreatedEntry['action'])->toBe('created');
+});
+
+// ── PABD03 Reject ──
+
+it('rejects PABD03 and cycles back to PABD01', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        'admin.workflows.pabd.pabd03.reject',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd03.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Transfer ditolak, revisi checklist diperlukan.',
+    ]);
+
+    $response->assertRedirect();
+
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    // Cycle back — fresh PABD01 active
+    expect($statuses['PABD01']['status'])->toBe('active')
+        ->and($statuses['PABD01']['cycle'])->toBe(2);
+
+    // Fresh pabd01_data created (not the original)
+    $freshPabd01 = Pabd01Data::where('pabd_workflow_id', $pabdWorkflow->id)
+        ->latest('id')
+        ->first();
+    expect($freshPabd01->id)->not->toBe($pabd01->id);
+
+    // History contains rejected + PABD01 created with reason
+    $rejectedEntry = collect($pabdWorkflow->history)->firstWhere(fn ($e) => ($e['step'] ?? '') === 'PABD03' && ($e['action'] ?? '') === 'rejected');
+    expect($rejectedEntry)->not->toBeNull()
+        ->and($rejectedEntry['notes'])->toBe('Transfer ditolak, revisi checklist diperlukan.');
+});
+
+it('rejects PABD03 reject when notes too short', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        'admin.workflows.pabd.pabd03.reject',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd03.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Too short',
+    ]);
+
+    $response->assertSessionHasErrors('notes');
+});
+
+// ── PABD03 Permission Denial ──
+
+it('denies PABD03 approve without permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        // Missing: admin.workflows.pabd.pabd03.approve
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd03.approve', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertForbidden();
+});
+
+it('denies PABD03 reject without permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        // Missing: admin.workflows.pabd.pabd03.reject
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd03.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Some rejection reason that is long enough.',
+    ]);
+
+    $response->assertForbidden();
 });

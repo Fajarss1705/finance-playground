@@ -11,11 +11,14 @@ use App\Http\Requests\Workflows\Pabd02aSubmitRequest;
 use App\Http\Requests\Workflows\Pabd02bApproveRequest;
 use App\Http\Requests\Workflows\Pabd02bDraftRequest;
 use App\Http\Requests\Workflows\Pabd02bRejectRequest;
+use App\Http\Requests\Workflows\Pabd03ApproveRequest;
+use App\Http\Requests\Workflows\Pabd03RejectRequest;
 use App\Http\Requests\Workflows\PabdCommentRequest;
 use App\Models\Pabd\Pabd01Data;
 use App\Models\Pabd\Pabd02aData;
 use App\Models\Pabd\Pabd02aItemPerubahan;
 use App\Models\Pabd\Pabd02bData;
+use App\Models\Pabd\Pabd04Data;
 use App\Models\Pabd\PabdWorkflow;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
@@ -1440,6 +1443,333 @@ class PabdWorkflowController extends Controller
 
         return to_route('admin.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'Perubahan anggaran ditolak. Checklist pencairan baru telah dibuat.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD03 — Approval Transfer
+    // ──────────────────────────────────────
+
+    public function pabd03Show(PabdWorkflow $pabdWorkflow): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd03.show");
+
+        // Staleness detection (runs on show)
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+            $newPabd01 = $pabdWorkflow->latestPabd01();
+
+            return Inertia::location(route(
+                $scope === 'team' ? 'team.workflows.pabd.pabd01.show' : 'admin.workflows.pabd.pabd01.show',
+                ['pabdWorkflow' => $pabdWorkflow->id, 'pabd01Data' => $newPabd01->id],
+            ));
+        }
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $statuses = $this->engine->getStepStatuses($definition, $pabdWorkflow->history ?? []);
+        $permissions = $this->session->getActivePermissions();
+
+        $isActive = ($statuses['PABD03']['status'] ?? '') === 'active';
+        $canApprove = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd03.approve', $permissions);
+        $canReject = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd03.reject', $permissions);
+        $canComment = in_array("{$scope}.workflows.pabd.comment", $permissions);
+        $mode = ($canApprove || $canReject) ? 'edit' : 'readonly';
+
+        // PABD01 checklist data
+        $latestPabd01 = $pabdWorkflow->latestPabd01();
+        $pabd01ChecklistData = $latestPabd01 ? $this->resolveAnggaranItems($latestPabd01, $pabdWorkflow) : [];
+        $pabd01Submitter = $this->resolvePabd01Submitter($pabdWorkflow->history ?? []);
+
+        // Summary totals from checklist
+        $summaryTotals = $this->computeChecklistSummary($pabd01ChecklistData);
+
+        // Bank details from PP06
+        $bankDetails = $this->resolveBankDetails($pabdWorkflow);
+
+        // Stepper + history
+        $stepperData = $this->engine->getStepperData($definition, $pabdWorkflow->history ?? [], function (string $code, ?int $dataId) use ($pabdWorkflow, $scope): ?string {
+            $base = "/{$scope}/workflows/pabd/{$pabdWorkflow->id}";
+            if ($dataId) {
+                $stepLower = strtolower($code);
+
+                return "{$base}/{$stepLower}/{$dataId}";
+            }
+            // PABD03 has no data table — link goes to workflow-level PABD03 route
+            if ($code === 'PABD03') {
+                return "{$base}/pabd03";
+            }
+
+            return null;
+        });
+        $formattedHistory = $this->historyFormatter->format($pabdWorkflow->history ?? []);
+
+        // Action roles
+        $actionRoles = $this->resolveActionRoles([
+            'admin.workflows.pabd.pabd03.approve' => ['Setujui', true],
+            'admin.workflows.pabd.pabd03.reject' => ['Tolak', false],
+        ]);
+
+        // Budget counters
+        $budgetCounter = $this->getBudgetCounters($pabdWorkflow);
+
+        // PABD01 previous cycles
+        $pabd01PreviousCycles = $this->resolvePreviousCycles($pabdWorkflow, 'PABD01', $latestPabd01?->id);
+
+        return Inertia::render('workflows/pabd/pabd03', [
+            'scope' => $scope,
+            'mode' => $mode,
+            'canApprove' => $canApprove,
+            'canReject' => $canReject,
+            'canComment' => $canComment,
+            'canTerminate' => false,
+
+            'workflow' => [
+                'id' => $pabdWorkflow->id,
+                'uuid' => $pabdWorkflow->uuid,
+                'team_name' => $pabdWorkflow->team?->name,
+                'bulan_anggaran' => $pabdWorkflow->bulan_anggaran,
+                'bulan_label' => $this->bulanNames()[$pabdWorkflow->bulan_anggaran] ?? (string) $pabdWorkflow->bulan_anggaran,
+                'tahun_anggaran' => $pabdWorkflow->tahun_anggaran,
+                'updated_at' => $pabdWorkflow->updated_at?->toIso8601String(),
+            ],
+
+            'pabd01ChecklistData' => $pabd01ChecklistData,
+            'pabd01Submitter' => $pabd01Submitter,
+            'pabd01Cycle' => $statuses['PABD01']['cycle'] ?? 1,
+            'pabd01PreviousCycles' => $pabd01PreviousCycles,
+            'summaryTotals' => $summaryTotals,
+            'bankDetails' => $bankDetails,
+
+            'budgetCounter' => $budgetCounter,
+            'stepStatuses' => $statuses,
+            'stepperData' => $stepperData,
+            'history' => $formattedHistory,
+            'actionRoles' => $actionRoles,
+            'activeRoleName' => $this->getActiveRoleName(),
+        ]);
+    }
+
+    public function pabd03Approve(Pabd03ApproveRequest $request, PabdWorkflow $pabdWorkflow): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd03.approve');
+
+        // Staleness detection
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+
+            return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+                ->with('error', 'PK04 telah direvisi. PABD direset ke PABD01.');
+        }
+
+        $this->ensureStepActive($pabdWorkflow, 'PABD03');
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabdWorkflow, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($pabdWorkflow, $validated, $request, $sessionContext) {
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $pabdWorkflow,
+                'pabd.pabd03.approve',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            // 1. Record approved
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD03',
+                action: 'approved',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+            );
+
+            // 2. Lock pk04_anggaran (Tier 2 — intermediate pencairan lock)
+            $latestPabd01 = $pabdWorkflow->latestPabd01();
+            if ($latestPabd01) {
+                $pk04AnggaranIds = $latestPabd01->itemAnggaran()->pluck('pk04_anggaran_id');
+                Pk04Anggaran::whereIn('id', $pk04AnggaranIds)
+                    ->update([
+                        'status_pencairan' => 'menunggu_pencairan',
+                        'pencairan_pabd_workflow_id' => $pabdWorkflow->id,
+                    ]);
+            }
+
+            // 3. Auto-create PABD04
+            $pabd04 = Pabd04Data::create([
+                'pabd_workflow_id' => $pabdWorkflow->id,
+            ]);
+
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD04',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+                table: 'pabd04_data',
+                dataId: $pabd04->id,
+                extra: [
+                    'triggered_by' => [
+                        'user_id' => $request->user()->id,
+                        'step' => 'PABD03',
+                        'action' => 'approved',
+                    ],
+                ],
+            );
+        });
+
+        // Notify Kantor Pusat
+        $this->notifier->notify($pabdWorkflow, 'pabd03.approved', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Transfer disetujui. Silakan tunggu upload bukti transfer dari Kantor Pusat.');
+    }
+
+    public function pabd03Reject(Pabd03RejectRequest $request, PabdWorkflow $pabdWorkflow): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd03.reject');
+
+        // Staleness detection
+        $staleness = $this->detectPk04Staleness($pabdWorkflow);
+        if ($staleness['stale']) {
+            $this->resetToPabd01FromStaleness($pabdWorkflow, $staleness['changed_pks']);
+
+            return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+                ->with('error', 'PK04 telah direvisi. PABD direset ke PABD01.');
+        }
+
+        $this->ensureStepActive($pabdWorkflow, 'PABD03');
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabdWorkflow, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($pabdWorkflow, $validated, $request, $sessionContext) {
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $pabdWorkflow,
+                'pabd.pabd03.reject',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            // 1. Record rejected
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD03',
+                action: 'rejected',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'],
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+            );
+
+            // 2. Cycle back to PABD01
+            $freshPabd01 = $this->createFreshPabd01Data($pabdWorkflow);
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD01',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+                table: 'pabd01_data',
+                dataId: $freshPabd01->id,
+                extra: ['reason' => 'pabd03_rejected'],
+            );
+        });
+
+        // Notify team
+        $this->notifier->notify($pabdWorkflow, 'pabd03.rejected', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Transfer ditolak. Checklist pencairan baru telah dibuat.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD03 Helpers
+    // ──────────────────────────────────────
+
+    /**
+     * Compute summary totals from checklist data.
+     *
+     * @return array{total: float, totalDicairkan: float, totalTidakDicairkan: float, countAll: int, countDicairkan: int, countTidakDicairkan: int}
+     */
+    private function computeChecklistSummary(array $pabd01ChecklistData): array
+    {
+        $total = 0;
+        $totalDicairkan = 0;
+        $totalTidakDicairkan = 0;
+        $countAll = 0;
+        $countDicairkan = 0;
+        $countTidakDicairkan = 0;
+
+        foreach ($pabd01ChecklistData as $program) {
+            foreach ($program['kegiatan'] as $kegiatan) {
+                foreach ($kegiatan['anggaran'] as $anggaran) {
+                    $nominal = (float) $anggaran['nominal'];
+                    $total += $nominal;
+                    $countAll++;
+
+                    if ($anggaran['dicairkan']) {
+                        $totalDicairkan += $nominal;
+                        $countDicairkan++;
+                    } else {
+                        $totalTidakDicairkan += $nominal;
+                        $countTidakDicairkan++;
+                    }
+                }
+            }
+        }
+
+        return compact('total', 'totalDicairkan', 'totalTidakDicairkan', 'countAll', 'countDicairkan', 'countTidakDicairkan');
+    }
+
+    /**
+     * Resolve bank details from PP06 item_plafon_anggaran for this team.
+     *
+     * @return array{nama_rekening: string|null, nomor_rekening: string|null, nama_bank: string|null, pp_label: string|null, pp_revision: int}
+     */
+    private function resolveBankDetails(PabdWorkflow $pabdWorkflow): array
+    {
+        $pp06 = $pabdWorkflow->ppWorkflow?->latestPp06();
+        if (! $pp06) {
+            return ['nama_rekening' => null, 'nomor_rekening' => null, 'nama_bank' => null, 'pp_label' => null, 'pp_revision' => 0];
+        }
+
+        $plafon = $pp06->itemPlafonAnggaran()
+            ->where('team_id', $pabdWorkflow->team_id)
+            ->first();
+
+        $pp01 = $pabdWorkflow->ppWorkflow?->latestPp01();
+
+        return [
+            'nama_rekening' => $plafon?->nama_rekening,
+            'nomor_rekening' => $plafon?->nomor_rekening,
+            'nama_bank' => $plafon?->nama_bank,
+            'pp_label' => $pp01 ? "PP-{$pp01->tahun}" : null,
+            'pp_revision' => $pp06->revision,
+        ];
     }
 
     // ──────────────────────────────────────

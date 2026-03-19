@@ -150,6 +150,11 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::post('/{pabdWorkflow}/pabd02b/{pabd02bData}/draft', [PabdWorkflowController::class, 'pabd02bDraft'])->name('pabd02b.draft');
             Route::post('/{pabdWorkflow}/pabd02b/{pabd02bData}/approve', [PabdWorkflowController::class, 'pabd02bApprove'])->name('pabd02b.approve');
             Route::post('/{pabdWorkflow}/pabd02b/{pabd02bData}/reject', [PabdWorkflowController::class, 'pabd02bReject'])->name('pabd02b.reject');
+
+            // PABD03 (admin scope — show + approve/reject, no data table param)
+            Route::get('/{pabdWorkflow}/pabd03', [PabdWorkflowController::class, 'pabd03Show'])->name('pabd03.show');
+            Route::post('/{pabdWorkflow}/pabd03/approve', [PabdWorkflowController::class, 'pabd03Approve'])->name('pabd03.approve');
+            Route::post('/{pabdWorkflow}/pabd03/reject', [PabdWorkflowController::class, 'pabd03Reject'])->name('pabd03.reject');
         });
 
         // Workflow prototypes — PRBL (admin scope)

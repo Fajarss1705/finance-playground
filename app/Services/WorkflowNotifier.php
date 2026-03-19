@@ -266,6 +266,8 @@ class WorkflowNotifier
             'pabd02a.submitted' => 'admin.workflows.pabd.pabd02b.approve',
             'pabd02b.approved' => 'team.workflows.pabd.pabd01.submit',
             'pabd02b.rejected' => 'team.workflows.pabd.pabd01.submit',
+            'pabd03.approved' => 'admin.workflows.pabd.pabd04.submit',
+            'pabd03.rejected' => 'team.workflows.pabd.pabd01.submit',
 
             default => null,
         };
@@ -337,6 +339,8 @@ class WorkflowNotifier
             'pabd02a.submitted' => ['disubmit', 'Perubahan Anggaran (PABD02A)', 'Silakan review dan setujui/tolak perubahan anggaran (PABD02B).'],
             'pabd02b.approved' => ['disetujui', 'Persetujuan Perubahan (PABD02B)', 'Perubahan anggaran disetujui. PK04 telah di-recompile. Silakan review ulang checklist pencairan.'],
             'pabd02b.rejected' => ['ditolak', 'Persetujuan Perubahan (PABD02B)', 'Perubahan anggaran ditolak. Silakan review ulang checklist pencairan.'],
+            'pabd03.approved' => ['disetujui', 'Persetujuan Transfer (PABD03)', 'Transfer disetujui. Silakan upload bukti transfer (PABD04).'],
+            'pabd03.rejected' => ['ditolak', 'Persetujuan Transfer (PABD03)', 'Transfer ditolak. Silakan review ulang checklist pencairan.'],
 
             default => [
                 $context['action_verb'] ?? 'diproses',

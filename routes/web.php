@@ -97,6 +97,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
 
             // PABD02B (team scope — read-only)
             Route::get('/{pabdWorkflow}/pabd02b/{pabd02bData}', [PabdWorkflowController::class, 'pabd02bShow'])->name('pabd02b.show');
+
+            // PABD03 (team scope — read-only, no data table param)
+            Route::get('/{pabdWorkflow}/pabd03', [PabdWorkflowController::class, 'pabd03Show'])->name('pabd03.show');
         });
 
         // Workflow prototypes — PRBL (team scope)
