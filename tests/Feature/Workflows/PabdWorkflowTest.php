@@ -242,6 +242,275 @@ function setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, $bulan = 3, $u
     return [$pabdWorkflow, $pabd01];
 }
 
+// ── Index ──
+
+it('renders PABD index page for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.index',
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.index'));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('workflows/pabd/index')
+        ->has('workflows.data', 1)
+        ->where('workflows.data.0.id', $pabdWorkflow->id)
+        ->where('workflows.data.0.bulan_label', 'Maret')
+        ->where('workflows.data.0.tahun_anggaran', 2027)
+        ->where('workflows.data.0.status', 'active')
+        ->where('scope', 'team')
+    );
+});
+
+it('renders PABD index page for admin scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'admin.workflows.pabd.index',
+        'admin.workflows.pabd.pabd01.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('admin.workflows.pabd.index'));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('workflows/pabd/index')
+        ->has('workflows.data', 1)
+        ->where('workflows.data.0.team_name', $team->name)
+        ->where('scope', 'admin')
+        ->has('availableTeams')
+    );
+});
+
+it('filters PABD index by bulan', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.index',
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Filter by bulan 3 — should show
+    $response = $this->get(route('team.workflows.pabd.index', ['bulan' => 3]));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->has('workflows.data', 1)
+    );
+
+    // Filter by bulan 6 — should be empty
+    $response = $this->get(route('team.workflows.pabd.index', ['bulan' => 6]));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->has('workflows.data', 0)
+    );
+});
+
+it('denies PABD index without permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        // Missing: team.workflows.pabd.index
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    $response = $this->get(route('team.workflows.pabd.index'));
+    $response->assertForbidden();
+});
+
+// ── Show ──
+
+it('renders PABD show page for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.index',
+        'team.workflows.pabd.show',
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('workflows/pabd/show')
+        ->where('workflow.id', $pabdWorkflow->id)
+        ->where('workflow.status', 'active')
+        ->where('informasi.team_name', $team->name)
+        ->where('informasi.bulan_label', 'Maret')
+        ->where('informasi.tahun_anggaran', 2027)
+        ->where('dataTerbaru', null)
+        ->where('canComment', true)
+        ->where('canExportZip', false)
+        ->where('scope', 'team')
+    );
+});
+
+it('renders PABD show page for admin scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'admin.workflows.pabd.index',
+        'admin.workflows.pabd.show',
+        'admin.workflows.pabd.pabd01.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('admin.workflows.pabd.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('workflows/pabd/show')
+        ->where('workflow.id', $pabdWorkflow->id)
+        ->where('informasi.team_name', $team->name)
+        ->where('scope', 'admin')
+    );
+});
+
+it('shows PABD show page with dataTerbaru when PABD05 compiled', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.show',
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd05.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $anggaran1, $anggaran2] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Create PABD05 compiled data
+    $pabd05 = Pabd05PengajuanBulanan::create([
+        'pabd_workflow_id' => $pabdWorkflow->id,
+        'verification_code' => 'ABCD1234',
+        'total_anggaran_dicairkan' => 2500000,
+        'total_item_dicairkan' => 1,
+        'total_item_hangus' => 1,
+        'nama_bank' => 'Bank Mandiri',
+        'nama_rekening' => 'Demo Test',
+        'nomor_rekening' => '1234567890',
+        'pabd01_created_by_user_name' => $user->name,
+        'pabd01_created_by_role_name' => 'Bapel',
+        'pabd01_created_by_team_name' => $team->name,
+        'pabd01_created_by_organization_name' => 'Test Org',
+        'pabd01_created_by_workspace_name' => 'Test WS',
+        'pabd01_created_at' => now(),
+        'pabd03_approved_by_user_name' => $user->name,
+        'pabd03_approved_by_role_name' => 'BU',
+        'pabd03_approved_by_team_name' => $team->name,
+        'pabd03_approved_by_organization_name' => 'Test Org',
+        'pabd03_approved_by_workspace_name' => 'Test WS',
+        'pabd03_approved_at' => now(),
+        'pabd04_created_by_user_name' => $user->name,
+        'pabd04_created_by_role_name' => 'Staff KG',
+        'pabd04_created_by_team_name' => $team->name,
+        'pabd04_created_by_organization_name' => 'Test Org',
+        'pabd04_created_by_workspace_name' => 'Test WS',
+        'pabd04_created_at' => now(),
+    ]);
+
+    Pabd05ItemAnggaran::create([
+        'pabd05_pengajuan_bulanan_id' => $pabd05->id,
+        'pk04_anggaran_id' => $anggaran1->id,
+        'status' => 'dicairkan',
+        'nominal_anggaran' => 2500000,
+    ]);
+    Pabd05ItemAnggaran::create([
+        'pabd05_pengajuan_bulanan_id' => $pabd05->id,
+        'pk04_anggaran_id' => $anggaran2->id,
+        'status' => 'hangus',
+        'nominal_anggaran' => 1000000,
+    ]);
+
+    // Mark workflow as completed
+    $pabdWorkflow->update(['history' => [
+        ...$pabdWorkflow->history,
+        ['step' => 'PABD05', 'action' => 'completed', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()],
+    ]]);
+
+    $response = $this->get(route('team.workflows.pabd.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('workflows/pabd/show')
+        ->where('workflow.status', 'completed')
+        ->where('dataTerbaru.verification_code', 'ABCD1234')
+        ->where('dataTerbaru.total_item_dicairkan', 1)
+        ->where('dataTerbaru.total_item_hangus', 1)
+        ->where('dataTerbaru.total_anggaran_dicairkan', fn ($v) => (float) $v === 2500000.0)
+        ->where('dataTerbaru.total_anggaran_hangus', fn ($v) => (float) $v === 1000000.0)
+        ->where('dataTerbaru.grand_total', fn ($v) => (float) $v === 3500000.0)
+        ->where('dataTerbaru.bukti_transfer_count', 0)
+    );
+});
+
+it('denies PABD show without permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.index',
+        // Missing: team.workflows.pabd.show
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertForbidden();
+});
+
+it('denies PABD show from another team in team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    // Create workflow for a different team
+    $otherUser = User::factory()->withRole()->create();
+    $otherRole = $otherUser->roles->first();
+    $otherTeam = $otherRole->team;
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $otherTeam);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $otherTeam, $ppWorkflow, 3, $otherUser, $otherRole);
+    [$pabdWorkflow] = setupPabdWorkflow($workspace, $otherTeam, $ppWorkflow, $pk04, 3, $otherUser, $otherRole);
+
+    $response = $this->get(route('team.workflows.pabd.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertForbidden();
+});
+
 // ── PABD01 Show ──
 
 it('shows PABD01 page with anggaran items for team scope', function () {

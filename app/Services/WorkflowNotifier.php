@@ -260,6 +260,7 @@ class WorkflowNotifier
             'pk03.rejected' => 'team.workflows.pk.pk01.draft',
 
             // PABD workflow events
+            'pabd.auto_created' => 'team.workflows.pabd.pabd01.submit',
             'pabd01.submitted_change' => 'team.workflows.pabd.pabd02a.draft',
             'pabd01.submitted_skip' => 'admin.workflows.pabd.pabd03.approve',
             'pabd.pk04_staleness_reset' => 'team.workflows.pabd.pabd01.submit',
@@ -334,6 +335,7 @@ class WorkflowNotifier
             'pk03.rejected' => ['ditolak', 'RAKER (PK03)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
 
             // PABD workflow events
+            'pabd.auto_created' => ['dibuat', 'Pengajuan Anggaran Bulanan (PABD)', 'Silakan isi checklist pencairan (PABD01).'],
             'pabd01.submitted_change' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Silakan lanjutkan pengisian Perubahan Anggaran (PABD02A).'],
             'pabd01.submitted_skip' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Tidak ada perubahan anggaran. Silakan review dan setujui/tolak transfer (PABD03).'],
             'pabd.pk04_staleness_reset' => ['direset', 'Checklist Pencairan (PABD01)', 'PK04 telah direvisi. Silakan review ulang checklist pencairan.'],
