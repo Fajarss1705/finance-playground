@@ -10,15 +10,20 @@ use App\Http\Requests\Workflows\Prbl02aApproveRequest;
 use App\Http\Requests\Workflows\Prbl02aRejectRequest;
 use App\Http\Requests\Workflows\Prbl02bApproveRequest;
 use App\Http\Requests\Workflows\Prbl02bRejectRequest;
+use App\Http\Requests\Workflows\Prbl03DraftRequest;
+use App\Http\Requests\Workflows\Prbl03SubmitRequest;
 use App\Http\Requests\Workflows\PrblCommentRequest;
 use App\Models\File;
 use App\Models\Pk\Pk04Anggaran;
+use App\Models\Pp\Pp06RekeningOrganisasi;
 use App\Models\Prbl\Prbl01Data;
 use App\Models\Prbl\Prbl01FotoKegiatan;
 use App\Models\Prbl\Prbl01ItemKegiatan;
 use App\Models\Prbl\Prbl01ItemKuisioner;
 use App\Models\Prbl\Prbl01ItemRealisasi;
 use App\Models\Prbl\Prbl01NotaPengeluaran;
+use App\Models\Prbl\Prbl03Bukti;
+use App\Models\Prbl\Prbl03Data;
 use App\Models\Prbl\PrblWorkflow;
 use App\Models\Role;
 use App\Services\ActiveSessionService;
@@ -676,13 +681,25 @@ class PrblWorkflowController extends Controller
         $otherAction = $this->getLatestStepAction($otherStep, $history);
 
         if ($thisAction === 'approved' && $otherAction === 'approved') {
-            // Both approved → create PRBL03
+            // Both approved → compute refund and create PRBL03 data
+            $totalDicairkan = $this->calculateTotalDicairkan($prblWorkflow);
+            $latestPrbl01 = $prblWorkflow->latestPrbl01();
+            $totalRealisasi = $latestPrbl01 ? (float) $latestPrbl01->itemRealisasi()->sum('nominal_realisasi') : 0;
+            $nominalRefund = max(0, $totalDicairkan - $totalRealisasi);
+
+            $prbl03Data = Prbl03Data::create([
+                'prbl_workflow_id' => $prblWorkflow->id,
+                'nominal_refund' => $nominalRefund,
+            ]);
+
             $this->engine->recordAction(
                 workflow: $prblWorkflow,
                 step: 'PRBL03',
                 action: 'created',
                 userId: null,
                 sessionContext: [],
+                table: 'prbl03_data',
+                dataId: $prbl03Data->id,
             );
 
             $this->notifier->notify($prblWorkflow, 'prbl02.both_approved', [
@@ -821,6 +838,502 @@ class PrblWorkflowController extends Controller
     }
 
     // ──────────────────────────────────────
+    // PRBL03 — Refund & Bukti Transfer
+    // ──────────────────────────────────────
+
+    public function prbl03Show(PrblWorkflow $prblWorkflow, Prbl03Data $prbl03Data): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.prbl03.show");
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $history = $prblWorkflow->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+
+        // Mode resolution
+        $mode = $this->resolveMode($statuses, 'PRBL03');
+        if (($statuses['PRBL03']['dataId'] ?? null) !== null && $statuses['PRBL03']['dataId'] !== $prbl03Data->id) {
+            $mode = 'readonly';
+        }
+        if ($scope === 'admin') {
+            $mode = 'readonly';
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = "{$scope}.workflows.prbl";
+        $isEditable = in_array($mode, ['edit', 'create']) && $scope === 'team';
+
+        // Labels
+        $teamName = $prblWorkflow->team?->name ?? 'Unknown';
+        $bulanNames = $this->bulanNames();
+        $bulanLabel = $bulanNames[$prblWorkflow->bulan_laporan] ?? (string) $prblWorkflow->bulan_laporan;
+        $label = "PRBL-{$teamName}-{$bulanLabel}/{$prblWorkflow->tahun_laporan}";
+
+        // PP reference
+        $ppWorkflow = $prblWorkflow->ppWorkflow;
+        $pp06 = $ppWorkflow?->latestPp06();
+        $ppLabel = $pp06 ? "PP-{$ppWorkflow->latestPp01()?->tahun} Revisi {$pp06->revision}" : null;
+
+        // Realisasi display
+        $kegiatanItems = $this->resolveRealisasiDisplay($prblWorkflow);
+
+        // Totals
+        $totalDicairkan = $this->calculateTotalDicairkan($prblWorkflow);
+        $latestPrbl01 = $prblWorkflow->latestPrbl01();
+        $totalRealisasi = $latestPrbl01 ? (float) $latestPrbl01->itemRealisasi()->sum('nominal_realisasi') : 0;
+
+        // File lists
+        $buktiTransferFiles = $prbl03Data->bukti()
+            ->where('tipe', 'bukti_transfer')
+            ->with('file')
+            ->get()
+            ->map(fn (Prbl03Bukti $item) => [
+                'id' => $item->id,
+                'file_id' => $item->file_id,
+                'original_filename' => $item->file?->original_filename,
+                'mime_type' => $item->file?->mime_type,
+                'size' => $item->file?->size,
+                'uuid' => $item->file?->uuid,
+            ])
+            ->values()
+            ->all();
+
+        $fotoNotaFiles = $prbl03Data->bukti()
+            ->where('tipe', 'foto_nota')
+            ->with('file')
+            ->get()
+            ->map(fn (Prbl03Bukti $item) => [
+                'id' => $item->id,
+                'file_id' => $item->file_id,
+                'original_filename' => $item->file?->original_filename,
+                'mime_type' => $item->file?->mime_type,
+                'size' => $item->file?->size,
+                'uuid' => $item->file?->uuid,
+            ])
+            ->values()
+            ->all();
+
+        // Rekening organisasi
+        $rekeningOrganisasi = [];
+        if ($pp06) {
+            $rekeningOrganisasi = Pp06RekeningOrganisasi::where('pp06_periode_tahunan_id', $pp06->id)
+                ->get()
+                ->map(fn ($r) => [
+                    'nama_bank' => $r->nama_bank,
+                    'nama_rekening' => $r->nama_rekening,
+                    'nomor_rekening' => $r->nomor_rekening,
+                ])
+                ->values()
+                ->all();
+        }
+
+        // Submitter info (PRBL01)
+        $submitterInfo = $this->resolveStepSubmitter($history, 'PRBL01');
+
+        // Approval info (PRBL02A + PRBL02B)
+        $approvalInfo = $this->resolveApprovalInfo($history);
+
+        // Cycle-back detection
+        $cycle = $statuses['PRBL03']['cycle'] ?? 1;
+        $isReentry = $cycle > 1 && ($statuses['PRBL03']['status'] ?? '') === 'active';
+        $cycleBackNotes = $isReentry ? $this->resolvePrbl03CycleBackNotes($history) : null;
+
+        // Previous cycles
+        $previousCycles = $this->resolvePreviousCycles($history, 'PRBL03');
+
+        // Stepper
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow, $scope): ?string {
+            return $this->resolveStepUrl($code, $dataId, $prblWorkflow, $scope);
+        });
+
+        $basePath = $scope === 'team'
+            ? "/team/workflows/prbl/{$prblWorkflow->id}"
+            : "/admin/workflows/prbl/{$prblWorkflow->id}";
+
+        return Inertia::render('workflows/prbl/prbl03', [
+            'workflow' => [
+                'id' => $prblWorkflow->id,
+                'label' => $label,
+                'status' => $this->engine->getWorkflowStatus($history),
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
+            ],
+            'prbl03' => [
+                'id' => $prbl03Data->id,
+                'nominal_refund' => (float) $prbl03Data->nominal_refund,
+                'keterangan' => $prbl03Data->keterangan,
+                'updated_at' => $prbl03Data->updated_at->toIso8601String(),
+            ],
+            'kegiatanItems' => $kegiatanItems,
+            'totalDicairkan' => $totalDicairkan,
+            'totalRealisasi' => $totalRealisasi,
+            'nominalRefund' => (float) $prbl03Data->nominal_refund,
+            'buktiTransferFiles' => $buktiTransferFiles,
+            'fotoNotaFiles' => $fotoNotaFiles,
+            'rekeningOrganisasi' => $rekeningOrganisasi,
+            'ppLabel' => $ppLabel,
+            'submitterInfo' => $submitterInfo,
+            'approvalInfo' => $approvalInfo,
+            'cycleBackNotes' => $cycleBackNotes,
+            'previousCycles' => $previousCycles,
+            'workflowMeta' => [
+                'bulan_laporan' => $prblWorkflow->bulan_laporan,
+                'bulan_label' => $bulanLabel,
+                'tahun_laporan' => $prblWorkflow->tahun_laporan,
+                'team_name' => $teamName,
+            ],
+            'mode' => $mode,
+            'canDraft' => $isEditable && in_array("{$permPrefix}.prbl03.draft", $permissions),
+            'canSubmit' => $isEditable && in_array("{$permPrefix}.prbl03.submit", $permissions),
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'expectedUpdatedAt' => $prbl03Data->updated_at->toIso8601String(),
+            'actionRoles' => $this->resolveActionRoles([
+                'team.workflows.prbl.prbl03.draft' => ['Simpan Draft', false],
+                'team.workflows.prbl.prbl03.submit' => ['Submit', true],
+                "{$permPrefix}.comment" => ['Komentar', false],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'scope' => $scope,
+            'basePath' => $basePath,
+        ]);
+    }
+
+    public function prbl03Draft(Prbl03DraftRequest $request, PrblWorkflow $prblWorkflow, Prbl03Data $prbl03Data): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        $this->ensureTeamOwnership($prblWorkflow);
+        $this->checkPermission('team.workflows.prbl.prbl03.draft');
+        $this->ensureStepActive($prblWorkflow, 'PRBL03');
+        $this->ensureCurrentRecord($prblWorkflow, 'PRBL03', $prbl03Data->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($prbl03Data, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($prbl03Data, $validated, $request, $prblWorkflow, $sessionContext) {
+            // Remove files
+            $this->removePrbl03Files($prbl03Data, $validated['remove_bukti_transfer_ids'] ?? [], 'bukti_transfer');
+            $this->removePrbl03Files($prbl03Data, $validated['remove_foto_nota_ids'] ?? [], 'foto_nota');
+
+            // Upload new files
+            $this->uploadPrbl03Files($prbl03Data, $request->file('bukti_transfer_files', []), 'bukti_transfer', $prblWorkflow, $request->user()->id, $sessionContext);
+            $this->uploadPrbl03Files($prbl03Data, $request->file('foto_nota_files', []), 'foto_nota', $prblWorkflow, $request->user()->id, $sessionContext);
+
+            // Update keterangan
+            $prbl03Data->update(['keterangan' => $validated['keterangan'] ?? null]);
+
+            // Action-level files
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $prbl03Data,
+                'prbl.prbl03.draft',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL03',
+                action: 'drafted',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                table: 'prbl03_data',
+                dataId: $prbl03Data->id,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($prblWorkflow)],
+            );
+        });
+
+        return to_route("{$this->getScope()}.workflows.prbl.prbl03.show", [$prblWorkflow, $prbl03Data])
+            ->with('success', 'Draft PRBL03 berhasil disimpan.');
+    }
+
+    public function prbl03Submit(Prbl03SubmitRequest $request, PrblWorkflow $prblWorkflow, Prbl03Data $prbl03Data): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        $this->ensureTeamOwnership($prblWorkflow);
+        $this->checkPermission('team.workflows.prbl.prbl03.submit');
+        $this->ensureStepActive($prblWorkflow, 'PRBL03');
+        $this->ensureCurrentRecord($prblWorkflow, 'PRBL03', $prbl03Data->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($prbl03Data, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($prbl03Data, $validated, $request, $prblWorkflow, $sessionContext) {
+            // Remove files
+            $this->removePrbl03Files($prbl03Data, $validated['remove_bukti_transfer_ids'] ?? [], 'bukti_transfer');
+            $this->removePrbl03Files($prbl03Data, $validated['remove_foto_nota_ids'] ?? [], 'foto_nota');
+
+            // Upload new files
+            $this->uploadPrbl03Files($prbl03Data, $request->file('bukti_transfer_files', []), 'bukti_transfer', $prblWorkflow, $request->user()->id, $sessionContext);
+            $this->uploadPrbl03Files($prbl03Data, $request->file('foto_nota_files', []), 'foto_nota', $prblWorkflow, $request->user()->id, $sessionContext);
+
+            // Update keterangan
+            $prbl03Data->update(['keterangan' => $validated['keterangan'] ?? null]);
+
+            // Validate file counts
+            $fotoNotaCount = $prbl03Data->bukti()->where('tipe', 'foto_nota')->count();
+            if ($fotoNotaCount === 0) {
+                abort(422, 'Minimal 1 foto nota harus diupload.');
+            }
+
+            $nominalRefund = (float) $prbl03Data->nominal_refund;
+            if ($nominalRefund > 0) {
+                $buktiTransferCount = $prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count();
+                if ($buktiTransferCount === 0) {
+                    abort(422, 'Minimal 1 bukti transfer harus diupload karena ada refund.');
+                }
+            }
+
+            // Action-level files
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $prbl03Data,
+                'prbl.prbl03.submit',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            // Record PRBL03 submitted
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL03',
+                action: 'submitted',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                table: 'prbl03_data',
+                dataId: $prbl03Data->id,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($prblWorkflow)],
+            );
+
+            // Activate PRBL04
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL04',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+            );
+        });
+
+        // Notify PRBL04 approvers (BU)
+        $this->notifier->notify($prblWorkflow, 'prbl03.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('team.workflows.prbl.prbl03.show', [$prblWorkflow, $prbl03Data])
+            ->with('success', 'Bukti refund berhasil disubmit. Menunggu review BU (PRBL04).');
+    }
+
+    // ──────────────────────────────────────
+    // PRBL03 Helper Methods
+    // ──────────────────────────────────────
+
+    /**
+     * Resolve realisasi display data grouped by program → kegiatan → anggaran.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function resolveRealisasiDisplay(PrblWorkflow $prblWorkflow): array
+    {
+        $latestPrbl01 = $prblWorkflow->latestPrbl01();
+
+        // Index realisasi by pk04_anggaran_id
+        $realisasiByAnggaran = [];
+        if ($latestPrbl01) {
+            $latestPrbl01->load('itemRealisasi');
+            foreach ($latestPrbl01->itemRealisasi as $r) {
+                $realisasiByAnggaran[$r->pk04_anggaran_id] = (float) $r->nominal_realisasi;
+            }
+        }
+
+        $bulanNames = $this->bulanNames();
+
+        // Get all dicairkan anggaran for this PABD workflow
+        $dicairkanAnggaran = Pk04Anggaran::where('pencairan_pabd_workflow_id', $prblWorkflow->pabd_workflow_id)
+            ->where('status_pencairan', 'dicairkan')
+            ->whereHas('pk04Kegiatan', fn ($q) => $q->where('bulan', $prblWorkflow->bulan_laporan))
+            ->with(['pk04Kegiatan.pk04ProgramTahunan'])
+            ->get();
+
+        $programMap = [];
+
+        foreach ($dicairkanAnggaran as $anggaran) {
+            $kegiatan = $anggaran->pk04Kegiatan;
+            if (! $kegiatan) {
+                continue;
+            }
+
+            $program = $kegiatan->pk04ProgramTahunan;
+            if (! $program) {
+                continue;
+            }
+
+            $programId = $program->id;
+            if (! isset($programMap[$programId])) {
+                $programMap[$programId] = [
+                    'program_id' => $program->id,
+                    'program_name' => $program->nama_program,
+                    'kode_kategori' => $program->kode_kategori,
+                    'kegiatan' => [],
+                ];
+            }
+
+            $kegiatanId = $kegiatan->id;
+            if (! isset($programMap[$programId]['kegiatan'][$kegiatanId])) {
+                $programMap[$programId]['kegiatan'][$kegiatanId] = [
+                    'kegiatan_id' => $kegiatan->id,
+                    'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                    'bulan' => $kegiatan->bulan,
+                    'bulan_label' => $bulanNames[$kegiatan->bulan] ?? (string) $kegiatan->bulan,
+                    'anggaran' => [],
+                ];
+            }
+
+            $nominalDicairkan = (float) $anggaran->nominal_anggaran;
+            $nominalRealisasi = $realisasiByAnggaran[$anggaran->id] ?? 0;
+
+            $programMap[$programId]['kegiatan'][$kegiatanId]['anggaran'][] = [
+                'pk04_anggaran_id' => $anggaran->id,
+                'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                'mata_anggaran' => $anggaran->mata_anggaran,
+                'nominal_dicairkan' => $nominalDicairkan,
+                'nominal_realisasi' => $nominalRealisasi,
+                'selisih' => $nominalDicairkan - $nominalRealisasi,
+            ];
+        }
+
+        // Flatten kegiatan arrays
+        foreach ($programMap as &$program) {
+            $program['kegiatan'] = array_values($program['kegiatan']);
+        }
+
+        return array_values($programMap);
+    }
+
+    /**
+     * Resolve PRBL02A + PRBL02B approval info from history.
+     *
+     * @return array{prbl02a: ?array<string, mixed>, prbl02b: ?array<string, mixed>}
+     */
+    private function resolveApprovalInfo(array $history): array
+    {
+        $formattedHistory = $this->historyFormatter->format($history);
+        $prbl02a = null;
+        $prbl02b = null;
+
+        for ($i = count($formattedHistory) - 1; $i >= 0; $i--) {
+            $entry = $formattedHistory[$i];
+            $step = $entry['step'] ?? '';
+            $action = $entry['action'] ?? '';
+
+            if ($step === 'PRBL02A' && $action === 'approved' && ! $prbl02a) {
+                $prbl02a = [
+                    'name' => $entry['by_name'] ?? 'Unknown',
+                    'role' => $entry['role_name'] ?? '',
+                    'team' => $entry['team_name'] ?? null,
+                    'date' => $entry['at'] ?? '',
+                    'notes' => $entry['notes'] ?? null,
+                ];
+            }
+
+            if ($step === 'PRBL02B' && $action === 'approved' && ! $prbl02b) {
+                $prbl02b = [
+                    'name' => $entry['by_name'] ?? 'Unknown',
+                    'role' => $entry['role_name'] ?? '',
+                    'team' => $entry['team_name'] ?? null,
+                    'date' => $entry['at'] ?? '',
+                    'notes' => $entry['notes'] ?? null,
+                ];
+            }
+
+            if ($prbl02a && $prbl02b) {
+                break;
+            }
+        }
+
+        return [
+            'prbl02a' => $prbl02a,
+            'prbl02b' => $prbl02b,
+        ];
+    }
+
+    /**
+     * Resolve cycle-back notes for PRBL03 from PRBL04 reject_to_prbl03.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolvePrbl03CycleBackNotes(array $history): ?array
+    {
+        $formattedHistory = $this->historyFormatter->format($history);
+
+        for ($i = count($formattedHistory) - 1; $i >= 0; $i--) {
+            $entry = $formattedHistory[$i];
+            if (($entry['step'] ?? '') === 'PRBL04' && ($entry['action'] ?? '') === 'rejected') {
+                $cycleTarget = $entry['cycleTarget'] ?? null;
+                if ($cycleTarget === 'PRBL03') {
+                    return [
+                        'by_name' => $entry['by_name'] ?? null,
+                        'role_name' => $entry['role_name'] ?? null,
+                        'team_name' => $entry['team_name'] ?? null,
+                        'at' => $entry['at'] ?? null,
+                        'notes' => $entry['notes'] ?? null,
+                        'files' => $entry['files'] ?? null,
+                    ];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Upload files to prbl03_bukti.
+     *
+     * @param  list<\Illuminate\Http\UploadedFile>  $files
+     */
+    private function uploadPrbl03Files(Prbl03Data $prbl03Data, array $files, string $tipe, PrblWorkflow $prblWorkflow, int $userId, array $sessionContext): void
+    {
+        foreach ($files as $uploadedFile) {
+            $file = $this->storeUploadedFile($uploadedFile, $prblWorkflow, $userId, $sessionContext, "prbl.prbl03.{$tipe}");
+
+            Prbl03Bukti::create([
+                'prbl03_data_id' => $prbl03Data->id,
+                'tipe' => $tipe,
+                'file_id' => $file->id,
+            ]);
+        }
+    }
+
+    /**
+     * Remove files from prbl03_bukti.
+     *
+     * @param  list<int>  $removeIds
+     */
+    private function removePrbl03Files(Prbl03Data $prbl03Data, array $removeIds, string $tipe): void
+    {
+        if (empty($removeIds)) {
+            return;
+        }
+
+        Prbl03Bukti::where('prbl03_data_id', $prbl03Data->id)
+            ->where('tipe', $tipe)
+            ->whereIn('id', $removeIds)
+            ->delete();
+    }
+
+    // ──────────────────────────────────────
     // PRBL02A/02B Helper Methods
     // ──────────────────────────────────────
 
@@ -900,6 +1413,7 @@ class PrblWorkflowController extends Controller
             'PRBL01' => $dataId ? "{$base}/prbl01/{$dataId}" : null,
             'PRBL02A' => "{$base}/prbl02a",
             'PRBL02B' => "{$base}/prbl02b",
+            'PRBL03' => $dataId ? "{$base}/prbl03/{$dataId}" : null,
             default => null,
         };
     }

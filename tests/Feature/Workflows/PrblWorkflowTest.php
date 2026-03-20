@@ -16,6 +16,8 @@ use App\Models\Prbl\Prbl01ItemKegiatan;
 use App\Models\Prbl\Prbl01ItemKuisioner;
 use App\Models\Prbl\Prbl01ItemRealisasi;
 use App\Models\Prbl\Prbl01NotaPengeluaran;
+use App\Models\Prbl\Prbl03Bukti;
+use App\Models\Prbl\Prbl03Data;
 use App\Models\Prbl\PrblWorkflow;
 use App\Models\User;
 use App\Services\ActiveSessionService;
@@ -1492,4 +1494,459 @@ it('denies PRBL02B reject without permission', function () {
     ]);
 
     $response->assertForbidden();
+});
+
+// ────────────────────────────────────────────────
+// PRBL03 — Refund & Bukti Transfer
+// ────────────────────────────────────────────────
+
+/**
+ * Advance workflow through PRBL01 submit + PRBL02A/02B approve, creating PRBL03 data.
+ */
+function advanceToPrbl03(object $prblWorkflow, object $prbl01, object $itemKegiatan, object $itemKuisioner, object $realisasi1, object $realisasi2, int $userId): Prbl03Data
+{
+    advanceToPrbl02($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $userId);
+
+    $engine = new WorkflowEngine;
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL02A', action: 'approved', userId: $userId, sessionContext: []);
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL02B', action: 'approved', userId: $userId, sessionContext: []);
+
+    // Compute refund (same logic as join handler)
+    $totalDicairkan = (float) Pk04Anggaran::where('pencairan_pabd_workflow_id', $prblWorkflow->pabd_workflow_id)
+        ->where('status_pencairan', 'dicairkan')
+        ->sum('nominal_anggaran');
+    $latestPrbl01 = $prblWorkflow->fresh()->latestPrbl01();
+    $totalRealisasi = $latestPrbl01 ? (float) $latestPrbl01->itemRealisasi()->sum('nominal_realisasi') : 0;
+    $nominalRefund = max(0, $totalDicairkan - $totalRealisasi);
+
+    $prbl03Data = Prbl03Data::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'nominal_refund' => $nominalRefund,
+    ]);
+
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL03', action: 'created', userId: null, sessionContext: [], table: 'prbl03_data', dataId: $prbl03Data->id);
+
+    return $prbl03Data;
+}
+
+// ── PRBL03 Show ──
+
+it('shows PRBL03 page in edit mode for team scope', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+        'team.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('team.workflows.prbl.prbl03.show', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl03')
+            ->where('mode', 'edit')
+            ->where('scope', 'team')
+            ->where('canDraft', true)
+            ->where('canSubmit', true)
+            ->where('canComment', true)
+            ->where('nominalRefund', fn ($v) => (float) $v === 700000.0)
+            ->where('totalDicairkan', fn ($v) => (float) $v === 3500000.0)
+            ->where('totalRealisasi', fn ($v) => (float) $v === 2800000.0)
+            ->has('kegiatanItems', 1)
+            ->where('kegiatanItems.0.program_name', 'Program Kegiatan')
+            ->has('kegiatanItems.0.kegiatan', 1)
+            ->where('prbl03.nominal_refund', fn ($v) => (float) $v === 700000.0)
+        );
+});
+
+it('shows PRBL03 as readonly for admin scope', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl03.show',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('admin.workflows.prbl.prbl03.show', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl03')
+            ->where('mode', 'readonly')
+            ->where('scope', 'admin')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+        );
+});
+
+it('denies PRBL03 show without permission', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        // Missing: team.workflows.prbl.prbl03.show
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('team.workflows.prbl.prbl03.show', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]));
+
+    $response->assertForbidden();
+});
+
+// ── PRBL03 Draft ──
+
+it('saves PRBL03 draft with files and keterangan', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->post(route('team.workflows.prbl.prbl03.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+        'keterangan' => 'Refund sudah ditransfer ke rekening organisasi.',
+        'bukti_transfer_files' => [UploadedFile::fake()->image('bukti1.jpg')],
+        'foto_nota_files' => [UploadedFile::fake()->image('nota1.jpg'), UploadedFile::fake()->image('nota2.jpg')],
+    ]);
+
+    $response->assertRedirect();
+
+    $prbl03Data->refresh();
+    expect($prbl03Data->keterangan)->toBe('Refund sudah ditransfer ke rekening organisasi.');
+
+    // Verify files created
+    expect($prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count())->toBe(1);
+    expect($prbl03Data->bukti()->where('tipe', 'foto_nota')->count())->toBe(2);
+
+    // Verify history
+    $prblWorkflow->refresh();
+    $lastEntry = collect($prblWorkflow->history)->last();
+    expect($lastEntry['action'])->toBe('drafted')
+        ->and($lastEntry['step'])->toBe('PRBL03');
+});
+
+it('denies PRBL03 draft without permission', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        // No draft permission
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->post(route('team.workflows.prbl.prbl03.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertForbidden();
+});
+
+it('rejects PRBL03 draft with stale expected_updated_at', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->post(route('team.workflows.prbl.prbl03.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => '2020-01-01T00:00:00+00:00',
+    ]);
+
+    $response->assertStatus(409);
+});
+
+// ── PRBL03 Submit ──
+
+it('submits PRBL03 with bukti transfer and foto nota and activates PRBL04', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    // nominal_refund = 700000 > 0, so bukti_transfer required
+    expect((float) $prbl03Data->nominal_refund)->toBe(700000.0);
+
+    $response = $this->post(route('team.workflows.prbl.prbl03.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+        'keterangan' => 'Refund telah ditransfer.',
+        'bukti_transfer_files' => [UploadedFile::fake()->image('bukti1.jpg')],
+        'foto_nota_files' => [UploadedFile::fake()->image('nota1.jpg')],
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHas('success');
+
+    // Verify keterangan saved
+    $prbl03Data->refresh();
+    expect($prbl03Data->keterangan)->toBe('Refund telah ditransfer.');
+
+    // Verify files
+    expect($prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count())->toBe(1);
+    expect($prbl03Data->bukti()->where('tipe', 'foto_nota')->count())->toBe(1);
+
+    // Verify PRBL03 submitted + PRBL04 created in history
+    $prblWorkflow->refresh();
+    $history = $prblWorkflow->history;
+    $steps = collect($history)->pluck('step', 'action')->flip()->all();
+    $lastTwo = collect($history)->slice(-2)->values();
+    expect($lastTwo[0]['step'])->toBe('PRBL03')
+        ->and($lastTwo[0]['action'])->toBe('submitted')
+        ->and($lastTwo[1]['step'])->toBe('PRBL04')
+        ->and($lastTwo[1]['action'])->toBe('created');
+
+    // PRBL03 should be completed, PRBL04 should be active
+    $definition = app(PrblWorkflowDefinition::class);
+    $engine = new WorkflowEngine;
+    $statuses = $engine->getStepStatuses($definition, $prblWorkflow->history);
+    expect($statuses['PRBL03']['status'])->toBe('completed');
+    expect($statuses['PRBL04']['status'])->toBe('active');
+});
+
+it('rejects PRBL03 submit without foto nota', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    // Submit without any foto_nota files
+    $response = $this->post(route('team.workflows.prbl.prbl03.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+        'bukti_transfer_files' => [UploadedFile::fake()->image('bukti1.jpg')],
+    ]);
+
+    $response->assertStatus(422);
+});
+
+it('rejects PRBL03 submit without bukti transfer when refund > 0', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    // refund = 700000 > 0, submit with foto_nota but without bukti_transfer
+    expect((float) $prbl03Data->nominal_refund)->toBeGreaterThan(0);
+
+    $response = $this->post(route('team.workflows.prbl.prbl03.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+        'foto_nota_files' => [UploadedFile::fake()->image('nota1.jpg')],
+    ]);
+
+    $response->assertStatus(422);
+});
+
+it('allows PRBL03 submit without bukti transfer when refund is zero', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Make realisasi equal to dicairkan so refund = 0
+    $realisasi1->update(['nominal_realisasi' => 2500000]);
+    $realisasi2->update(['nominal_realisasi' => 1000000]);
+
+    // Manually advance (since advanceToPrbl03 would use old realisasi values)
+    $engine = new WorkflowEngine;
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL01', action: 'submitted', userId: $user->id, sessionContext: [], table: 'prbl01_data', dataId: $prbl01->id);
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL02A', action: 'created', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL02B', action: 'created', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL02A', action: 'approved', userId: $user->id, sessionContext: []);
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL02B', action: 'approved', userId: $user->id, sessionContext: []);
+
+    $prbl03Data = Prbl03Data::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'nominal_refund' => 0,
+    ]);
+    $engine->recordAction(workflow: $prblWorkflow, step: 'PRBL03', action: 'created', userId: null, sessionContext: [], table: 'prbl03_data', dataId: $prbl03Data->id);
+
+    expect((float) $prbl03Data->nominal_refund)->toBe(0.0);
+
+    // Submit with only foto_nota (no bukti_transfer needed)
+    $response = $this->post(route('team.workflows.prbl.prbl03.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+        'foto_nota_files' => [UploadedFile::fake()->image('nota1.jpg')],
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHas('success');
+
+    // PRBL04 should be created
+    $prblWorkflow->refresh();
+    $lastEntry = collect($prblWorkflow->history)->last();
+    expect($lastEntry['step'])->toBe('PRBL04')
+        ->and($lastEntry['action'])->toBe('created');
+});
+
+it('rejects PRBL03 submit when step is not active', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Create PRBL03 data but don't advance through PRBL02A/02B (step not active)
+    $prbl03Data = Prbl03Data::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'nominal_refund' => 0,
+    ]);
+
+    $response = $this->post(route('team.workflows.prbl.prbl03.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->updated_at->toIso8601String(),
+        'foto_nota_files' => [UploadedFile::fake()->image('nota1.jpg')],
+    ]);
+
+    $response->assertStatus(409);
+});
+
+it('removes previously uploaded files during PRBL03 draft', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    // First draft: upload files
+    $this->post(route('team.workflows.prbl.prbl03.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->fresh()->updated_at->toIso8601String(),
+        'foto_nota_files' => [UploadedFile::fake()->image('nota1.jpg'), UploadedFile::fake()->image('nota2.jpg')],
+    ]);
+
+    expect($prbl03Data->bukti()->where('tipe', 'foto_nota')->count())->toBe(2);
+    $firstBuktiId = $prbl03Data->bukti()->where('tipe', 'foto_nota')->first()->id;
+
+    // Second draft: remove one file
+    $response = $this->post(route('team.workflows.prbl.prbl03.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03Data->id,
+    ]), [
+        'expected_updated_at' => $prbl03Data->fresh()->updated_at->toIso8601String(),
+        'remove_foto_nota_ids' => [$firstBuktiId],
+    ]);
+
+    $response->assertRedirect();
+    expect($prbl03Data->bukti()->where('tipe', 'foto_nota')->count())->toBe(1);
+    expect(Prbl03Bukti::find($firstBuktiId))->toBeNull();
 });

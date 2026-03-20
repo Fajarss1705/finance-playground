@@ -187,6 +187,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::post('/{prblWorkflow}/prbl02b/approve', [PrblWorkflowController::class, 'prbl02bApprove'])->name('prbl02b.approve');
             Route::post('/{prblWorkflow}/prbl02b/reject', [PrblWorkflowController::class, 'prbl02bReject'])->name('prbl02b.reject');
 
+            // PRBL03 (admin scope — read-only)
+            Route::get('/{prblWorkflow}/prbl03/{prbl03Data}', [PrblWorkflowController::class, 'prbl03Show'])->name('prbl03.show');
+
             // Comment
             Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });
