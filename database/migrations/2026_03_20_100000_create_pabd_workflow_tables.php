@@ -16,10 +16,10 @@ return new class extends Migration
             $table->foreignId('pp_workflow_id')->constrained('pp_workflows');
             $table->smallInteger('bulan_anggaran');
             $table->smallInteger('tahun_anggaran');
-            $table->foreignId('created_by_user_id')->constrained('users');
-            $table->foreignId('created_by_role_id')->constrained('roles');
-            $table->foreignId('created_by_team_id')->constrained('teams');
-            $table->foreignId('created_by_org_id')->constrained('organizations');
+            $table->foreignId('created_by_user_id')->nullable()->constrained('users');
+            $table->foreignId('created_by_role_id')->nullable()->constrained('roles');
+            $table->foreignId('created_by_team_id')->nullable()->constrained('teams');
+            $table->foreignId('created_by_org_id')->nullable()->constrained('organizations');
             $table->jsonb('history')->default('[]');
             $table->timestamps();
             $table->softDeletes();
