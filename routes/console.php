@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('pabd:auto-create')->daily()->at('06:00');
+Schedule::command('prbl:auto-create')->daily()->at('06:15');

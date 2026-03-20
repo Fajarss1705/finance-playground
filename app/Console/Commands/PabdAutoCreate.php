@@ -10,6 +10,7 @@ use App\Models\Pk\Pk04Kegiatan;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\PpWorkflow;
+use App\Models\Prbl\PrblWorkflow;
 use App\Models\Workspace;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
@@ -114,20 +115,45 @@ class PabdAutoCreate extends Command
                         continue;
                     }
 
-                    // Subsequent PABD check: if previous month's PRBL must be complete
-                    // (stub — PRBL not built yet, skip this check for first PABD)
+                    // Subsequent PABD check: previous month's PRBL must be complete
                     $previousPabd = PabdWorkflow::query()
                         ->where('workspace_id', $workspace->id)
                         ->where('team_id', $teamId)
                         ->where('pp_workflow_id', $ppWorkflow->id)
-                        ->exists();
+                        ->whereNull('deleted_at')
+                        ->where(function ($q) use ($targetMonth, $tahun) {
+                            $q->where('tahun_anggaran', '<', $tahun)
+                                ->orWhere(function ($q2) use ($targetMonth, $tahun) {
+                                    $q2->where('tahun_anggaran', $tahun)
+                                        ->where('bulan_anggaran', '<', $targetMonth);
+                                });
+                        })
+                        ->orderByDesc('tahun_anggaran')
+                        ->orderByDesc('bulan_anggaran')
+                        ->first();
 
                     if ($previousPabd) {
-                        // TODO: Check previous month's PRBL complete when PRBL is built
-                        // For now, skip subsequent PABD creation
-                        $skipped++;
+                        // Previous PABD exists — check its PRBL is complete
+                        $previousPrbl = PrblWorkflow::query()
+                            ->where('workspace_id', $workspace->id)
+                            ->where('team_id', $teamId)
+                            ->where('pp_workflow_id', $ppWorkflow->id)
+                            ->where('bulan_laporan', $previousPabd->bulan_anggaran)
+                            ->where('tahun_laporan', $previousPabd->tahun_anggaran)
+                            ->first();
 
-                        continue;
+                        if (! $previousPrbl) {
+                            $skipped++;
+
+                            continue;
+                        }
+
+                        $prblStatus = $this->engine->getWorkflowStatus($previousPrbl->history ?? []);
+                        if ($prblStatus !== 'completed') {
+                            $skipped++;
+
+                            continue;
+                        }
                     }
 
                     // Create PABD workflow + PABD01 data + items
