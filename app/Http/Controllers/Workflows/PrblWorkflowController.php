@@ -2842,6 +2842,180 @@ class PrblWorkflowController extends Controller
     }
 
     // ──────────────────────────────────────
+    // PRBL05 Exports
+    // ──────────────────────────────────────
+
+    public function prbl05ExportPdf(PrblWorkflow $prblWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.prbl05.export.pdf");
+
+        $prbl05 = $prblWorkflow->latestPrbl05();
+        if (! $prbl05) {
+            return back()->withErrors(['export' => 'PRBL05 belum dikompilasi.']);
+        }
+
+        $file = File::where('attachable_type', Prbl05LaporanBulanan::class)
+            ->where('attachable_id', $prbl05->id)
+            ->where('source_route', 'prbl05.export.pdf')
+            ->first();
+
+        if ($file && $file->path && Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        return back()->withErrors(['export' => 'File PDF belum tersedia. Silakan coba lagi nanti.']);
+    }
+
+    public function prbl05ExportExcel(PrblWorkflow $prblWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.prbl05.export.excel");
+
+        $prbl05 = $prblWorkflow->latestPrbl05();
+        if (! $prbl05) {
+            return back()->withErrors(['export' => 'PRBL05 belum dikompilasi.']);
+        }
+
+        $file = File::where('attachable_type', Prbl05LaporanBulanan::class)
+            ->where('attachable_id', $prbl05->id)
+            ->where('source_route', 'prbl05.export.excel')
+            ->first();
+
+        if ($file && $file->path && Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        return back()->withErrors(['export' => 'File Excel belum tersedia. Silakan coba lagi nanti.']);
+    }
+
+    public function prbl05ExportZip(PrblWorkflow $prblWorkflow): \Symfony\Component\HttpFoundation\StreamedResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.prbl05.export.zip");
+
+        $prbl05 = $prblWorkflow->latestPrbl05();
+        if (! $prbl05) {
+            return back()->withErrors(['export' => 'PRBL05 belum dikompilasi.']);
+        }
+
+        $prbl05->load([
+            'itemKegiatan.fotoKegiatan.file',
+            'itemKegiatan.notaPengeluaran.file',
+            'itemKegiatan.pk04Kegiatan',
+            'bukti.file',
+        ]);
+
+        $teamName = $prblWorkflow->team?->name ?? 'Unknown';
+        $bulanNames = $this->bulanNames();
+        $bulan = $bulanNames[$prblWorkflow->bulan_laporan] ?? (string) $prblWorkflow->bulan_laporan;
+        $tahun = $prblWorkflow->tahun_laporan;
+        $zipFilename = "PRBL-{$teamName}-{$bulan}-{$tahun}-Laporan-Bulanan.zip";
+        $zipFilename = preg_replace('/[^\w\-. ]/', '', $zipFilename);
+
+        // Export files (PDF + Excel)
+        $exportFiles = File::where('attachable_type', Prbl05LaporanBulanan::class)
+            ->where('attachable_id', $prbl05->id)
+            ->whereNotNull('path')
+            ->get();
+
+        // Comment attachment files
+        $historyFileIds = collect($prblWorkflow->history ?? [])
+            ->pluck('files')
+            ->filter()
+            ->flatten()
+            ->unique()
+            ->all();
+        $commentFiles = ! empty($historyFileIds)
+            ? File::whereIn('id', $historyFileIds)->whereNotNull('path')->get()
+            : collect();
+
+        return response()->streamDownload(function () use ($prbl05, $exportFiles, $commentFiles) {
+            $zip = new \ZipStream\ZipStream(
+                outputStream: fopen('php://output', 'wb'),
+                sendHttpHeaders: false,
+            );
+
+            $addedFiles = [];
+            $addFile = function ($zip, string $folder, File $file) use (&$addedFiles) {
+                $name = $file->original_filename;
+                $key = $folder ? "{$folder}/{$name}" : $name;
+                $counter = 1;
+                while (isset($addedFiles[$key])) {
+                    $ext = pathinfo($name, PATHINFO_EXTENSION);
+                    $base = pathinfo($name, PATHINFO_FILENAME);
+                    $key = $folder ? "{$folder}/{$base} ({$counter}).{$ext}" : "{$base} ({$counter}).{$ext}";
+                    $counter++;
+                }
+                $addedFiles[$key] = true;
+
+                $path = Storage::disk($file->disk)->path($file->path);
+                if (file_exists($path)) {
+                    $zip->addFileFromPath($key, $path);
+                }
+            };
+
+            // PDF + Excel at root
+            foreach ($exportFiles as $file) {
+                $addFile($zip, '', $file);
+            }
+
+            // Foto Kegiatan + Nota per kegiatan subdirectory
+            foreach ($prbl05->itemKegiatan as $item) {
+                $kegiatanName = $item->pk04Kegiatan?->nama_kegiatan ?? "Kegiatan-{$item->id}";
+                $safeKegiatanName = preg_replace('/[^\w\-. ]/', '', $kegiatanName);
+
+                foreach ($item->fotoKegiatan as $foto) {
+                    if ($foto->file && $foto->file->path) {
+                        $addFile($zip, "Foto Kegiatan/{$safeKegiatanName}", $foto->file);
+                    }
+                }
+
+                foreach ($item->notaPengeluaran as $nota) {
+                    if ($nota->file && $nota->file->path) {
+                        $addFile($zip, "Nota Pengeluaran/{$safeKegiatanName}", $nota->file);
+                    }
+                }
+            }
+
+            // Bukti transfer + foto nota
+            foreach ($prbl05->bukti as $bukti) {
+                if ($bukti->file && $bukti->file->path) {
+                    $folder = $bukti->tipe === 'bukti_transfer' ? 'Bukti Transfer' : 'Foto Nota Kantor Pusat';
+                    $addFile($zip, $folder, $bukti->file);
+                }
+            }
+
+            // Comment attachments
+            foreach ($commentFiles as $file) {
+                $addFile($zip, 'Lampiran Komentar', $file);
+            }
+
+            $zip->finish();
+        }, $zipFilename, ['Content-Type' => 'application/zip']);
+    }
+
+    // ──────────────────────────────────────
     // Shared Helpers (same pattern as PABD)
     // ──────────────────────────────────────
 

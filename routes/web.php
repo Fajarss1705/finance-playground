@@ -136,6 +136,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
 
             // PRBL05 (team scope — read-only show + exports)
             Route::get('/{prblWorkflow}/prbl05', [PrblWorkflowController::class, 'prbl05Show'])->name('prbl05.show');
+            Route::get('/{prblWorkflow}/prbl05/export/pdf', [PrblWorkflowController::class, 'prbl05ExportPdf'])->name('prbl05.export.pdf');
+            Route::get('/{prblWorkflow}/prbl05/export/excel', [PrblWorkflowController::class, 'prbl05ExportExcel'])->name('prbl05.export.excel');
+            Route::get('/{prblWorkflow}/prbl05/export/zip', [PrblWorkflowController::class, 'prbl05ExportZip'])->name('prbl05.export.zip');
 
             // Comment
             Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');

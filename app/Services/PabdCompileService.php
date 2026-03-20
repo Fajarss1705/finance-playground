@@ -16,6 +16,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class PabdCompileService
 {
@@ -317,17 +318,21 @@ class PabdCompileService
         $bulan = $bulanNames[$pabdWorkflow?->bulan_anggaran ?? 0] ?? 'Unknown';
         $tahun = $pabdWorkflow?->tahun_anggaran ?? now()->year;
 
-        // PDF placeholder — actual PabdPdfExportService to be created in export session
+        // PDF
         try {
+            $pdfService = app(Pabd05PdfExportService::class);
+            $tempPath = $pdfService->generate($pabd05);
             $filename = "PABD-{$teamName}-{$bulan}-{$tahun}.pdf";
             $storagePath = "exports/pabd/{$pabdWorkflow->id}/{$filename}";
 
-            // Create placeholder file record (actual PDF generation deferred)
+            Storage::disk('local')->put($storagePath, file_get_contents($tempPath));
+            @unlink($tempPath);
+
             $file = File::create([
                 'original_filename' => $filename,
                 'filename' => $filename,
                 'mime_type' => 'application/pdf',
-                'size' => 0,
+                'size' => Storage::disk('local')->size($storagePath),
                 'disk' => 'local',
                 'path' => $storagePath,
                 'user_id' => $userId,
@@ -338,19 +343,24 @@ class PabdCompileService
             ]);
             $result['pdf_file_id'] = $file->id;
         } catch (\Throwable $e) {
-            Log::warning("PABD05 PDF export placeholder failed for PABD05#{$pabd05->id}: {$e->getMessage()}");
+            Log::warning("PABD05 PDF export failed for PABD05#{$pabd05->id}: {$e->getMessage()}");
         }
 
-        // Excel placeholder
+        // Excel
         try {
+            $excelService = app(Pabd05ExcelExportService::class);
+            $tempPath = $excelService->generate($pabd05);
             $filename = "PABD-{$teamName}-{$bulan}-{$tahun}.xlsx";
             $storagePath = "exports/pabd/{$pabdWorkflow->id}/{$filename}";
+
+            Storage::disk('local')->put($storagePath, file_get_contents($tempPath));
+            @unlink($tempPath);
 
             $file = File::create([
                 'original_filename' => $filename,
                 'filename' => $filename,
                 'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'size' => 0,
+                'size' => Storage::disk('local')->size($storagePath),
                 'disk' => 'local',
                 'path' => $storagePath,
                 'user_id' => $userId,
@@ -361,7 +371,7 @@ class PabdCompileService
             ]);
             $result['excel_file_id'] = $file->id;
         } catch (\Throwable $e) {
-            Log::warning("PABD05 Excel export placeholder failed for PABD05#{$pabd05->id}: {$e->getMessage()}");
+            Log::warning("PABD05 Excel export failed for PABD05#{$pabd05->id}: {$e->getMessage()}");
         }
 
         return $result;

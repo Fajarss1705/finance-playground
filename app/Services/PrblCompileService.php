@@ -17,6 +17,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class PrblCompileService
 {
@@ -414,16 +415,21 @@ class PrblCompileService
         $bulan = $bulanNames[$prblWorkflow?->bulan_laporan ?? 0] ?? 'Unknown';
         $tahun = $prblWorkflow?->tahun_laporan ?? now()->year;
 
-        // PDF placeholder
+        // PDF
         try {
+            $pdfService = app(Prbl05PdfExportService::class);
+            $tempPath = $pdfService->generate($prbl05);
             $filename = "PRBL-{$teamName}-{$bulan}-{$tahun}.pdf";
             $storagePath = "exports/prbl/{$prblWorkflow->id}/{$filename}";
+
+            Storage::disk('local')->put($storagePath, file_get_contents($tempPath));
+            @unlink($tempPath);
 
             $file = File::create([
                 'original_filename' => $filename,
                 'filename' => $filename,
                 'mime_type' => 'application/pdf',
-                'size' => 0,
+                'size' => Storage::disk('local')->size($storagePath),
                 'disk' => 'local',
                 'path' => $storagePath,
                 'user_id' => $userId,
@@ -434,19 +440,24 @@ class PrblCompileService
             ]);
             $result['pdf_file_id'] = $file->id;
         } catch (\Throwable $e) {
-            Log::warning("PRBL05 PDF export placeholder failed for PRBL05#{$prbl05->id}: {$e->getMessage()}");
+            Log::warning("PRBL05 PDF export failed for PRBL05#{$prbl05->id}: {$e->getMessage()}");
         }
 
-        // Excel placeholder
+        // Excel
         try {
+            $excelService = app(Prbl05ExcelExportService::class);
+            $tempPath = $excelService->generate($prbl05);
             $filename = "PRBL-{$teamName}-{$bulan}-{$tahun}.xlsx";
             $storagePath = "exports/prbl/{$prblWorkflow->id}/{$filename}";
+
+            Storage::disk('local')->put($storagePath, file_get_contents($tempPath));
+            @unlink($tempPath);
 
             $file = File::create([
                 'original_filename' => $filename,
                 'filename' => $filename,
                 'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'size' => 0,
+                'size' => Storage::disk('local')->size($storagePath),
                 'disk' => 'local',
                 'path' => $storagePath,
                 'user_id' => $userId,
@@ -457,7 +468,7 @@ class PrblCompileService
             ]);
             $result['excel_file_id'] = $file->id;
         } catch (\Throwable $e) {
-            Log::warning("PRBL05 Excel export placeholder failed for PRBL05#{$prbl05->id}: {$e->getMessage()}");
+            Log::warning("PRBL05 Excel export failed for PRBL05#{$prbl05->id}: {$e->getMessage()}");
         }
 
         return $result;
