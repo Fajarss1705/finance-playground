@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\Workflows\PpWorkflowController;
 use App\Http\Controllers\Admin\WorkspaceController;
 use App\Http\Controllers\Workflows\PabdWorkflowController;
 use App\Http\Controllers\Workflows\PkWorkflowController;
+use App\Http\Controllers\Workflows\PrblWorkflowController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
@@ -168,14 +169,16 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{pabdWorkflow}/pabd05/export/zip', [PabdWorkflowController::class, 'pabd05ExportZip'])->name('pabd05.export.zip');
         });
 
-        // Workflow prototypes — PRBL (admin scope)
+        // PRBL Workflow (admin scope)
         Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
             Route::inertia('/', 'admin/workflows/prbl/index')->name('index');
-            Route::inertia('/prbl-uuid-001', 'admin/workflows/prbl/show')->name('show');
-            Route::inertia('/prbl-uuid-001/prbl02a', 'admin/workflows/prbl/prbl02a')->name('prbl02a.show');
-            Route::inertia('/prbl-uuid-001/prbl02b', 'admin/workflows/prbl/prbl02b')->name('prbl02b.show');
-            Route::inertia('/prbl-uuid-001/prbl04', 'admin/workflows/prbl/prbl04')->name('prbl04.show');
-            Route::inertia('/prbl-uuid-001/prbl05', 'admin/workflows/prbl/prbl05')->name('prbl05.show');
+            Route::inertia('/{prblWorkflow}', 'admin/workflows/prbl/show')->name('show');
+
+            // PRBL01 (admin scope — read-only)
+            Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
+
+            // Comment
+            Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });
 
         // Resource routes

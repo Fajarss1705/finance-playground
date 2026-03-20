@@ -7,6 +7,7 @@ use App\Http\Controllers\Team\TeamDashboardController;
 use App\Http\Controllers\VerifyController;
 use App\Http\Controllers\Workflows\PabdWorkflowController;
 use App\Http\Controllers\Workflows\PkWorkflowController;
+use App\Http\Controllers\Workflows\PrblWorkflowController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
@@ -111,13 +112,22 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::get('/{pabdWorkflow}/pabd05/export/zip', [PabdWorkflowController::class, 'pabd05ExportZip'])->name('pabd05.export.zip');
         });
 
-        // Workflow prototypes — PRBL (team scope)
+        // PRBL Workflow (team scope)
         Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
             Route::inertia('/', 'team/workflows/prbl/index')->name('index');
-            Route::inertia('/prbl-uuid-001', 'team/workflows/prbl/show')->name('show');
-            Route::inertia('/prbl-uuid-001/prbl01', 'team/workflows/prbl/prbl01')->name('prbl01.show');
-            Route::inertia('/prbl-uuid-001/prbl03', 'team/workflows/prbl/prbl03')->name('prbl03.show');
-            Route::inertia('/prbl-uuid-001/prbl05', 'team/workflows/prbl/prbl05')->name('prbl05.show');
+            Route::inertia('/{prblWorkflow}', 'team/workflows/prbl/show')->name('show');
+
+            // PRBL01
+            Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
+            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/draft', [PrblWorkflowController::class, 'prbl01Draft'])->name('prbl01.draft');
+            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/submit', [PrblWorkflowController::class, 'prbl01Submit'])->name('prbl01.submit');
+            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/foto-upload', [PrblWorkflowController::class, 'prbl01FotoUpload'])->name('prbl01.foto.upload');
+            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/foto-delete', [PrblWorkflowController::class, 'prbl01FotoDelete'])->name('prbl01.foto.delete');
+            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/nota-upload', [PrblWorkflowController::class, 'prbl01NotaUpload'])->name('prbl01.nota.upload');
+            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/nota-delete', [PrblWorkflowController::class, 'prbl01NotaDelete'])->name('prbl01.nota.delete');
+
+            // Comment
+            Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });
     });
 

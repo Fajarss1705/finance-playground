@@ -553,9 +553,12 @@ class WorkflowEngine
         // For parallel approval steps without rejectionTarget or cycleTarget,
         // 'rejected' also completes the step (the join gate handles the cascade).
         // Steps with cycleTarget handle rejection via cycle-back, not as completion.
+        // Exclude steps whose rejection created a cycleback (e.g. PRBL04 dual rejection
+        // via entry-level cycleTarget) — those are real rejections, not parallel votes.
         if ($stepType === StepType::Approval
             && $definition->rejectionTarget($code) === null
-            && $definition->cycleTarget($code) === null) {
+            && $definition->cycleTarget($code) === null
+            && ! $this->hasRejectionCycleback($code, $cyclebacks)) {
             if ($this->hasValidAction($code, 'rejected', $history, $cyclebacks)) {
                 return 'completed';
             }
@@ -598,7 +601,7 @@ class WorkflowEngine
             $target = null;
 
             if ($action === 'rejected') {
-                $target = $definition->rejectionTarget($step) ?? $definition->cycleTarget($step);
+                $target = $entry['cycleTarget'] ?? $definition->rejectionTarget($step) ?? $definition->cycleTarget($step);
             } elseif ($action === 'approved') {
                 $target = $definition->cycleTarget($step);
             } elseif ($action === 'reset') {
@@ -684,6 +687,25 @@ class WorkflowEngine
         }
 
         return $latest;
+    }
+
+    /**
+     * Check if a step has any cycleback originating from its rejected action.
+     *
+     * Used to distinguish parallel approval steps (rejection = vote, completing)
+     * from steps with entry-level cycleTarget (rejection = real cycle-back).
+     *
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
+     */
+    private function hasRejectionCycleback(string $code, array $cyclebacks): bool
+    {
+        foreach ($cyclebacks as $cycleback) {
+            if ($cycleback['step'] === $code && $cycleback['action'] === 'rejected') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

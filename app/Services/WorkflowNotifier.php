@@ -271,6 +271,19 @@ class WorkflowNotifier
             'pabd03.rejected' => 'team.workflows.pabd.pabd01.submit',
             'pabd04.submitted' => 'team.workflows.pabd.pabd05.show',
 
+            // PRBL workflow events
+            'prbl.auto_created' => 'team.workflows.prbl.prbl01.submit',
+            'prbl01.submitted' => [
+                'admin.workflows.prbl.prbl02a.approve',
+                'admin.workflows.prbl.prbl02b.approve',
+            ],
+            'prbl02.both_approved' => 'team.workflows.prbl.prbl03.draft',
+            'prbl02.rejected' => 'team.workflows.prbl.prbl01.draft',
+            'prbl03.submitted' => 'admin.workflows.prbl.prbl04.approve',
+            'prbl04.approved' => 'team.workflows.prbl.prbl05.show',
+            'prbl04.reject_to_prbl03' => 'team.workflows.prbl.prbl03.draft',
+            'prbl04.reject_to_prbl01' => 'team.workflows.prbl.prbl01.draft',
+
             default => null,
         };
     }
@@ -345,6 +358,16 @@ class WorkflowNotifier
             'pabd03.approved' => ['disetujui', 'Persetujuan Transfer (PABD03)', 'Transfer disetujui. Silakan upload bukti transfer (PABD04).'],
             'pabd03.rejected' => ['ditolak', 'Persetujuan Transfer (PABD03)', 'Transfer ditolak. Silakan review ulang checklist pencairan.'],
             'pabd04.submitted' => ['dikompilasi', 'Pengajuan Anggaran Bulanan (PABD05)', 'Sistem telah mengompilasi pengajuan anggaran bulanan. Silakan unduh dokumen final.'],
+
+            // PRBL workflow events
+            'prbl.auto_created' => ['dibuat', 'Laporan Bulanan (PRBL)', 'Silakan isi laporan kegiatan dan realisasi anggaran (PRBL01).'],
+            'prbl01.submitted' => ['disubmit', 'Laporan Kegiatan (PRBL01)', 'Silakan review narasi (PRBL02A) dan anggaran (PRBL02B).'],
+            'prbl02.both_approved' => ['disetujui', 'Approval Narasi & Anggaran (PRBL02A/PRBL02B)', 'Silakan lanjutkan ke Refund (PRBL03).'],
+            'prbl02.rejected' => ['ditolak', 'Approval Narasi/Anggaran (PRBL02A/PRBL02B)', 'Flow dikembalikan ke PRBL01 untuk perbaikan.'],
+            'prbl03.submitted' => ['disubmit', 'Refund (PRBL03)', 'Silakan review dan setujui/tolak laporan final (PRBL04).'],
+            'prbl04.approved' => ['dikompilasi', 'Laporan Bulanan (PRBL05)', 'Sistem telah mengompilasi laporan bulanan. Silakan unduh dokumen final.'],
+            'prbl04.reject_to_prbl03' => ['ditolak', 'Review Final (PRBL04)', 'Flow dikembalikan ke PRBL03 untuk perbaikan bukti refund.'],
+            'prbl04.reject_to_prbl01' => ['ditolak', 'Review Final (PRBL04)', 'Flow dikembalikan ke PRBL01 untuk perbaikan laporan kegiatan.'],
 
             default => [
                 $context['action_verb'] ?? 'diproses',
