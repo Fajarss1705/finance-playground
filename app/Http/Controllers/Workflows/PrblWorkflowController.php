@@ -16,6 +16,7 @@ use App\Http\Requests\Workflows\Prbl04ApproveRequest;
 use App\Http\Requests\Workflows\Prbl04RejectRequest;
 use App\Http\Requests\Workflows\PrblCommentRequest;
 use App\Models\File;
+use App\Models\Permission;
 use App\Models\Pk\Pk04Anggaran;
 use App\Models\Pp\Pp06RekeningOrganisasi;
 use App\Models\Prbl\Prbl01Data;
@@ -26,9 +27,11 @@ use App\Models\Prbl\Prbl01ItemRealisasi;
 use App\Models\Prbl\Prbl01NotaPengeluaran;
 use App\Models\Prbl\Prbl03Bukti;
 use App\Models\Prbl\Prbl03Data;
+use App\Models\Prbl\Prbl05FotoKegiatan;
 use App\Models\Prbl\Prbl05LaporanBulanan;
 use App\Models\Prbl\PrblWorkflow;
 use App\Models\Role;
+use App\Models\User;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
@@ -37,6 +40,7 @@ use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -53,6 +57,252 @@ class PrblWorkflowController extends Controller
         private WorkflowNotifier $notifier,
         private PrblCompileService $prblCompileService,
     ) {}
+
+    // ──────────────────────────────────────
+    // Index & Show
+    // ──────────────────────────────────────
+
+    public function index(Request $request): Response
+    {
+        $scope = $this->getScope();
+        $this->checkPermission("{$scope}.workflows.prbl.index");
+
+        $workspaceId = $this->session->getActiveWorkspaceId();
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+
+        $query = PrblWorkflow::query()
+            ->with(['team', 'ppWorkflow'])
+            ->where('workspace_id', $workspaceId);
+
+        // Team scope: restrict to user's team
+        $roleId = $this->session->getActiveRoleId();
+        $userTeamId = $roleId ? Role::find($roleId)?->team_id : null;
+        if ($scope === 'team') {
+            $query->where('team_id', $userTeamId);
+        }
+
+        // DB-level filter: PP period
+        if ($request->filled('pp')) {
+            $ppTahun = (int) $request->input('pp');
+            $query->whereHas('ppWorkflow', fn ($q) => $q->whereHas('pp01Data', fn ($q2) => $q2->where('tahun', $ppTahun)));
+        }
+
+        // DB-level filter: bulan
+        if ($request->filled('bulan')) {
+            $query->where('bulan_laporan', (int) $request->input('bulan'));
+        }
+
+        // DB-level filter: team (admin only)
+        if ($scope === 'admin' && $request->filled('team')) {
+            $query->where('team_id', (int) $request->input('team'));
+        }
+
+        $statusFilter = $request->input('status');
+        $userCache = [];
+        $roleCache = [];
+
+        // Status is computed — load all, transform, filter in-memory, then paginate
+        if ($statusFilter) {
+            $allWorkflows = $query->orderBy('tahun_laporan', 'desc')->orderBy('bulan_laporan')->get();
+            $transformed = $allWorkflows->map(fn (PrblWorkflow $wf) => $this->transformPrblForIndex($wf, $definition, $scope, $userCache, $roleCache));
+            $transformed = $transformed->filter(fn ($item) => $item['status'] === $statusFilter);
+            $filtered = $transformed->values();
+            $page = (int) $request->input('page', 1);
+            $perPage = 15;
+            $workflows = new LengthAwarePaginator(
+                $filtered->forPage($page, $perPage)->values(),
+                $filtered->count(),
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()],
+            );
+        } else {
+            $workflows = $query
+                ->orderBy('tahun_laporan', 'desc')
+                ->orderBy('bulan_laporan')
+                ->paginate(15)
+                ->withQueryString();
+
+            $workflows->through(fn (PrblWorkflow $wf) => $this->transformPrblForIndex($wf, $definition, $scope, $userCache, $roleCache));
+        }
+
+        // Available PP periods for filter
+        $availablePpPeriods = \App\Models\Pp\Pp01Data::query()
+            ->whereIn('pp_workflow_id', \App\Models\Pp\PpWorkflow::where('workspace_id', $workspaceId)->select('id'))
+            ->whereNotNull('tahun')
+            ->distinct()
+            ->orderByDesc('tahun')
+            ->pluck('tahun')
+            ->map(fn ($t) => ['value' => (string) $t, 'label' => "PP-{$t}"])
+            ->values();
+
+        // Available teams for filter (admin only)
+        $availableTeams = [];
+        if ($scope === 'admin') {
+            $teamIds = PrblWorkflow::where('workspace_id', $workspaceId)->distinct()->pluck('team_id');
+            $availableTeams = \App\Models\Team::whereIn('id', $teamIds)
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn ($t) => ['value' => (string) $t->id, 'label' => $t->name])
+                ->values();
+        }
+
+        $props = [
+            'workflows' => $workflows,
+            'filters' => [
+                'status' => $request->input('status'),
+                'pp' => $request->input('pp'),
+                'bulan' => $request->input('bulan'),
+                ...($scope === 'admin' ? ['team' => $request->input('team')] : []),
+            ],
+            'availablePpPeriods' => $availablePpPeriods,
+            'scope' => $scope,
+        ];
+
+        if ($scope === 'admin') {
+            $props['availableTeams'] = $availableTeams;
+        }
+
+        return Inertia::render('workflows/prbl/index', $props);
+    }
+
+    public function show(PrblWorkflow $prblWorkflow): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.show");
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $history = $prblWorkflow->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+
+        // Label
+        $teamName = $prblWorkflow->team?->name ?? 'Unknown';
+        $bulanLabel = $this->bulanLabel($prblWorkflow->bulan_laporan);
+        $label = "PRBL-{$teamName}-{$prblWorkflow->bulan_laporan}/{$prblWorkflow->tahun_laporan}";
+
+        // Step aktif — can be parallel (PRBL02A + PRBL02B)
+        $stepAktifLabel = null;
+        if ($workflowStatus === 'active' && ! empty($currentSteps)) {
+            $stepNames = [
+                'PRBL01' => 'Laporan Kegiatan',
+                'PRBL02A' => 'Review Narasi',
+                'PRBL02B' => 'Review Anggaran',
+                'PRBL03' => 'Refund & Bukti',
+                'PRBL04' => 'Persetujuan Final',
+                'PRBL05' => 'Laporan Bulanan',
+            ];
+            $stepLabels = array_map(
+                fn ($s) => $s.': '.($stepNames[$s] ?? $s),
+                $currentSteps
+            );
+            $stepAktifLabel = implode(', ', $stepLabels);
+        }
+
+        // Stepper cycles with URL resolver + parallelGroup
+        $wfId = $prblWorkflow->id;
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($wfId, $scope): ?string {
+            $base = "/{$scope}/workflows/prbl/{$wfId}";
+
+            if ($code === 'PRBL01' && $dataId) {
+                return "{$base}/prbl01/{$dataId}";
+            }
+            if (in_array($code, ['PRBL02A', 'PRBL02B', 'PRBL04'])) {
+                return "{$base}/".strtolower($code);
+            }
+            if ($code === 'PRBL03' && $dataId) {
+                return "{$base}/prbl03/{$dataId}";
+            }
+            if ($code === 'PRBL05') {
+                return "{$base}/prbl05";
+            }
+
+            return null;
+        });
+
+        // Inject step roles + parallelGroup for fork/join rendering
+        $stepRoleMap = $this->resolveStepRolesForShow($prblWorkflow->team_id);
+        $parallelSteps = ['PRBL02A', 'PRBL02B'];
+        foreach ($stepperCycles as &$cycle) {
+            foreach ($cycle['steps'] as &$step) {
+                $step['roles'] = $stepRoleMap[$step['code']] ?? [];
+                $step['parallelGroup'] = in_array($step['code'], $parallelSteps) ? 'prbl02' : null;
+            }
+        }
+        unset($cycle, $step);
+
+        // PP context
+        $ppWorkflow = $prblWorkflow->ppWorkflow;
+        $ppTahun = $ppWorkflow?->latestPp01()?->tahun;
+
+        // PABD reference (parent workflow)
+        $pabdWorkflow = $prblWorkflow->pabdWorkflow;
+        $pabdTeamName = $pabdWorkflow?->team?->name ?? $teamName;
+        $pabdLabel = $pabdWorkflow
+            ? "PABD-{$pabdTeamName}-{$pabdWorkflow->bulan_anggaran}/{$pabdWorkflow->tahun_anggaran}"
+            : '—';
+
+        // Data Terbaru from PRBL05
+        $dataTerbaru = null;
+        $prbl05 = $prblWorkflow->latestPrbl05();
+        if ($prbl05) {
+            $kegiatanCount = $prbl05->itemKegiatan()->count();
+            $fotoCount = Prbl05FotoKegiatan::whereIn(
+                'prbl05_item_kegiatan_id',
+                $prbl05->itemKegiatan()->select('id')
+            )->count();
+
+            $dataTerbaru = [
+                'bulan_label' => $bulanLabel,
+                'tahun_laporan' => $prblWorkflow->tahun_laporan,
+                'verification_code' => $prbl05->verification_code,
+                'prbl05_id' => $prbl05->id,
+                'total_anggaran_dicairkan' => (float) $prbl05->total_anggaran_dicairkan,
+                'total_realisasi' => (float) $prbl05->total_realisasi,
+                'total_refund' => (float) $prbl05->total_refund,
+                'total_item' => (int) $prbl05->total_item,
+                'kegiatan_count' => $kegiatanCount,
+                'foto_count' => $fotoCount,
+                'bukti_count' => $prbl05->bukti()->count(),
+            ];
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = $scope === 'team' ? 'team' : 'admin';
+
+        return Inertia::render('workflows/prbl/show', [
+            'workflow' => [
+                'id' => $prblWorkflow->id,
+                'label' => $label,
+                'status' => $workflowStatus,
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
+            ],
+            'informasi' => [
+                'team_name' => $teamName,
+                'bulan_laporan' => $prblWorkflow->bulan_laporan,
+                'bulan_label' => $bulanLabel,
+                'tahun_laporan' => $prblWorkflow->tahun_laporan,
+                'pp_label' => $ppTahun ? "PP-{$ppTahun}" : '—',
+                'pp_workflow_id' => $ppWorkflow?->id,
+                'pabd_label' => $pabdLabel,
+                'pabd_workflow_id' => $pabdWorkflow?->id,
+                'dibuat_tanggal' => $prblWorkflow->created_at->format('d/m/Y'),
+                'status' => $workflowStatus,
+                'step_aktif' => $stepAktifLabel,
+            ],
+            'dataTerbaru' => $dataTerbaru,
+            'canComment' => in_array("{$permPrefix}.workflows.prbl.comment", $permissions),
+            'canExportZip' => $dataTerbaru !== null
+                && in_array("{$permPrefix}.workflows.prbl.prbl05.export.zip", $permissions),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'scope' => $scope,
+        ]);
+    }
 
     // ──────────────────────────────────────
     // PRBL01 — Laporan Kegiatan & Realisasi
@@ -2756,5 +3006,143 @@ class PrblWorkflowController extends Controller
             5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
         ];
+    }
+
+    private function bulanLabel(int $bulan): string
+    {
+        return $this->bulanNames()[$bulan] ?? (string) $bulan;
+    }
+
+    /** @return array<string, mixed> */
+    private function transformPrblForIndex(PrblWorkflow $wf, \App\Contracts\WorkflowDefinition $definition, string $scope, array &$userCache, array &$roleCache): array
+    {
+        $history = $wf->history ?? [];
+        $engineStatus = $this->engine->getWorkflowStatus($history);
+        $status = $engineStatus === 'completed' ? 'completed' : 'active';
+
+        // Step aktif — can be multiple (parallel PRBL02A + PRBL02B)
+        $stepAktif = null;
+        if ($status === 'active') {
+            $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+            if (! empty($currentSteps)) {
+                $stepAktif = implode(', ', $currentSteps);
+            }
+        }
+
+        // PP label
+        $ppTahun = $wf->ppWorkflow?->latestPp01()?->tahun;
+        $ppLabel = $ppTahun ? "PP-{$ppTahun}" : '—';
+
+        // Total realisasi + refund (only after PRBL05)
+        $prbl05 = $wf->latestPrbl05();
+        $totalRealisasi = $prbl05 ? (float) $prbl05->total_realisasi : null;
+        $totalRefund = $prbl05 ? (float) $prbl05->total_refund : null;
+
+        // Terakhir
+        [$lastActorName, $lastActorRole] = $this->resolveLastActor($history, $userCache, $roleCache);
+
+        $row = [
+            'id' => $wf->id,
+            'bulan_laporan' => $wf->bulan_laporan,
+            'bulan_label' => $this->bulanLabel($wf->bulan_laporan),
+            'tahun_laporan' => $wf->tahun_laporan,
+            'status' => $status,
+            'step_aktif' => $stepAktif,
+            'pp_label' => $ppLabel,
+            'total_realisasi' => $totalRealisasi,
+            'total_refund' => $totalRefund,
+            'terakhir_name' => $lastActorName,
+            'terakhir_role' => $lastActorRole,
+            'tanggal' => $wf->created_at->format('d/m/Y'),
+        ];
+
+        if ($scope === 'admin') {
+            $row['team_name'] = $wf->team?->name ?? 'Unknown';
+        }
+
+        return $row;
+    }
+
+    /** @return array{0: string|null, 1: string|null} */
+    private function resolveLastActor(array $history, array &$userCache, array &$roleCache): array
+    {
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            $entry = $history[$i];
+            $action = $entry['action'] ?? '';
+            if ($action === 'commented') {
+                continue;
+            }
+
+            if (! isset($entry['by']) || $entry['by'] === null) {
+                return ['Sistem', null];
+            }
+
+            $uid = $entry['by'];
+            if (! isset($userCache[$uid])) {
+                $userCache[$uid] = User::find($uid)?->name ?? 'Unknown';
+            }
+            $name = $userCache[$uid];
+            $roleName = null;
+            if (isset($entry['role'])) {
+                $rid = $entry['role'];
+                if (! isset($roleCache[$rid])) {
+                    $roleCache[$rid] = Role::find($rid)?->name;
+                }
+                $roleName = $roleCache[$rid];
+            }
+
+            return [$name, $roleName];
+        }
+
+        return [null, null];
+    }
+
+    /** @return array<string, array<array{name: string, users: string[]}>> */
+    private function resolveStepRolesForShow(?int $teamId = null): array
+    {
+        $stepPermissions = [
+            'PRBL01' => 'team.workflows.prbl.prbl01.submit',
+            'PRBL02A' => 'admin.workflows.prbl.prbl02a.approve',
+            'PRBL02B' => 'admin.workflows.prbl.prbl02b.approve',
+            'PRBL03' => 'team.workflows.prbl.prbl03.submit',
+            'PRBL04' => 'admin.workflows.prbl.prbl04.approve',
+            'PRBL05' => null,
+        ];
+
+        $teamScopedSteps = ['PRBL01', 'PRBL03'];
+
+        $permNames = array_filter(array_values($stepPermissions));
+        $permissions = Permission::whereIn('name', $permNames)
+            ->with(['roles.team', 'roles.users'])
+            ->get()
+            ->keyBy('name');
+
+        $result = [];
+        foreach ($stepPermissions as $stepCode => $permName) {
+            if (! $permName) {
+                $result[$stepCode] = [];
+
+                continue;
+            }
+
+            $perm = $permissions->get($permName);
+            $roles = [];
+
+            if ($perm) {
+                foreach ($perm->roles->sortBy(fn (Role $r) => $r->team ? "{$r->name} ({$r->team->name})" : $r->name) as $role) {
+                    if (in_array($stepCode, $teamScopedSteps) && $teamId && $role->team_id !== $teamId) {
+                        continue;
+                    }
+                    $roles[] = [
+                        'name' => $role->team ? "{$role->name} ({$role->team->name})" : $role->name,
+                        'users' => $role->users->pluck('name')->sort()->values()->all(),
+                    ];
+                }
+            }
+
+            $result[$stepCode] = $roles;
+        }
+
+        return $result;
     }
 }

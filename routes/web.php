@@ -114,8 +114,8 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
 
         // PRBL Workflow (team scope)
         Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
-            Route::inertia('/', 'team/workflows/prbl/index')->name('index');
-            Route::inertia('/{prblWorkflow}', 'team/workflows/prbl/show')->name('show');
+            Route::get('/', [PrblWorkflowController::class, 'index'])->name('index');
+            Route::get('/{prblWorkflow}', [PrblWorkflowController::class, 'show'])->name('show');
 
             // PRBL01
             Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');

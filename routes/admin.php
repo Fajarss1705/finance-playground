@@ -171,8 +171,8 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
 
         // PRBL Workflow (admin scope)
         Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
-            Route::inertia('/', 'admin/workflows/prbl/index')->name('index');
-            Route::inertia('/{prblWorkflow}', 'admin/workflows/prbl/show')->name('show');
+            Route::get('/', [PrblWorkflowController::class, 'index'])->name('index');
+            Route::get('/{prblWorkflow}', [PrblWorkflowController::class, 'show'])->name('show');
 
             // PRBL01 (admin scope — read-only)
             Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
