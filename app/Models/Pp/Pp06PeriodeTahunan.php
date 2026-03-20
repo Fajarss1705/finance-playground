@@ -102,4 +102,9 @@ class Pp06PeriodeTahunan extends Model
     {
         return $this->hasMany(Pp06ItemDokumenSop::class, 'pp06_periode_tahunan_id');
     }
+
+    public function rekeningOrganisasi(): HasMany
+    {
+        return $this->hasMany(Pp06RekeningOrganisasi::class, 'pp06_periode_tahunan_id');
+    }
 }

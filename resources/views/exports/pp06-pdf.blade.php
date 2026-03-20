@@ -172,6 +172,27 @@
             </tr>
         </tfoot>
     </table>
+    @if($pp06->rekeningOrganisasi->isNotEmpty())
+    <h2>Rekening Organisasi untuk Refund</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Bank</th>
+                <th>Nama Rekening</th>
+                <th>No. Rekening</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($pp06->rekeningOrganisasi as $rek)
+            <tr>
+                <td>{{ $rek->nama_bank }}</td>
+                <td>{{ $rek->nama_rekening }}</td>
+                <td class="mono">{{ $rek->nomor_rekening }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endif
     <div class="author">Disusun oleh: {{ pp06AuthorLine($pp06, 'pp03') }}</div>
 
     <h2>Dokumen SOP</h2>
@@ -304,6 +325,21 @@
                                     </tr>
                                 </tfoot>
                             </table>
+                            @if(!empty($entry['step_data']['rekening_organisasi']))
+                                <div class="chrono-kode-list" style="margin-top:4px"><span class="chrono-kode-label">Rekening Organisasi untuk Refund:</span></div>
+                                <table>
+                                    <thead><tr><th>Bank</th><th>Nama Rekening</th><th>No. Rekening</th></tr></thead>
+                                    <tbody>
+                                        @foreach($entry['step_data']['rekening_organisasi'] as $rek)
+                                        <tr>
+                                            <td>{{ $rek['nama_bank'] }}</td>
+                                            <td>{{ $rek['nama_rekening'] }}</td>
+                                            <td class="mono">{{ $rek['nomor_rekening'] }}</td>
+                                        </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            @endif
 
                         @elseif($entry['step_data']['type'] === 'pp04')
                             @if(!empty($entry['step_data']['files']))

@@ -12,6 +12,7 @@ use App\Models\Pp\Pp06KodeJenisProgram;
 use App\Models\Pp\Pp06KodeKategoriPelayanan;
 use App\Models\Pp\Pp06KodeSubBidangPelayanan;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Pp\Pp06RekeningOrganisasi;
 use App\Models\Pp\PpWorkflow;
 use App\Models\Team;
 use App\Models\User;
@@ -82,6 +83,7 @@ function baseDraftData(): array
         ],
         'item_plafon_anggaran' => [],
         'item_dokumen_sop' => [],
+        'rekening_organisasi' => [],
     ];
 }
 
@@ -108,6 +110,9 @@ function seedPp06ChildData(Pp06PeriodeTahunan $pp06, array $draftData): void
     foreach ($draftData['item_dokumen_sop'] ?? [] as $item) {
         Pp06ItemDokumenSop::create(['pp06_periode_tahunan_id' => $pp06->id, ...$item]);
     }
+    foreach ($draftData['rekening_organisasi'] ?? [] as $item) {
+        Pp06RekeningOrganisasi::create(['pp06_periode_tahunan_id' => $pp06->id, ...$item]);
+    }
 }
 
 // === Tests ===
@@ -121,7 +126,7 @@ it('returns empty changes when draft data is identical to previous PP06', functi
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     $service = new PpCompileService;
     $changes = $service->computeDiff($pp06, $draftData);
@@ -138,7 +143,7 @@ it('detects periode changes (tahun, dates)', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     // Change tahun and dates
     $newDraft = $draftData;
@@ -166,7 +171,7 @@ it('detects kode table additions and removals', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     // Remove '02' bidang, add '03' bidang
     $newDraft = $draftData;
@@ -196,7 +201,7 @@ it('detects kode table field changes (nama, catatan)', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     // Change nama of kode '01'
     $newDraft = $draftData;
@@ -223,7 +228,7 @@ it('detects kuisioner additions, removals, and changes', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     $newDraft = $draftData;
     // Remove Q02, change Q01 tipe, add Q03
@@ -268,7 +273,7 @@ it('detects plafon amount changes and rekening changes', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     // Change plafon + rekening
     $newDraft = $draftData;
@@ -309,7 +314,7 @@ it('detects plafon team additions and removals', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     // Remove team1, add team2
     $newDraft = $draftData;
@@ -378,7 +383,7 @@ it('detects dokumen additions and removals', function () {
 
     $pp06 = createPp06WithData($workflow);
     seedPp06ChildData($pp06, $draftData);
-    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop']);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
 
     // Remove file1, add file2
     $newDraft = $draftData;
@@ -522,4 +527,85 @@ it('stores changelog diff in PP07 submitted history entry during integration flo
 
     expect($plafonDesc)->toContain('Rp 50.000.000', 'Rp 75.000.000')
         ->and($kuisionerDesc)->toContain('Jumlah kegiatan baru?');
+});
+
+// --- Rekening Organisasi Diff Tests ---
+
+it('detects added rekening organisasi', function () {
+    $user = User::factory()->withRole()->create();
+    $workspace = $user->roles->first()->team->organization->workspaces->first();
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $draftData = baseDraftData();
+    $pp06 = createPp06WithData($workflow);
+    seedPp06ChildData($pp06, $draftData);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
+
+    // Add a rekening in the new draft
+    $newDraft = $draftData;
+    $newDraft['rekening_organisasi'] = [
+        ['nama_bank' => 'BCA', 'nama_rekening' => 'Finance Playground', 'nomor_rekening' => '1234567890'],
+    ];
+
+    $service = new PpCompileService;
+    $changes = $service->computeDiff($pp06, $newDraft);
+
+    $types = array_column($changes, 'type');
+    expect($types)->toContain('rekening_organisasi_added');
+
+    $desc = collect($changes)->firstWhere('type', 'rekening_organisasi_added')['description'];
+    expect($desc)->toContain('BCA', '1234567890');
+});
+
+it('detects removed rekening organisasi', function () {
+    $user = User::factory()->withRole()->create();
+    $workspace = $user->roles->first()->team->organization->workspaces->first();
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $draftData = baseDraftData();
+    $draftData['rekening_organisasi'] = [
+        ['nama_bank' => 'BCA', 'nama_rekening' => 'Finance Playground', 'nomor_rekening' => '1234567890'],
+    ];
+    $pp06 = createPp06WithData($workflow);
+    seedPp06ChildData($pp06, $draftData);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
+
+    // Remove all rekening in the new draft
+    $newDraft = $draftData;
+    $newDraft['rekening_organisasi'] = [];
+
+    $service = new PpCompileService;
+    $changes = $service->computeDiff($pp06, $newDraft);
+
+    $types = array_column($changes, 'type');
+    expect($types)->toContain('rekening_organisasi_removed');
+});
+
+it('detects changed rekening organisasi bank name', function () {
+    $user = User::factory()->withRole()->create();
+    $workspace = $user->roles->first()->team->organization->workspaces->first();
+    $workflow = PpWorkflow::create(['workspace_id' => $workspace->id, 'history' => []]);
+
+    $draftData = baseDraftData();
+    $draftData['rekening_organisasi'] = [
+        ['nama_bank' => 'BCA', 'nama_rekening' => 'Finance Playground', 'nomor_rekening' => '1234567890'],
+    ];
+    $pp06 = createPp06WithData($workflow);
+    seedPp06ChildData($pp06, $draftData);
+    $pp06->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop', 'rekeningOrganisasi']);
+
+    // Change bank name (same nomor_rekening)
+    $newDraft = $draftData;
+    $newDraft['rekening_organisasi'] = [
+        ['nama_bank' => 'Mandiri', 'nama_rekening' => 'Finance Playground', 'nomor_rekening' => '1234567890'],
+    ];
+
+    $service = new PpCompileService;
+    $changes = $service->computeDiff($pp06, $newDraft);
+
+    $types = array_column($changes, 'type');
+    expect($types)->toContain('rekening_organisasi_changed');
+
+    $desc = collect($changes)->firstWhere('type', 'rekening_organisasi_changed')['description'];
+    expect($desc)->toContain('BCA', 'Mandiri');
 });

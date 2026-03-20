@@ -13,6 +13,7 @@ type KodeItem = { kode: string; nama: string; catatan: string | null };
 type KuisionerItem = { kode: string; pertanyaan: string; tipe: string; satuan: string | null };
 type PlafonItem = { team: { name: string }; kode_team: string; plafon_anggaran: number; nama_bank: string; nama_rekening: string; nomor_rekening: string };
 type DokumenItem = { file: { id: number; original_filename: string } };
+type RekeningOrganisasiItem = { nama_bank: string; nama_rekening: string; nomor_rekening: string };
 
 type Pp06 = {
     id: number;
@@ -42,6 +43,7 @@ type Pp06 = {
     item_kuisioner: KuisionerItem[];
     item_plafon_anggaran: PlafonItem[];
     item_dokumen_sop: DokumenItem[];
+    rekening_organisasi: RekeningOrganisasiItem[];
     verification_code: string | null;
 };
 
@@ -249,6 +251,32 @@ export default function Pp06({ workflow, pp06, allRevisions, changelogByRevision
                     </div>
                     <AuthorLine name={pp06.pp03_created_by_user_name} role={pp06.pp03_created_by_role_name} date={pp06.pp03_created_at} />
                 </SectionCard>
+
+                {/* Rekening Organisasi */}
+                {pp06.rekening_organisasi.length > 0 && (
+                    <SectionCard title="Rekening Organisasi untuk Refund">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="px-3 py-2 text-left font-medium w-40">Nama Bank</th>
+                                        <th className="px-3 py-2 text-left font-medium">Nama Rekening</th>
+                                        <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pp06.rekening_organisasi.map((item, i) => (
+                                        <tr key={i} className="border-b last:border-0">
+                                            <td className="px-3 py-2">{item.nama_bank}</td>
+                                            <td className="px-3 py-2">{item.nama_rekening}</td>
+                                            <td className="px-3 py-2">{item.nomor_rekening}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </SectionCard>
+                )}
 
                 {/* Dokumen SOP */}
                 <SectionCard title="Dokumen SOP">

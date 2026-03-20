@@ -32,6 +32,8 @@ type PlafonItem = {
 type DokumenItem = { file_id: number };
 type DokumenFile = { file_id: number; uuid: string; original_filename: string; size: number };
 
+type RekeningOrganisasiItem = { nama_bank: string; nama_rekening: string; nomor_rekening: string };
+
 type DraftData = {
     tahun: number | null;
     tanggal_mulai_pra_raker: string | null;
@@ -43,6 +45,7 @@ type DraftData = {
     item_kuisioner: KuisionerItem[];
     item_plafon_anggaran: PlafonItem[];
     item_dokumen_sop: DokumenItem[];
+    rekening_organisasi: RekeningOrganisasiItem[];
 };
 
 type StepData = {
@@ -133,6 +136,7 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
         item_kuisioner: d.item_kuisioner?.length > 0 ? d.item_kuisioner : [{ kode: 'Q01', pertanyaan: '', tipe: 'Kualitatif', satuan: '' }],
         item_plafon_anggaran: d.item_plafon_anggaran?.length > 0 ? d.item_plafon_anggaran.map((item) => ({ ...item, catatan: item.catatan ?? '' })) : [],
         item_dokumen_sop: d.item_dokumen_sop ?? [],
+        rekening_organisasi: d.rekening_organisasi?.length > 0 ? d.rekening_organisasi : [],
     });
 
     const [fileEntries, setFileEntries] = useState<FileEntry[]>(
@@ -226,6 +230,19 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
 
     function updatePlafonRow(index: number, field: string, value: string | number) {
         setDraft('item_plafon_anggaran', draft.item_plafon_anggaran.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+    }
+
+    // Rekening Organisasi helpers
+    function addRekeningRow() {
+        setDraft('rekening_organisasi', [...draft.rekening_organisasi, { nama_bank: '', nama_rekening: '', nomor_rekening: '' }]);
+    }
+
+    function removeRekeningRow(index: number) {
+        setDraft('rekening_organisasi', draft.rekening_organisasi.filter((_, i) => i !== index));
+    }
+
+    function updateRekeningRow(index: number, field: keyof RekeningOrganisasiItem, value: string) {
+        setDraft('rekening_organisasi', draft.rekening_organisasi.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
     function addFiles(newFiles: FileList | File[]) {
@@ -577,6 +594,59 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                         <Button variant="outline" size="sm" onClick={addPlafonRow} className="mt-2">
                             <Plus className="mr-1 h-3.5 w-3.5" />Tambah Tim
                         </Button>
+                    )}
+                </SectionCard>
+
+                {/* Rekening Organisasi */}
+                <SectionCard title="Rekening Organisasi untuk Refund">
+                    <p className="mb-3 text-xs text-muted-foreground">
+                        Rekening milik organisasi untuk penerimaan refund dari tim.
+                    </p>
+                    {draft.rekening_organisasi.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="px-3 py-2 text-left font-medium w-40">Nama Bank</th>
+                                        <th className="px-3 py-2 text-left font-medium w-56">Nama Rekening</th>
+                                        <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening</th>
+                                        {!isReadonly && <th className="px-3 py-2 w-12" />}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {draft.rekening_organisasi.map((item, i) => (
+                                        <tr key={i} className="border-b last:border-0">
+                                            <td className="px-3 py-1.5">
+                                                <Input value={item.nama_bank} onChange={(e) => updateRekeningRow(i, 'nama_bank', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                                <Input value={item.nama_rekening} onChange={(e) => updateRekeningRow(i, 'nama_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                                <Input value={item.nomor_rekening} onChange={(e) => updateRekeningRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            </td>
+                                            {!isReadonly && (
+                                                <td className="px-3 py-1.5">
+                                                    <Button variant="ghost" size="sm" onClick={() => removeRekeningRow(i)} className="h-8 w-8 p-0">
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    {draft.rekening_organisasi.length === 0 && isReadonly && (
+                        <p className="text-sm text-muted-foreground">Tidak ada rekening organisasi.</p>
+                    )}
+                    {!isReadonly && (
+                        <div className="mt-2">
+                            <Button variant="outline" size="sm" onClick={addRekeningRow}>
+                                <Plus className="mr-1 h-3.5 w-3.5" />Tambah Rekening
+                            </Button>
+                        </div>
                     )}
                 </SectionCard>
 
