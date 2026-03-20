@@ -1204,9 +1204,6 @@ class PkCompileService
                     'status_pencairan' => $anggaran->status_pencairan,
                     'tanggal_pencairan' => $anggaran->tanggal_pencairan,
                     'pencairan_pabd_workflow_id' => $anggaran->pencairan_pabd_workflow_id,
-                    'nominal_realisasi' => $anggaran->nominal_realisasi,
-                    'status_realisasi' => $anggaran->status_realisasi,
-                    'prbl_workflow_id' => $anggaran->prbl_workflow_id,
                 ]);
             }
 

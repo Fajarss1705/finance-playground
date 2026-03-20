@@ -29,9 +29,6 @@ class Pk04Anggaran extends Model
         'status_pencairan',
         'tanggal_pencairan',
         'pencairan_pabd_workflow_id',
-        'nominal_realisasi',
-        'status_realisasi',
-        'prbl_workflow_id',
     ];
 
     /** @return array<string, string> */
@@ -39,7 +36,6 @@ class Pk04Anggaran extends Model
     {
         return [
             'nominal_anggaran' => 'decimal:2',
-            'nominal_realisasi' => 'decimal:2',
             'tanggal_pencairan' => 'date',
         ];
     }
