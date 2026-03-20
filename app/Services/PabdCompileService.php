@@ -247,7 +247,6 @@ class PabdCompileService
 
         $main = $pabd05->only([
             'pabd_workflow_id',
-            'verification_code',
             'pabd01_created_by_user_name',
             'pabd01_created_by_role_name',
             'pabd01_created_by_team_name',

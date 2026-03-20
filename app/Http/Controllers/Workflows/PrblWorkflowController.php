@@ -26,11 +26,13 @@ use App\Models\Prbl\Prbl01ItemRealisasi;
 use App\Models\Prbl\Prbl01NotaPengeluaran;
 use App\Models\Prbl\Prbl03Bukti;
 use App\Models\Prbl\Prbl03Data;
+use App\Models\Prbl\Prbl05LaporanBulanan;
 use App\Models\Prbl\PrblWorkflow;
 use App\Models\Role;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
+use App\Services\PrblCompileService;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
@@ -49,6 +51,7 @@ class PrblWorkflowController extends Controller
         private HistoryFormatter $historyFormatter,
         private CommentService $commentService,
         private WorkflowNotifier $notifier,
+        private PrblCompileService $prblCompileService,
     ) {}
 
     // ──────────────────────────────────────
@@ -1345,7 +1348,7 @@ class PrblWorkflowController extends Controller
             $sessionContext,
         );
 
-        DB::transaction(function () use ($prblWorkflow, $request, $sessionContext, $validated, $fileIds) {
+        $prbl05 = DB::transaction(function () use ($prblWorkflow, $request, $sessionContext, $validated, $fileIds) {
             $this->engine->recordAction(
                 workflow: $prblWorkflow,
                 step: 'PRBL04',
@@ -1357,23 +1360,39 @@ class PrblWorkflowController extends Controller
                 extra: ['pp06_revision' => $this->getLatestPp06Revision($prblWorkflow)],
             );
 
-            // Trigger PRBL05 auto-compile placeholder
-            // (PRBL05 compile will be implemented in Session 5.5)
+            // Compile PRBL05 — snapshot all 8 tables
+            $prbl05 = $this->prblCompileService->compile($prblWorkflow);
+
+            // Record PRBL05 completed in history
             $this->engine->recordAction(
                 workflow: $prblWorkflow,
                 step: 'PRBL05',
                 action: 'completed',
                 userId: null,
                 sessionContext: [],
+                table: 'prbl05_laporan_bulanan',
+                dataId: $prbl05->id,
                 extra: [
                     'triggered_by' => [
                         'user_id' => $request->user()->id,
                         'step' => 'PRBL04',
                         'action' => 'approved',
                     ],
+                    'revision' => 0,
+                    'pp06_revision' => $this->getLatestPp06Revision($prblWorkflow),
                 ],
             );
+
+            return $prbl05;
         });
+
+        // Generate export files (outside transaction)
+        $exportResult = $this->prblCompileService->generateExportFiles(
+            $prbl05,
+            $request->user()->id,
+            $prblWorkflow->workspace_id,
+        );
+        $this->prblCompileService->appendExportFilesToHistory($prblWorkflow, $exportResult);
 
         $this->notifier->notify($prblWorkflow, 'prbl04.approved', [
             'actor_name' => $request->user()->name,
@@ -1381,7 +1400,7 @@ class PrblWorkflowController extends Controller
         ], $request->user()->id);
 
         return redirect(route('admin.workflows.prbl.prbl04.show', $prblWorkflow))
-            ->with('success', 'Laporan bulanan disetujui. PRBL05 telah dikompilasi.');
+            ->with('success', 'Laporan bulanan telah disetujui. Laporan final telah dikompilasi.');
     }
 
     public function prbl04Reject(Prbl04RejectRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
@@ -2240,6 +2259,336 @@ class PrblWorkflowController extends Controller
         }
 
         imagedestroy($image);
+    }
+
+    // ──────────────────────────────────────
+    // PRBL05 — Laporan Bulanan Final (Read-Only)
+    // ──────────────────────────────────────
+
+    public function prbl05Show(PrblWorkflow $prblWorkflow): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.prbl05.show");
+
+        $prbl05 = $prblWorkflow->latestPrbl05();
+        if (! $prbl05) {
+            abort(404, 'PRBL05 belum dikompilasi.');
+        }
+
+        $prbl05->load([
+            'itemKegiatan.fotoKegiatan.file',
+            'itemKegiatan.notaPengeluaran.file',
+            'itemKegiatan.itemKuisioner.pk04Kuisioner',
+            'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
+            'itemRealisasi.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan',
+            'rekeningOrganisasi',
+            'bukti.file',
+        ]);
+
+        $bulanNames = $this->bulanNames();
+        $teamName = $prblWorkflow->team?->name ?? 'Unknown';
+        $bulanLabel = $bulanNames[$prblWorkflow->bulan_laporan] ?? (string) $prblWorkflow->bulan_laporan;
+        $tahun = $prblWorkflow->tahun_laporan;
+        $label = "PRBL-{$teamName}-{$bulanLabel}/{$tahun}";
+
+        // PP reference label
+        $pp06 = $prblWorkflow->ppWorkflow?->latestPp06();
+        $ppLabel = $pp06 ? "PP-{$tahun} Revisi {$pp06->revision}" : null;
+
+        // PABD reference label
+        $pabdWorkflow = $prblWorkflow->pabdWorkflow;
+        $pabdLabel = $pabdWorkflow
+            ? "PABD-{$teamName}-{$bulanLabel}/{$tahun}"
+            : null;
+
+        // Build grouped kegiatan items (program → kegiatan → narratives + foto + nota + kuisioner)
+        $kegiatanItems = $this->buildPrbl05KegiatanItems($prbl05, $bulanNames);
+
+        // Build grouped realisasi items (program → kegiatan → anggaran with realisasi)
+        $realisasiItems = $this->buildPrbl05RealisasiItems($prbl05, $bulanNames);
+
+        // Rekening organisasi
+        $rekeningOrganisasi = $prbl05->rekeningOrganisasi->map(fn ($r) => [
+            'id' => $r->id,
+            'nama_bank' => $r->nama_bank,
+            'nama_rekening' => $r->nama_rekening,
+            'nomor_rekening' => $r->nomor_rekening,
+        ])->values();
+
+        // Bukti transfer + foto nota files
+        $buktiTransferFiles = $prbl05->bukti->where('tipe', 'bukti_transfer')->map(fn ($b) => [
+            'id' => $b->id,
+            'file_id' => $b->file_id,
+            'filename' => $b->file?->original_filename ?? 'Unknown',
+            'mime_type' => $b->file?->mime_type,
+            'size' => $b->file?->size,
+            'path' => $b->file?->path,
+            'download_url' => $b->file?->path ? route('files.download', $b->file) : null,
+        ])->values();
+
+        $fotoNotaFiles = $prbl05->bukti->where('tipe', 'foto_nota')->map(fn ($b) => [
+            'id' => $b->id,
+            'file_id' => $b->file_id,
+            'filename' => $b->file?->original_filename ?? 'Unknown',
+            'mime_type' => $b->file?->mime_type,
+            'size' => $b->file?->size,
+            'path' => $b->file?->path,
+            'download_url' => $b->file?->path ? route('files.download', $b->file) : null,
+        ])->values();
+
+        // Export files from file records
+        $exportFiles = $this->resolvePrbl05ExportFiles($prbl05);
+
+        // History + formatting
+        $history = $prblWorkflow->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+
+        $permPrefix = "{$scope}.workflows.prbl";
+        $permissions = $this->session->getActivePermissions();
+        $basePath = $scope === 'team'
+            ? "/team/workflows/prbl/{$prblWorkflow->id}"
+            : "/admin/workflows/prbl/{$prblWorkflow->id}";
+
+        // Stepper data
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $stepperData = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow, $scope): ?string {
+            $base = "/{$scope}/workflows/prbl/{$prblWorkflow->id}";
+            if ($dataId) {
+                $stepLower = strtolower($code);
+
+                return "{$base}/{$stepLower}/{$dataId}";
+            }
+
+            return null;
+        });
+
+        // Action roles
+        $actionRoles = $this->resolveActionRoles([
+            "{$scope}.workflows.prbl.prbl05.show" => ['Lihat', false],
+            "{$scope}.workflows.prbl.prbl05.export.pdf" => ['Unduh PDF', false],
+            "{$scope}.workflows.prbl.prbl05.export.excel" => ['Unduh Excel', false],
+            "{$scope}.workflows.prbl.prbl05.export.zip" => ['Unduh ZIP', false],
+            "{$scope}.workflows.prbl.comment" => ['Komentar', false],
+        ]);
+
+        return Inertia::render('workflows/prbl/prbl05', [
+            'workflow' => [
+                'id' => $prblWorkflow->id,
+                'label' => $label,
+                'status' => $workflowStatus,
+                'bulan_laporan' => $prblWorkflow->bulan_laporan,
+                'tahun_laporan' => $tahun,
+                'bulan_label' => $bulanLabel,
+            ],
+            'prbl05' => [
+                'id' => $prbl05->id,
+                'verification_code' => $prbl05->verification_code,
+                'prbl01_created_by_user_name' => $prbl05->prbl01_created_by_user_name,
+                'prbl01_created_by_role_name' => $prbl05->prbl01_created_by_role_name,
+                'prbl01_created_by_team_name' => $prbl05->prbl01_created_by_team_name,
+                'prbl01_created_at' => $prbl05->prbl01_created_at?->toIso8601String(),
+                'prbl02a_approved_by_user_name' => $prbl05->prbl02a_approved_by_user_name,
+                'prbl02a_approved_by_role_name' => $prbl05->prbl02a_approved_by_role_name,
+                'prbl02a_approved_by_team_name' => $prbl05->prbl02a_approved_by_team_name,
+                'prbl02a_approved_at' => $prbl05->prbl02a_approved_at?->toIso8601String(),
+                'prbl02b_approved_by_user_name' => $prbl05->prbl02b_approved_by_user_name,
+                'prbl02b_approved_by_role_name' => $prbl05->prbl02b_approved_by_role_name,
+                'prbl02b_approved_by_team_name' => $prbl05->prbl02b_approved_by_team_name,
+                'prbl02b_approved_at' => $prbl05->prbl02b_approved_at?->toIso8601String(),
+                'prbl03_created_by_user_name' => $prbl05->prbl03_created_by_user_name,
+                'prbl03_created_by_role_name' => $prbl05->prbl03_created_by_role_name,
+                'prbl03_created_by_team_name' => $prbl05->prbl03_created_by_team_name,
+                'prbl03_created_at' => $prbl05->prbl03_created_at?->toIso8601String(),
+                'prbl04_approved_by_user_name' => $prbl05->prbl04_approved_by_user_name,
+                'prbl04_approved_by_role_name' => $prbl05->prbl04_approved_by_role_name,
+                'prbl04_approved_by_team_name' => $prbl05->prbl04_approved_by_team_name,
+                'prbl04_approved_at' => $prbl05->prbl04_approved_at?->toIso8601String(),
+                'keterangan' => $prbl05->keterangan,
+                'total_anggaran_dicairkan' => (float) $prbl05->total_anggaran_dicairkan,
+                'total_realisasi' => (float) $prbl05->total_realisasi,
+                'total_refund' => (float) $prbl05->total_refund,
+                'total_item' => $prbl05->total_item,
+                'created_at' => $prbl05->created_at?->toIso8601String(),
+            ],
+            'kegiatanItems' => $kegiatanItems,
+            'realisasiItems' => $realisasiItems,
+            'rekeningOrganisasi' => $rekeningOrganisasi,
+            'buktiTransferFiles' => $buktiTransferFiles,
+            'fotoNotaFiles' => $fotoNotaFiles,
+            'exportFiles' => $exportFiles,
+            'ppLabel' => $ppLabel,
+            'pabdLabel' => $pabdLabel,
+            'verifyUrl' => url('/verify'),
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'commentUrl' => "{$basePath}/comment",
+            'scope' => $scope,
+            'history' => $this->historyFormatter->format($history),
+            'actionRoles' => $actionRoles,
+            'activeRoleName' => $this->getActiveRoleName(),
+            'stepperData' => $stepperData,
+            'teamName' => $teamName,
+        ]);
+    }
+
+    /**
+     * Build grouped kegiatan items: program → kegiatan → narratives + foto + nota + kuisioner.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function buildPrbl05KegiatanItems(Prbl05LaporanBulanan $prbl05, array $bulanNames): array
+    {
+        $grouped = [];
+
+        foreach ($prbl05->itemKegiatan as $item) {
+            $kegiatan = $item->pk04Kegiatan;
+            $program = $kegiatan?->pk04ProgramTahunan;
+            $pkWorkflow = $program?->pkWorkflow;
+
+            $programKey = $program?->id ?? 0;
+
+            if (! isset($grouped[$programKey])) {
+                $grouped[$programKey] = [
+                    'program_id' => $program?->id,
+                    'program_name' => $program?->nama_program ?? 'Unknown',
+                    'kode_kategori' => $program?->kode_kategori ?? '',
+                    'tipe' => $pkWorkflow?->tipe ?? 'raker',
+                    'kegiatan' => [],
+                ];
+            }
+
+            $grouped[$programKey]['kegiatan'][] = [
+                'prbl05_item_kegiatan_id' => $item->id,
+                'kegiatan_id' => $kegiatan?->id,
+                'nama_kegiatan' => $kegiatan?->nama_kegiatan ?? 'Unknown',
+                'bulan' => $kegiatan?->bulan,
+                'bulan_label' => $bulanNames[$kegiatan?->bulan ?? 0] ?? '',
+                'masalah' => $item->masalah,
+                'langkah_penanganan' => $item->langkah_penanganan,
+                'harapan' => $item->harapan,
+                'catatan_tim' => $item->catatan_tim,
+                'foto' => $item->fotoKegiatan->map(fn ($f) => [
+                    'id' => $f->id,
+                    'file_id' => $f->file_id,
+                    'filename' => $f->file?->original_filename ?? 'Unknown',
+                    'mime_type' => $f->file?->mime_type,
+                    'size' => $f->file?->size,
+                    'path' => $f->file?->path,
+                    'download_url' => $f->file?->path ? route('files.download', $f->file) : null,
+                    'thumbnail_url' => $f->file?->path ? route('files.download', $f->file) : null,
+                ])->values()->all(),
+                'nota' => $item->notaPengeluaran->map(fn ($n) => [
+                    'id' => $n->id,
+                    'file_id' => $n->file_id,
+                    'filename' => $n->file?->original_filename ?? 'Unknown',
+                    'mime_type' => $n->file?->mime_type,
+                    'size' => $n->file?->size,
+                    'path' => $n->file?->path,
+                    'download_url' => $n->file?->path ? route('files.download', $n->file) : null,
+                ])->values()->all(),
+                'kuisioner' => $item->itemKuisioner->map(fn ($q) => [
+                    'id' => $q->id,
+                    'pk04_kuisioner_id' => $q->pk04_kuisioner_id,
+                    'pertanyaan' => $q->pk04Kuisioner?->pertanyaan ?? '-',
+                    'tipe' => $q->pk04Kuisioner?->tipe ?? '-',
+                    'satuan' => $q->pk04Kuisioner?->satuan ?? '-',
+                    'jawaban' => $q->jawaban,
+                ])->values()->all(),
+            ];
+        }
+
+        return collect($grouped)->values()->all();
+    }
+
+    /**
+     * Build grouped realisasi items: program → kegiatan → anggaran with realisasi.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function buildPrbl05RealisasiItems(Prbl05LaporanBulanan $prbl05, array $bulanNames): array
+    {
+        $grouped = [];
+
+        foreach ($prbl05->itemRealisasi as $item) {
+            $pk04Anggaran = $item->pk04Anggaran;
+            if (! $pk04Anggaran) {
+                continue;
+            }
+
+            $kegiatan = $pk04Anggaran->pk04Kegiatan;
+            $program = $kegiatan?->pk04ProgramTahunan;
+
+            $programKey = $program?->id ?? 0;
+            $kegiatanKey = $kegiatan?->id ?? 0;
+
+            if (! isset($grouped[$programKey])) {
+                $grouped[$programKey] = [
+                    'program_id' => $program?->id,
+                    'program_name' => $program?->nama_program ?? 'Unknown',
+                    'kode_kategori' => $program?->kode_kategori ?? '',
+                    'kegiatan' => [],
+                ];
+            }
+
+            if (! isset($grouped[$programKey]['kegiatan'][$kegiatanKey])) {
+                $grouped[$programKey]['kegiatan'][$kegiatanKey] = [
+                    'kegiatan_id' => $kegiatan?->id,
+                    'nama_kegiatan' => $kegiatan?->nama_kegiatan ?? 'Unknown',
+                    'bulan' => $kegiatan?->bulan,
+                    'bulan_label' => $bulanNames[$kegiatan?->bulan ?? 0] ?? '',
+                    'anggaran' => [],
+                ];
+            }
+
+            $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
+                'prbl05_item_realisasi_id' => $item->id,
+                'pk04_anggaran_id' => $pk04Anggaran->id,
+                'kode_anggaran_baru' => $pk04Anggaran->kode_anggaran_baru,
+                'mata_anggaran' => $pk04Anggaran->mata_anggaran,
+                'nominal_anggaran' => (float) $item->nominal_anggaran,
+                'nominal_realisasi' => (float) $item->nominal_realisasi,
+                'selisih' => (float) $item->selisih,
+                'komentar_realisasi' => $item->komentar_realisasi,
+            ];
+        }
+
+        // Convert nested kegiatan to indexed arrays
+        return collect($grouped)->map(function ($program) {
+            $program['kegiatan'] = array_values($program['kegiatan']);
+
+            return $program;
+        })->values()->all();
+    }
+
+    /**
+     * Resolve export files (PDF + Excel) for PRBL05.
+     *
+     * @return array{pdf: array|null, excel: array|null}
+     */
+    private function resolvePrbl05ExportFiles(Prbl05LaporanBulanan $prbl05): array
+    {
+        $files = File::where('attachable_type', Prbl05LaporanBulanan::class)
+            ->where('attachable_id', $prbl05->id)
+            ->whereIn('source_route', ['prbl05.export.pdf', 'prbl05.export.excel'])
+            ->get();
+
+        $pdf = $files->firstWhere('source_route', 'prbl05.export.pdf');
+        $excel = $files->firstWhere('source_route', 'prbl05.export.excel');
+
+        $map = fn (?File $f) => $f ? [
+            'id' => $f->id,
+            'filename' => $f->original_filename,
+            'path' => $f->path,
+            'available' => $f->path !== null,
+        ] : null;
+
+        return [
+            'pdf' => $map($pdf),
+            'excel' => $map($excel),
+        ];
     }
 
     // ──────────────────────────────────────

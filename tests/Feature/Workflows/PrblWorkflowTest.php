@@ -9,6 +9,7 @@ use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Pp\Pp06RekeningOrganisasi;
 use App\Models\Pp\PpWorkflow;
 use App\Models\Prbl\Prbl01Data;
 use App\Models\Prbl\Prbl01FotoKegiatan;
@@ -18,9 +19,16 @@ use App\Models\Prbl\Prbl01ItemRealisasi;
 use App\Models\Prbl\Prbl01NotaPengeluaran;
 use App\Models\Prbl\Prbl03Bukti;
 use App\Models\Prbl\Prbl03Data;
+use App\Models\Prbl\Prbl05Bukti;
+use App\Models\Prbl\Prbl05ItemKegiatan;
+use App\Models\Prbl\Prbl05ItemKuisioner;
+use App\Models\Prbl\Prbl05ItemRealisasi;
+use App\Models\Prbl\Prbl05LaporanBulanan;
+use App\Models\Prbl\Prbl05RekeningOrganisasi;
 use App\Models\Prbl\PrblWorkflow;
 use App\Models\User;
 use App\Services\ActiveSessionService;
+use App\Services\PrblCompileService;
 use App\Services\WorkflowEngine;
 use App\Workflows\PrblWorkflowDefinition;
 use Illuminate\Http\UploadedFile;
@@ -2365,4 +2373,338 @@ it('rejects PRBL04 approve when step is not active', function () {
     ]);
 
     $response->assertStatus(409);
+});
+
+// ── PRBL05 Helpers ──
+
+function advanceToPrbl05(
+    object $prblWorkflow,
+    object $prbl01,
+    object $itemKegiatan,
+    object $itemKuisioner,
+    object $realisasi1,
+    object $realisasi2,
+    int $userId,
+    object $ppWorkflow,
+): Prbl05LaporanBulanan {
+    $prbl03Data = advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $userId);
+
+    // Add foto kegiatan to PRBL01 item kegiatan
+    $fotoFile = \App\Models\File::create([
+        'original_filename' => 'foto-kegiatan.jpg',
+        'filename' => 'foto-kegiatan.jpg',
+        'mime_type' => 'image/jpeg',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'uploads/prbl/foto-kegiatan.jpg',
+        'user_id' => $userId,
+        'workspace_id' => $prblWorkflow->workspace_id,
+    ]);
+    Prbl01FotoKegiatan::create([
+        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+        'file_id' => $fotoFile->id,
+    ]);
+
+    // Add nota pengeluaran
+    $notaFile = \App\Models\File::create([
+        'original_filename' => 'nota-pengeluaran.pdf',
+        'filename' => 'nota-pengeluaran.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 2048,
+        'disk' => 'local',
+        'path' => 'uploads/prbl/nota-pengeluaran.pdf',
+        'user_id' => $userId,
+        'workspace_id' => $prblWorkflow->workspace_id,
+    ]);
+    Prbl01NotaPengeluaran::create([
+        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+        'file_id' => $notaFile->id,
+    ]);
+
+    // Add bukti to PRBL03 (bukti_transfer + foto_nota)
+    $buktiTransferFile = \App\Models\File::create([
+        'original_filename' => 'bukti-transfer.jpg',
+        'filename' => 'bukti-transfer.jpg',
+        'mime_type' => 'image/jpeg',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'uploads/prbl/bukti-transfer.jpg',
+        'user_id' => $userId,
+        'workspace_id' => $prblWorkflow->workspace_id,
+    ]);
+    Prbl03Bukti::create([
+        'prbl03_data_id' => $prbl03Data->id,
+        'tipe' => 'bukti_transfer',
+        'file_id' => $buktiTransferFile->id,
+    ]);
+
+    $fotoNotaFile = \App\Models\File::create([
+        'original_filename' => 'foto-nota.jpg',
+        'filename' => 'foto-nota.jpg',
+        'mime_type' => 'image/jpeg',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'uploads/prbl/foto-nota.jpg',
+        'user_id' => $userId,
+        'workspace_id' => $prblWorkflow->workspace_id,
+    ]);
+    Prbl03Bukti::create([
+        'prbl03_data_id' => $prbl03Data->id,
+        'tipe' => 'foto_nota',
+        'file_id' => $fotoNotaFile->id,
+    ]);
+
+    // Add rekening organisasi to PP06
+    $pp06 = $ppWorkflow->fresh()->latestPp06();
+    Pp06RekeningOrganisasi::create([
+        'pp06_periode_tahunan_id' => $pp06->id,
+        'nama_bank' => 'Bank Mandiri',
+        'nama_rekening' => 'Demo Testing',
+        'nomor_rekening' => '9876543210',
+    ]);
+
+    // Record PRBL04 approved
+    $engine = new WorkflowEngine;
+    $engine->recordAction(
+        workflow: $prblWorkflow,
+        step: 'PRBL04',
+        action: 'approved',
+        userId: $userId,
+        sessionContext: [],
+    );
+
+    // Compile PRBL05
+    $compileService = app(PrblCompileService::class);
+    $prbl05 = $compileService->compile($prblWorkflow->fresh());
+
+    // Record PRBL05 completed
+    $engine->recordAction(
+        workflow: $prblWorkflow,
+        step: 'PRBL05',
+        action: 'completed',
+        userId: null,
+        sessionContext: [],
+        table: 'prbl05_laporan_bulanan',
+        dataId: $prbl05->id,
+    );
+
+    return $prbl05;
+}
+
+// ── PRBL05 Compile Correctness ──
+
+it('compiles PRBL05 with all 8 snapshot tables', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl05.show',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    $prbl05 = advanceToPrbl05($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id, $ppWorkflow);
+
+    // 1. Main laporan bulanan
+    expect($prbl05)->toBeInstanceOf(Prbl05LaporanBulanan::class);
+    expect($prbl05->prbl_workflow_id)->toBe($prblWorkflow->id);
+    expect((float) $prbl05->total_anggaran_dicairkan)->toBe(3500000.0);
+    expect((float) $prbl05->total_realisasi)->toBe(2800000.0);
+    expect((float) $prbl05->total_refund)->toBe(700000.0);
+    expect($prbl05->total_item)->toBe(2);
+    expect($prbl05->prbl01_created_by_user_name)->toBe($user->name);
+
+    // 2. Item kegiatan
+    $kegiatanItems = Prbl05ItemKegiatan::where('prbl05_laporan_bulanan_id', $prbl05->id)->get();
+    expect($kegiatanItems)->toHaveCount(1);
+    expect($kegiatanItems->first()->masalah)->toBe('Test masalah');
+    expect($kegiatanItems->first()->langkah_penanganan)->toBe('Test langkah');
+    expect($kegiatanItems->first()->harapan)->toBe('Test harapan');
+    expect($kegiatanItems->first()->catatan_tim)->toBe('Test catatan');
+    expect($kegiatanItems->first()->pk04_kegiatan_id)->toBe($kegiatan->id);
+
+    // 3. Foto kegiatan
+    $prbl05Kegiatan = $kegiatanItems->first();
+    $fotoCount = \App\Models\Prbl\Prbl05FotoKegiatan::where('prbl05_item_kegiatan_id', $prbl05Kegiatan->id)->count();
+    expect($fotoCount)->toBe(1);
+
+    // 4. Nota pengeluaran
+    $notaCount = \App\Models\Prbl\Prbl05NotaPengeluaran::where('prbl05_item_kegiatan_id', $prbl05Kegiatan->id)->count();
+    expect($notaCount)->toBe(1);
+
+    // 5. Item kuisioner
+    $kuisionerItems = Prbl05ItemKuisioner::where('prbl05_item_kegiatan_id', $prbl05Kegiatan->id)->get();
+    expect($kuisionerItems)->toHaveCount(1);
+    expect($kuisionerItems->first()->jawaban)->toBe('30');
+    expect($kuisionerItems->first()->pk04_kuisioner_id)->toBe($kuisioner->id);
+
+    // 6. Item realisasi
+    $realisasiItems = Prbl05ItemRealisasi::where('prbl05_laporan_bulanan_id', $prbl05->id)->get();
+    expect($realisasiItems)->toHaveCount(2);
+    $r1 = $realisasiItems->firstWhere('pk04_anggaran_id', $ang1->id);
+    expect((float) $r1->nominal_anggaran)->toBe(2500000.0);
+    expect((float) $r1->nominal_realisasi)->toBe(2000000.0);
+    expect((float) $r1->selisih)->toBe(500000.0);
+    $r2 = $realisasiItems->firstWhere('pk04_anggaran_id', $ang2->id);
+    expect((float) $r2->nominal_anggaran)->toBe(1000000.0);
+    expect((float) $r2->nominal_realisasi)->toBe(800000.0);
+    expect((float) $r2->selisih)->toBe(200000.0);
+
+    // 7. Rekening organisasi
+    $rekening = Prbl05RekeningOrganisasi::where('prbl05_laporan_bulanan_id', $prbl05->id)->get();
+    expect($rekening)->toHaveCount(1);
+    expect($rekening->first()->nama_bank)->toBe('Bank Mandiri');
+    expect($rekening->first()->nama_rekening)->toBe('Demo Testing');
+    expect($rekening->first()->nomor_rekening)->toBe('9876543210');
+
+    // 8. Bukti (bukti_transfer + foto_nota)
+    $bukti = Prbl05Bukti::where('prbl05_laporan_bulanan_id', $prbl05->id)->get();
+    expect($bukti)->toHaveCount(2);
+    expect($bukti->where('tipe', 'bukti_transfer')->count())->toBe(1);
+    expect($bukti->where('tipe', 'foto_nota')->count())->toBe(1);
+
+    // Verification code
+    expect($prbl05->verification_code)->not->toBeNull();
+    expect(strlen($prbl05->verification_code))->toBeLessThanOrEqual(8);
+    expect($prbl05->verification_code)->toMatch('/^[A-Z0-9]+$/');
+});
+
+// ── PRBL05 Show ──
+
+it('shows PRBL05 page for admin scope', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl05.show',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl05($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id, $ppWorkflow);
+
+    $response = $this->get(route('admin.workflows.prbl.prbl05.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl05')
+            ->where('scope', 'admin')
+            ->where('canComment', true)
+            ->has('prbl05')
+            ->where('prbl05.total_anggaran_dicairkan', fn ($v) => (float) $v === 3500000.0)
+            ->where('prbl05.total_realisasi', fn ($v) => (float) $v === 2800000.0)
+            ->where('prbl05.total_refund', fn ($v) => (float) $v === 700000.0)
+            ->where('prbl05.total_item', 2)
+            ->where('prbl05.prbl01_created_by_user_name', $user->name)
+            ->has('kegiatanItems', 1)
+            ->where('kegiatanItems.0.program_name', 'Program Kegiatan')
+            ->has('realisasiItems', 1)
+            ->has('rekeningOrganisasi', 1)
+            ->where('rekeningOrganisasi.0.nama_bank', 'Bank Mandiri')
+            ->has('buktiTransferFiles', 1)
+            ->has('fotoNotaFiles', 1)
+            ->where('prbl05.verification_code', fn ($v) => is_string($v) && strlen($v) <= 8)
+        );
+});
+
+it('shows PRBL05 page for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl05.show',
+        'team.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl05($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id, $ppWorkflow);
+
+    $response = $this->get(route('team.workflows.prbl.prbl05.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl05')
+            ->where('scope', 'team')
+            ->where('canComment', true)
+            ->has('prbl05')
+            ->where('prbl05.total_item', 2)
+            ->has('kegiatanItems', 1)
+            ->has('realisasiItems', 1)
+        );
+});
+
+it('denies PRBL05 show without permission', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        // Missing: prbl05.show
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl05($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id, $ppWorkflow);
+
+    $response = $this->get(route('team.workflows.prbl.prbl05.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertForbidden();
+});
+
+it('returns 404 when PRBL05 not yet compiled', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl05.show',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    // Don't compile — PRBL05 should not exist
+
+    $response = $this->get(route('admin.workflows.prbl.prbl05.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertNotFound();
+});
+
+// ── PRBL05 Verification Code Determinism ──
+
+it('generates deterministic verification code for PRBL05', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl05.show',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    $prbl05 = advanceToPrbl05($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id, $ppWorkflow);
+
+    $compileService = app(PrblCompileService::class);
+    $code1 = $compileService->generateVerificationCode($prbl05);
+    $code2 = $compileService->generateVerificationCode($prbl05);
+
+    expect($code1)->toBe($code2);
+    expect($code1)->toBe($prbl05->fresh()->verification_code);
+});
+
+// ── PRBL05 Tier 3 Lock Detection ──
+
+it('detects Tier 3 realisasi lock via prbl05_item_realisasi EXISTS', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl05.show',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Before compile — no Tier 3 lock
+    expect(Prbl05ItemRealisasi::where('pk04_anggaran_id', $ang1->id)->exists())->toBeFalse();
+    expect(Prbl05ItemRealisasi::where('pk04_anggaran_id', $ang2->id)->exists())->toBeFalse();
+
+    advanceToPrbl05($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id, $ppWorkflow);
+
+    // After compile — Tier 3 lock detected via EXISTS
+    expect(Prbl05ItemRealisasi::where('pk04_anggaran_id', $ang1->id)->exists())->toBeTrue();
+    expect(Prbl05ItemRealisasi::where('pk04_anggaran_id', $ang2->id)->exists())->toBeTrue();
 });

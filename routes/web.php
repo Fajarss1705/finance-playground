@@ -134,6 +134,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             // PRBL04 (team scope — read-only)
             Route::get('/{prblWorkflow}/prbl04', [PrblWorkflowController::class, 'prbl04Show'])->name('prbl04.show');
 
+            // PRBL05 (team scope — read-only show + exports)
+            Route::get('/{prblWorkflow}/prbl05', [PrblWorkflowController::class, 'prbl05Show'])->name('prbl05.show');
+
             // Comment
             Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });
