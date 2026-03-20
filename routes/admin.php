@@ -177,6 +177,16 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             // PRBL01 (admin scope — read-only)
             Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
 
+            // PRBL02A (admin scope — show + approve/reject, no data table param)
+            Route::get('/{prblWorkflow}/prbl02a', [PrblWorkflowController::class, 'prbl02aShow'])->name('prbl02a.show');
+            Route::post('/{prblWorkflow}/prbl02a/approve', [PrblWorkflowController::class, 'prbl02aApprove'])->name('prbl02a.approve');
+            Route::post('/{prblWorkflow}/prbl02a/reject', [PrblWorkflowController::class, 'prbl02aReject'])->name('prbl02a.reject');
+
+            // PRBL02B (admin scope — show + approve/reject, no data table param)
+            Route::get('/{prblWorkflow}/prbl02b', [PrblWorkflowController::class, 'prbl02bShow'])->name('prbl02b.show');
+            Route::post('/{prblWorkflow}/prbl02b/approve', [PrblWorkflowController::class, 'prbl02bApprove'])->name('prbl02b.approve');
+            Route::post('/{prblWorkflow}/prbl02b/reject', [PrblWorkflowController::class, 'prbl02bReject'])->name('prbl02b.reject');
+
             // Comment
             Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });

@@ -6,6 +6,10 @@ use App\Enums\WorkflowType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Workflows\Prbl01DraftRequest;
 use App\Http\Requests\Workflows\Prbl01SubmitRequest;
+use App\Http\Requests\Workflows\Prbl02aApproveRequest;
+use App\Http\Requests\Workflows\Prbl02aRejectRequest;
+use App\Http\Requests\Workflows\Prbl02bApproveRequest;
+use App\Http\Requests\Workflows\Prbl02bRejectRequest;
 use App\Http\Requests\Workflows\PrblCommentRequest;
 use App\Models\File;
 use App\Models\Pk\Pk04Anggaran;
@@ -24,6 +28,7 @@ use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -104,12 +109,7 @@ class PrblWorkflowController extends Controller
 
         // Stepper
         $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow, $scope): ?string {
-            $base = "/{$scope}/workflows/prbl/{$prblWorkflow->id}";
-            if ($code === 'PRBL01' && $dataId) {
-                return "{$base}/prbl01/{$dataId}";
-            }
-
-            return null;
+            return $this->resolveStepUrl($code, $dataId, $prblWorkflow, $scope);
         });
 
         return Inertia::render('workflows/prbl/prbl01', [
@@ -439,6 +439,477 @@ class PrblWorkflowController extends Controller
         );
 
         return back()->with('success', 'Komentar berhasil ditambahkan.');
+    }
+
+    // ──────────────────────────────────────
+    // PRBL02A — Persetujuan Narasi (Monev)
+    // ──────────────────────────────────────
+
+    public function prbl02aShow(PrblWorkflow $prblWorkflow): Response
+    {
+        return $this->showParallelApproval($prblWorkflow, 'PRBL02A', 'PRBL02B');
+    }
+
+    public function prbl02aApprove(Prbl02aApproveRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        return $this->handlePrblApproval($request, $prblWorkflow, 'PRBL02A', 'prbl02a', 'PRBL02B', 'approve');
+    }
+
+    public function prbl02aReject(Prbl02aRejectRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        return $this->handlePrblApproval($request, $prblWorkflow, 'PRBL02A', 'prbl02a', 'PRBL02B', 'reject');
+    }
+
+    // ──────────────────────────────────────
+    // PRBL02B — Persetujuan Anggaran (BU)
+    // ──────────────────────────────────────
+
+    public function prbl02bShow(PrblWorkflow $prblWorkflow): Response
+    {
+        return $this->showParallelApproval($prblWorkflow, 'PRBL02B', 'PRBL02A');
+    }
+
+    public function prbl02bApprove(Prbl02bApproveRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        return $this->handlePrblApproval($request, $prblWorkflow, 'PRBL02B', 'prbl02b', 'PRBL02A', 'approve');
+    }
+
+    public function prbl02bReject(Prbl02bRejectRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        return $this->handlePrblApproval($request, $prblWorkflow, 'PRBL02B', 'prbl02b', 'PRBL02A', 'reject');
+    }
+
+    // ──────────────────────────────────────
+    // PRBL02A/02B Shared Logic
+    // ──────────────────────────────────────
+
+    /**
+     * Show a parallel approval page (PRBL02A or PRBL02B).
+     */
+    private function showParallelApproval(PrblWorkflow $prblWorkflow, string $thisStep, string $otherStep): Response
+    {
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        $this->checkPermission("admin.workflows.prbl.{$this->stepLower($thisStep)}.show");
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $history = $prblWorkflow->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+
+        // Step status
+        $stepStatus = $statuses[$thisStep]['status'] ?? 'pending';
+        if ($stepStatus === 'completed') {
+            $latestAction = $this->getLatestStepAction($thisStep, $history);
+            if ($latestAction === 'approved' || $latestAction === 'rejected') {
+                $stepStatus = $latestAction;
+            }
+        }
+
+        // Permissions
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = 'admin.workflows.prbl';
+        $stepLower = $this->stepLower($thisStep);
+        $isStepActive = $statuses[$thisStep]['status'] === 'active';
+        $canApprove = $isStepActive && in_array("{$permPrefix}.{$stepLower}.approve", $permissions);
+        $canReject = $isStepActive && in_array("{$permPrefix}.{$stepLower}.reject", $permissions);
+        $mode = ($canApprove || $canReject) ? 'review' : 'readonly';
+
+        // Other track status
+        $otherStatus = $statuses[$otherStep]['status'] ?? 'pending';
+        if ($otherStatus === 'completed') {
+            $otherAction = $this->getLatestStepAction($otherStep, $history);
+            if ($otherAction === 'approved' || $otherAction === 'rejected') {
+                $otherStatus = $otherAction;
+            }
+        }
+        $otherStepLabel = $otherStep === 'PRBL02A' ? 'Persetujuan Narasi' : 'Persetujuan Anggaran';
+        $parallelTrackStatus = [
+            'step' => $otherStep,
+            'label' => $otherStepLabel,
+            'status' => $otherStatus,
+        ];
+
+        // Labels
+        $teamName = $prblWorkflow->team?->name ?? 'Unknown';
+        $bulanNames = $this->bulanNames();
+        $bulanLabel = $bulanNames[$prblWorkflow->bulan_laporan] ?? (string) $prblWorkflow->bulan_laporan;
+        $label = "PRBL-{$teamName}-{$bulanLabel}/{$prblWorkflow->tahun_laporan}";
+
+        // PP reference
+        $ppWorkflow = $prblWorkflow->ppWorkflow;
+        $pp06 = $ppWorkflow?->latestPp06();
+        $ppLabel = $pp06 ? "PP-{$ppWorkflow->latestPp01()?->tahun} Revisi {$pp06->revision}" : null;
+
+        // Load latest PRBL01 data
+        $latestPrbl01 = $prblWorkflow->latestPrbl01();
+        $kegiatanItems = $latestPrbl01 ? $this->resolveKegiatanItems($latestPrbl01, $prblWorkflow) : [];
+        $totalDicairkan = $this->calculateTotalDicairkan($prblWorkflow);
+        $totalRealisasi = $latestPrbl01 ? (float) $latestPrbl01->itemRealisasi()->sum('nominal_realisasi') : 0;
+
+        // PRBL01 submitter info
+        $submitterInfo = $this->resolveStepSubmitter($history, 'PRBL01');
+
+        // Previous cycles
+        $cycle = $statuses[$thisStep]['cycle'] ?? 1;
+        $previousCycles = $this->resolvePreviousCycles($history, 'PRBL01');
+
+        // Stepper
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow): ?string {
+            return $this->resolveStepUrl($code, $dataId, $prblWorkflow, 'admin');
+        });
+
+        $thisStepLabel = $thisStep === 'PRBL02A' ? 'Persetujuan Narasi' : 'Persetujuan Anggaran';
+        $pageName = $thisStep === 'PRBL02A' ? 'prbl02a' : 'prbl02b';
+
+        return Inertia::render("workflows/prbl/{$pageName}", [
+            'workflow' => [
+                'id' => $prblWorkflow->id,
+                'label' => $label,
+                'status' => $this->engine->getWorkflowStatus($history),
+                'updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
+            ],
+            'kegiatanItems' => $kegiatanItems,
+            'totalDicairkan' => $totalDicairkan,
+            'totalRealisasi' => $totalRealisasi,
+            'submitterInfo' => $submitterInfo,
+            'parallelTrackStatus' => $parallelTrackStatus,
+            'ppLabel' => $ppLabel,
+            'workflowMeta' => [
+                'bulan_laporan' => $prblWorkflow->bulan_laporan,
+                'bulan_label' => $bulanLabel,
+                'tahun_laporan' => $prblWorkflow->tahun_laporan,
+                'team_name' => $teamName,
+            ],
+            'stepStatus' => $stepStatus,
+            'cycle' => $cycle,
+            'previousCycles' => $previousCycles,
+            'mode' => $mode,
+            'canApprove' => $canApprove,
+            'canReject' => $canReject,
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'actionRoles' => $this->resolveActionRoles([
+                "{$permPrefix}.{$stepLower}.approve" => ['Setujui', true],
+                "{$permPrefix}.{$stepLower}.reject" => ['Tolak', true],
+                "{$permPrefix}.comment" => ['Komentar', false],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'scope' => 'admin',
+            'basePath' => "/admin/workflows/prbl/{$prblWorkflow->id}",
+        ]);
+    }
+
+    /**
+     * Handle PRBL02A/02B approve or reject action.
+     */
+    private function handlePrblApproval(
+        mixed $request,
+        PrblWorkflow $prblWorkflow,
+        string $thisStep,
+        string $thisStepLower,
+        string $otherStep,
+        string $action,
+    ): RedirectResponse {
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        $this->checkPermission("admin.workflows.prbl.{$thisStepLower}.{$action}");
+        $this->ensureStepActive($prblWorkflow, $thisStep);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($prblWorkflow, $validated['expected_updated_at']);
+
+        $historyAction = $action === 'approve' ? 'approved' : 'rejected';
+        $sessionContext = $this->getSessionContext();
+
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $prblWorkflow,
+            "prbl.{$thisStepLower}.{$action}",
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        DB::transaction(function () use ($prblWorkflow, $thisStep, $historyAction, $request, $sessionContext, $validated, $fileIds, $otherStep) {
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: $thisStep,
+                action: $historyAction,
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($prblWorkflow)],
+            );
+
+            // Check parallel join gate
+            $this->handlePrblParallelJoin($request, $prblWorkflow, $thisStep, $otherStep);
+        });
+
+        $actionLabel = $historyAction === 'approved' ? 'disetujui' : 'ditolak';
+        $stepLabel = $thisStep === 'PRBL02A' ? 'Persetujuan Narasi' : 'Persetujuan Anggaran';
+
+        return redirect(route('admin.workflows.prbl.show', $prblWorkflow))
+            ->with('success', "{$stepLabel} berhasil {$actionLabel}.");
+    }
+
+    /**
+     * Handle the "wait for both" parallel join for PRBL02A+02B.
+     */
+    private function handlePrblParallelJoin(
+        mixed $request,
+        PrblWorkflow $prblWorkflow,
+        string $thisStep,
+        string $otherStep,
+    ): void {
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $history = $prblWorkflow->fresh()->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+
+        $otherStatus = $statuses[$otherStep]['status'] ?? 'pending';
+
+        // Other track not yet completed → silent
+        if ($otherStatus !== 'completed') {
+            return;
+        }
+
+        // Both tracks completed — determine outcome
+        $thisAction = $this->getLatestStepAction($thisStep, $history);
+        $otherAction = $this->getLatestStepAction($otherStep, $history);
+
+        if ($thisAction === 'approved' && $otherAction === 'approved') {
+            // Both approved → create PRBL03
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL03',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+            );
+
+            $this->notifier->notify($prblWorkflow, 'prbl02.both_approved', [
+                'actor_name' => $request->user()->name,
+                'actor_role' => $this->resolveSessionRoleName(),
+            ], $request->user()->id);
+        } else {
+            // At least one rejected → compile feedback, cycle back to PRBL01
+            $rejectingSteps = collect([$thisStep => $thisAction, $otherStep => $otherAction])
+                ->filter(fn ($a) => $a === 'rejected')
+                ->keys();
+
+            $rejectingSummary = $rejectingSteps->join(' & ');
+
+            $trackNotes = [];
+            foreach ($rejectingSteps as $rejStep) {
+                for ($i = count($history) - 1; $i >= 0; $i--) {
+                    if (($history[$i]['step'] ?? '') === $rejStep && ($history[$i]['action'] ?? '') === 'rejected') {
+                        $note = $history[$i]['notes'] ?? null;
+                        if ($note) {
+                            $trackNotes[] = "{$rejStep}: {$note}";
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            $compiledNotes = "Ditolak otomatis — {$rejectingSummary} menolak.";
+            if (! empty($trackNotes)) {
+                $compiledNotes .= "\n\n".implode("\n\n", $trackNotes);
+            }
+
+            // Record auto-rejection on PRBL03 to trigger invalidation cascade back to PRBL01
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL03',
+                action: 'rejected',
+                userId: null,
+                sessionContext: [],
+                notes: $compiledNotes,
+                extra: ['cycleTarget' => 'PRBL01'],
+            );
+
+            // Create fresh PRBL01 for re-entry (auto-filled from latest)
+            $previousPrbl01 = $prblWorkflow->fresh()->latestPrbl01();
+            $newPrbl01 = $this->createPrbl01CycleBack($prblWorkflow, $previousPrbl01);
+
+            // Record PRBL01 re-entry
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL01',
+                action: 'created',
+                userId: null,
+                sessionContext: [],
+                table: 'prbl01_data',
+                dataId: $newPrbl01->id,
+            );
+
+            $this->notifier->notify($prblWorkflow, 'prbl02.rejected', [
+                'actor_name' => $request->user()->name,
+                'actor_role' => $this->resolveSessionRoleName(),
+                'team_link' => route('team.workflows.prbl.prbl01.show', [$prblWorkflow, $newPrbl01]),
+            ], $request->user()->id);
+        }
+    }
+
+    /**
+     * Create a fresh PRBL01 data row for cycle-back, auto-filled from previous.
+     */
+    private function createPrbl01CycleBack(PrblWorkflow $prblWorkflow, ?Prbl01Data $previousPrbl01): Prbl01Data
+    {
+        $newPrbl01 = Prbl01Data::create([
+            'prbl_workflow_id' => $prblWorkflow->id,
+        ]);
+
+        if (! $previousPrbl01) {
+            return $newPrbl01;
+        }
+
+        $previousPrbl01->load([
+            'itemKegiatan.fotoKegiatan',
+            'itemKegiatan.notaPengeluaran',
+            'itemKegiatan.itemKuisioner',
+            'itemRealisasi',
+        ]);
+
+        // Copy kegiatan items with narratives, kuisioner, and realisasi
+        foreach ($previousPrbl01->itemKegiatan as $itemKegiatan) {
+            $newItemKegiatan = Prbl01ItemKegiatan::create([
+                'prbl01_data_id' => $newPrbl01->id,
+                'pk04_kegiatan_id' => $itemKegiatan->pk04_kegiatan_id,
+                'masalah' => $itemKegiatan->masalah,
+                'langkah_penanganan' => $itemKegiatan->langkah_penanganan,
+                'harapan' => $itemKegiatan->harapan,
+                'catatan_tim' => $itemKegiatan->catatan_tim,
+            ]);
+
+            // Copy foto references
+            foreach ($itemKegiatan->fotoKegiatan as $foto) {
+                Prbl01FotoKegiatan::create([
+                    'prbl01_item_kegiatan_id' => $newItemKegiatan->id,
+                    'file_id' => $foto->file_id,
+                ]);
+            }
+
+            // Copy nota references
+            foreach ($itemKegiatan->notaPengeluaran as $nota) {
+                Prbl01NotaPengeluaran::create([
+                    'prbl01_item_kegiatan_id' => $newItemKegiatan->id,
+                    'file_id' => $nota->file_id,
+                ]);
+            }
+
+            // Copy kuisioner
+            foreach ($itemKegiatan->itemKuisioner as $k) {
+                Prbl01ItemKuisioner::create([
+                    'prbl01_item_kegiatan_id' => $newItemKegiatan->id,
+                    'pk04_kuisioner_id' => $k->pk04_kuisioner_id,
+                    'jawaban' => $k->jawaban,
+                ]);
+            }
+        }
+
+        // Copy realisasi
+        foreach ($previousPrbl01->itemRealisasi as $realisasi) {
+            Prbl01ItemRealisasi::create([
+                'prbl01_data_id' => $newPrbl01->id,
+                'pk04_anggaran_id' => $realisasi->pk04_anggaran_id,
+                'nominal_realisasi' => $realisasi->nominal_realisasi,
+                'komentar_realisasi' => $realisasi->komentar_realisasi,
+            ]);
+        }
+
+        return $newPrbl01;
+    }
+
+    // ──────────────────────────────────────
+    // PRBL02A/02B Helper Methods
+    // ──────────────────────────────────────
+
+    /**
+     * Get the latest approve/reject action for a step from history.
+     */
+    private function getLatestStepAction(string $step, array $history): ?string
+    {
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['step'] ?? '') === $step && in_array($history[$i]['action'] ?? '', ['approved', 'rejected'])) {
+                return $history[$i]['action'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve step submitter info from history.
+     *
+     * @return array{name: string, role: string, team: string|null, date: string}|null
+     */
+    private function resolveStepSubmitter(array $history, string $step): ?array
+    {
+        $formattedHistory = $this->historyFormatter->format($history);
+
+        for ($i = count($formattedHistory) - 1; $i >= 0; $i--) {
+            $entry = $formattedHistory[$i];
+            if (($entry['step'] ?? '') === $step && ($entry['action'] ?? '') === 'submitted') {
+                return [
+                    'name' => $entry['by_name'] ?? 'Unknown',
+                    'role' => $entry['role_name'] ?? '',
+                    'team' => $entry['team_name'] ?? null,
+                    'date' => $entry['at'] ?? '',
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve previous PRBL01 submission cycles for collapsed display.
+     *
+     * @return list<array{cycle: int, dataId: int}>
+     */
+    private function resolvePreviousCycles(array $history, string $step): array
+    {
+        $cycles = [];
+        $currentCycle = 0;
+
+        foreach ($history as $entry) {
+            if (($entry['step'] ?? '') === $step && ($entry['action'] ?? '') === 'created') {
+                $currentCycle++;
+                if (isset($entry['id'])) {
+                    $cycles[] = ['cycle' => $currentCycle, 'dataId' => $entry['id']];
+                }
+            }
+        }
+
+        // Remove the last one (current cycle)
+        if (! empty($cycles)) {
+            array_pop($cycles);
+        }
+
+        return $cycles;
+    }
+
+    /**
+     * Resolve step URL for the stepper.
+     */
+    private function resolveStepUrl(string $code, ?int $dataId, PrblWorkflow $prblWorkflow, string $scope): ?string
+    {
+        $base = "/{$scope}/workflows/prbl/{$prblWorkflow->id}";
+
+        return match ($code) {
+            'PRBL01' => $dataId ? "{$base}/prbl01/{$dataId}" : null,
+            'PRBL02A' => "{$base}/prbl02a",
+            'PRBL02B' => "{$base}/prbl02b",
+            default => null,
+        };
+    }
+
+    /**
+     * Get lowercase step code for route/permission names.
+     */
+    private function stepLower(string $step): string
+    {
+        return strtolower($step);
     }
 
     // ──────────────────────────────────────
