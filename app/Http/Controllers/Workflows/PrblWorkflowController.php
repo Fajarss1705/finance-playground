@@ -12,6 +12,8 @@ use App\Http\Requests\Workflows\Prbl02bApproveRequest;
 use App\Http\Requests\Workflows\Prbl02bRejectRequest;
 use App\Http\Requests\Workflows\Prbl03DraftRequest;
 use App\Http\Requests\Workflows\Prbl03SubmitRequest;
+use App\Http\Requests\Workflows\Prbl04ApproveRequest;
+use App\Http\Requests\Workflows\Prbl04RejectRequest;
 use App\Http\Requests\Workflows\PrblCommentRequest;
 use App\Models\File;
 use App\Models\Pk\Pk04Anggaran;
@@ -1137,6 +1139,387 @@ class PrblWorkflowController extends Controller
     }
 
     // ──────────────────────────────────────
+    // PRBL04 — Review Final (Tim BU)
+    // ──────────────────────────────────────
+
+    public function prbl04Show(PrblWorkflow $prblWorkflow): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.prbl04.show");
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $history = $prblWorkflow->history ?? [];
+        $statuses = $this->engine->getStepStatuses($definition, $history);
+
+        // Step status
+        $stepStatus = $statuses['PRBL04']['status'] ?? 'pending';
+        if ($stepStatus === 'completed') {
+            $latestAction = $this->getLatestStepAction('PRBL04', $history);
+            if ($latestAction === 'approved' || $latestAction === 'rejected') {
+                $stepStatus = $latestAction;
+            }
+        }
+
+        // Permissions — admin scope only for approve/reject
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = "{$scope}.workflows.prbl";
+        $isStepActive = $statuses['PRBL04']['status'] === 'active';
+        $canApprove = $scope === 'admin' && $isStepActive && in_array("{$permPrefix}.prbl04.approve", $permissions);
+        $canReject = $scope === 'admin' && $isStepActive && in_array("{$permPrefix}.prbl04.reject", $permissions);
+        $mode = ($canApprove || $canReject) ? 'review' : 'readonly';
+
+        // Labels
+        $teamName = $prblWorkflow->team?->name ?? 'Unknown';
+        $bulanNames = $this->bulanNames();
+        $bulanLabel = $bulanNames[$prblWorkflow->bulan_laporan] ?? (string) $prblWorkflow->bulan_laporan;
+        $label = "PRBL-{$teamName}-{$bulanLabel}/{$prblWorkflow->tahun_laporan}";
+
+        // PP reference
+        $ppWorkflow = $prblWorkflow->ppWorkflow;
+        $pp06 = $ppWorkflow?->latestPp06();
+        $ppLabel = $pp06 ? "PP-{$ppWorkflow->latestPp01()?->tahun} Revisi {$pp06->revision}" : null;
+
+        // Load PRBL01 data (kegiatan items with full detail)
+        $latestPrbl01 = $prblWorkflow->latestPrbl01();
+        $kegiatanItems = $latestPrbl01 ? $this->resolveKegiatanItems($latestPrbl01, $prblWorkflow) : [];
+        $totalDicairkan = $this->calculateTotalDicairkan($prblWorkflow);
+        $totalRealisasi = $latestPrbl01 ? (float) $latestPrbl01->itemRealisasi()->sum('nominal_realisasi') : 0;
+
+        // Load PRBL03 data
+        $latestPrbl03 = $prblWorkflow->latestPrbl03();
+        $prbl03Data = null;
+        $buktiTransferFiles = [];
+        $fotoNotaFiles = [];
+        $nominalRefund = 0;
+
+        if ($latestPrbl03) {
+            $prbl03Data = [
+                'id' => $latestPrbl03->id,
+                'nominal_refund' => (float) $latestPrbl03->nominal_refund,
+                'keterangan' => $latestPrbl03->keterangan,
+            ];
+            $nominalRefund = (float) $latestPrbl03->nominal_refund;
+
+            $buktiTransferFiles = $latestPrbl03->bukti()
+                ->where('tipe', 'bukti_transfer')
+                ->with('file')
+                ->get()
+                ->map(fn ($item) => [
+                    'id' => $item->id,
+                    'file_id' => $item->file_id,
+                    'original_filename' => $item->file?->original_filename,
+                    'mime_type' => $item->file?->mime_type,
+                    'size' => $item->file?->size,
+                    'uuid' => $item->file?->uuid,
+                ])
+                ->values()
+                ->all();
+
+            $fotoNotaFiles = $latestPrbl03->bukti()
+                ->where('tipe', 'foto_nota')
+                ->with('file')
+                ->get()
+                ->map(fn ($item) => [
+                    'id' => $item->id,
+                    'file_id' => $item->file_id,
+                    'original_filename' => $item->file?->original_filename,
+                    'mime_type' => $item->file?->mime_type,
+                    'size' => $item->file?->size,
+                    'uuid' => $item->file?->uuid,
+                ])
+                ->values()
+                ->all();
+        }
+
+        // Rekening organisasi
+        $rekeningOrganisasi = [];
+        if ($pp06) {
+            $rekeningOrganisasi = Pp06RekeningOrganisasi::where('pp06_periode_tahunan_id', $pp06->id)
+                ->get()
+                ->map(fn ($r) => [
+                    'nama_bank' => $r->nama_bank,
+                    'nama_rekening' => $r->nama_rekening,
+                    'nomor_rekening' => $r->nomor_rekening,
+                ])
+                ->values()
+                ->all();
+        }
+
+        // Submitter info (PRBL01)
+        $submitterInfo = $this->resolveStepSubmitter($history, 'PRBL01');
+
+        // Approval chain: PRBL02A approver + PRBL02B approver + PRBL03 submitter
+        $approvalChain = [
+            ...$this->resolveApprovalInfo($history),
+            'prbl03' => $this->resolveStepSubmitter($history, 'PRBL03'),
+        ];
+
+        // Previous cycles for PRBL01 and PRBL03
+        $previousPrbl01Cycles = $this->resolvePreviousCycles($history, 'PRBL01');
+        $previousPrbl03Cycles = $this->resolvePreviousCycles($history, 'PRBL03');
+
+        // PRBL01 cycle
+        $prbl01Cycle = $statuses['PRBL01']['cycle'] ?? 1;
+        $prbl03Cycle = $statuses['PRBL03']['cycle'] ?? 1;
+
+        // Rejection info for banners
+        $rejectionInfo = null;
+        if ($stepStatus === 'rejected' || ($stepStatus === 'completed' && $this->getLatestStepAction('PRBL04', $history) === 'rejected')) {
+            $rejectionInfo = $this->resolvePrbl04RejectionInfo($history);
+        }
+
+        // Stepper
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow, $scope): ?string {
+            return $this->resolveStepUrl($code, $dataId, $prblWorkflow, $scope);
+        });
+
+        $basePath = "/{$scope}/workflows/prbl/{$prblWorkflow->id}";
+
+        return Inertia::render('workflows/prbl/prbl04', [
+            'workflow' => [
+                'id' => $prblWorkflow->id,
+                'label' => $label,
+                'status' => $this->engine->getWorkflowStatus($history),
+                'updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
+            ],
+            'kegiatanItems' => $kegiatanItems,
+            'totalDicairkan' => $totalDicairkan,
+            'totalRealisasi' => $totalRealisasi,
+            'prbl03Data' => $prbl03Data,
+            'buktiTransferFiles' => $buktiTransferFiles,
+            'fotoNotaFiles' => $fotoNotaFiles,
+            'nominalRefund' => $nominalRefund,
+            'rekeningOrganisasi' => $rekeningOrganisasi,
+            'submitterInfo' => $submitterInfo,
+            'approvalChain' => $approvalChain,
+            'ppLabel' => $ppLabel,
+            'workflowMeta' => [
+                'bulan_laporan' => $prblWorkflow->bulan_laporan,
+                'bulan_label' => $bulanLabel,
+                'tahun_laporan' => $prblWorkflow->tahun_laporan,
+                'team_name' => $teamName,
+            ],
+            'stepStatus' => $stepStatus,
+            'prbl01Cycle' => $prbl01Cycle,
+            'prbl03Cycle' => $prbl03Cycle,
+            'previousPrbl01Cycles' => $previousPrbl01Cycles,
+            'previousPrbl03Cycles' => $previousPrbl03Cycles,
+            'rejectionInfo' => $rejectionInfo,
+            'mode' => $mode,
+            'canApprove' => $canApprove,
+            'canReject' => $canReject,
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'actionRoles' => $this->resolveActionRoles([
+                'admin.workflows.prbl.prbl04.approve' => ['Setujui', true],
+                'admin.workflows.prbl.prbl04.reject' => ['Tolak', true],
+                "{$permPrefix}.comment" => ['Komentar', false],
+            ]),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'scope' => $scope,
+            'basePath' => $basePath,
+        ]);
+    }
+
+    public function prbl04Approve(Prbl04ApproveRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        $this->checkPermission('admin.workflows.prbl.prbl04.approve');
+        $this->ensureStepActive($prblWorkflow, 'PRBL04');
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($prblWorkflow, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $prblWorkflow,
+            'prbl.prbl04.approve',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        DB::transaction(function () use ($prblWorkflow, $request, $sessionContext, $validated, $fileIds) {
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL04',
+                action: 'approved',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($prblWorkflow)],
+            );
+
+            // Trigger PRBL05 auto-compile placeholder
+            // (PRBL05 compile will be implemented in Session 5.5)
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL05',
+                action: 'completed',
+                userId: null,
+                sessionContext: [],
+                extra: [
+                    'triggered_by' => [
+                        'user_id' => $request->user()->id,
+                        'step' => 'PRBL04',
+                        'action' => 'approved',
+                    ],
+                ],
+            );
+        });
+
+        $this->notifier->notify($prblWorkflow, 'prbl04.approved', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return redirect(route('admin.workflows.prbl.prbl04.show', $prblWorkflow))
+            ->with('success', 'Laporan bulanan disetujui. PRBL05 telah dikompilasi.');
+    }
+
+    public function prbl04Reject(Prbl04RejectRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+        $this->checkPermission('admin.workflows.prbl.prbl04.reject');
+        $this->ensureStepActive($prblWorkflow, 'PRBL04');
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($prblWorkflow, $validated['expected_updated_at']);
+
+        $rejectionTarget = $validated['rejection_target']; // 'PRBL03' or 'PRBL01'
+        $sessionContext = $this->getSessionContext();
+
+        $fileIds = $this->commentService->storeFiles(
+            $request->file('files', []),
+            $prblWorkflow,
+            'prbl.prbl04.reject',
+            $request->user()->id,
+            $sessionContext,
+        );
+
+        DB::transaction(function () use ($prblWorkflow, $request, $sessionContext, $validated, $fileIds, $rejectionTarget) {
+            // Record PRBL04 rejected with cycleTarget
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL04',
+                action: 'rejected',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                notes: $validated['notes'],
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: [
+                    'pp06_revision' => $this->getLatestPp06Revision($prblWorkflow),
+                    'cycleTarget' => $rejectionTarget,
+                    'rejection_target' => $rejectionTarget,
+                ],
+            );
+
+            if ($rejectionTarget === 'PRBL03') {
+                // Minor rejection — cycle back to PRBL03 only
+                $previousPrbl03 = $prblWorkflow->fresh()->latestPrbl03();
+                $newPrbl03 = $this->createPrbl03CycleBack($prblWorkflow, $previousPrbl03);
+
+                $this->engine->recordAction(
+                    workflow: $prblWorkflow,
+                    step: 'PRBL03',
+                    action: 'created',
+                    userId: null,
+                    sessionContext: [],
+                    table: 'prbl03_data',
+                    dataId: $newPrbl03->id,
+                );
+            } else {
+                // Major rejection — cycle back to PRBL01
+                $previousPrbl01 = $prblWorkflow->fresh()->latestPrbl01();
+                $newPrbl01 = $this->createPrbl01CycleBack($prblWorkflow, $previousPrbl01);
+
+                $this->engine->recordAction(
+                    workflow: $prblWorkflow,
+                    step: 'PRBL01',
+                    action: 'created',
+                    userId: null,
+                    sessionContext: [],
+                    table: 'prbl01_data',
+                    dataId: $newPrbl01->id,
+                );
+            }
+        });
+
+        $eventKey = $rejectionTarget === 'PRBL03' ? 'prbl04.reject_to_prbl03' : 'prbl04.reject_to_prbl01';
+        $this->notifier->notify($prblWorkflow, $eventKey, [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        $targetLabel = $rejectionTarget === 'PRBL03' ? 'PRBL03 (perbaiki bukti)' : 'PRBL01 (perbaiki laporan)';
+
+        return redirect(route('admin.workflows.prbl.prbl04.show', $prblWorkflow))
+            ->with('success', "Laporan ditolak. Dikembalikan ke {$targetLabel}.");
+    }
+
+    // ──────────────────────────────────────
+    // PRBL04 Helper Methods
+    // ──────────────────────────────────────
+
+    /**
+     * Create a fresh PRBL03 data row for cycle-back from PRBL04 reject_to_prbl03.
+     */
+    private function createPrbl03CycleBack(PrblWorkflow $prblWorkflow, ?Prbl03Data $previousPrbl03): Prbl03Data
+    {
+        $newPrbl03 = Prbl03Data::create([
+            'prbl_workflow_id' => $prblWorkflow->id,
+            'nominal_refund' => $previousPrbl03?->nominal_refund ?? 0,
+            'keterangan' => $previousPrbl03?->keterangan,
+        ]);
+
+        // Copy bukti files from previous PRBL03
+        if ($previousPrbl03) {
+            foreach ($previousPrbl03->bukti as $bukti) {
+                Prbl03Bukti::create([
+                    'prbl03_data_id' => $newPrbl03->id,
+                    'tipe' => $bukti->tipe,
+                    'file_id' => $bukti->file_id,
+                ]);
+            }
+        }
+
+        return $newPrbl03;
+    }
+
+    /**
+     * Resolve PRBL04 rejection info for banner display.
+     *
+     * @return array{target: string, by_name: string|null, role_name: string|null, team_name: string|null, at: string|null, notes: string|null}|null
+     */
+    private function resolvePrbl04RejectionInfo(array $history): ?array
+    {
+        $formattedHistory = $this->historyFormatter->format($history);
+
+        for ($i = count($formattedHistory) - 1; $i >= 0; $i--) {
+            $entry = $formattedHistory[$i];
+            if (($entry['step'] ?? '') === 'PRBL04' && ($entry['action'] ?? '') === 'rejected') {
+                return [
+                    'target' => $entry['rejection_target'] ?? $entry['cycleTarget'] ?? 'PRBL01',
+                    'by_name' => $entry['by_name'] ?? null,
+                    'role_name' => $entry['role_name'] ?? null,
+                    'team_name' => $entry['team_name'] ?? null,
+                    'at' => $entry['at'] ?? null,
+                    'notes' => $entry['notes'] ?? null,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    // ──────────────────────────────────────
     // PRBL03 Helper Methods
     // ──────────────────────────────────────
 
@@ -1414,6 +1797,7 @@ class PrblWorkflowController extends Controller
             'PRBL02A' => "{$base}/prbl02a",
             'PRBL02B' => "{$base}/prbl02b",
             'PRBL03' => $dataId ? "{$base}/prbl03/{$dataId}" : null,
+            'PRBL04' => "{$base}/prbl04",
             default => null,
         };
     }

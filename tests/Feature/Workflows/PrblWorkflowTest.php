@@ -1950,3 +1950,419 @@ it('removes previously uploaded files during PRBL03 draft', function () {
     expect($prbl03Data->bukti()->where('tipe', 'foto_nota')->count())->toBe(1);
     expect(Prbl03Bukti::find($firstBuktiId))->toBeNull();
 });
+
+// ──────────────────────────────────────────────────────
+// PRBL04 — Review Final (Tim BU)
+// ──────────────────────────────────────────────────────
+
+/**
+ * Advance workflow to PRBL04 active state.
+ * Fills PRBL01, approves PRBL02A+02B, creates PRBL03 with bukti files, submits PRBL03.
+ */
+function advanceToPrbl04(object $prblWorkflow, object $prbl01, object $itemKegiatan, object $itemKuisioner, object $realisasi1, object $realisasi2, int $userId): Prbl03Data
+{
+    $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $userId);
+
+    $engine = new WorkflowEngine;
+
+    // Record PRBL03 submitted
+    $engine->recordAction(
+        workflow: $prblWorkflow,
+        step: 'PRBL03',
+        action: 'submitted',
+        userId: $userId,
+        sessionContext: [],
+        table: 'prbl03_data',
+        dataId: $prbl03Data->id,
+    );
+
+    // Activate PRBL04
+    $engine->recordAction(
+        workflow: $prblWorkflow,
+        step: 'PRBL04',
+        action: 'created',
+        userId: null,
+        sessionContext: [],
+    );
+
+    return $prbl03Data;
+}
+
+// ── PRBL04 Show ──
+
+it('shows PRBL04 page in review mode for admin with approve/reject perms', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.approve',
+        'admin.workflows.prbl.prbl04.reject',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('admin.workflows.prbl.prbl04.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl04')
+            ->where('mode', 'review')
+            ->where('canApprove', true)
+            ->where('canReject', true)
+            ->where('canComment', true)
+            ->where('stepStatus', 'active')
+            ->has('kegiatanItems', 1)
+            ->where('kegiatanItems.0.program_name', 'Program Kegiatan')
+            ->has('kegiatanItems.0.kegiatan', 1)
+            ->where('totalDicairkan', fn ($v) => (float) $v === 3500000.0)
+            ->where('totalRealisasi', fn ($v) => (float) $v === 2800000.0)
+            ->where('nominalRefund', fn ($v) => (float) $v === 700000.0)
+            ->where('prbl03Data.nominal_refund', fn ($v) => (float) $v === 700000.0)
+        );
+});
+
+it('shows PRBL04 as readonly for admin without approve/reject perms', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('admin.workflows.prbl.prbl04.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl04')
+            ->where('mode', 'readonly')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+it('shows PRBL04 as readonly for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl04.show',
+        'team.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('team.workflows.prbl.prbl04.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl04')
+            ->where('mode', 'readonly')
+            ->where('canApprove', false)
+            ->where('canReject', false)
+        );
+});
+
+it('denies PRBL04 show without permission', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser();
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->get(route('admin.workflows.prbl.prbl04.show', ['prblWorkflow' => $prblWorkflow->id]));
+
+    $response->assertForbidden();
+});
+
+// ── PRBL04 Approve ──
+
+it('approves PRBL04 and triggers PRBL05 compile', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.approve',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.approve', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Semua lengkap dan valid',
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHas('success');
+
+    $prblWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PrblWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $prblWorkflow->history);
+
+    // PRBL04 completed, PRBL05 completed
+    expect($statuses['PRBL04']['status'])->toBe('completed')
+        ->and($statuses['PRBL05']['status'])->toBe('completed');
+
+    // History: PRBL04 approved + PRBL05 completed
+    $prbl04Approved = collect($prblWorkflow->history)->where('step', 'PRBL04')->where('action', 'approved')->first();
+    expect($prbl04Approved)->not->toBeNull()
+        ->and($prbl04Approved['notes'])->toBe('Semua lengkap dan valid');
+
+    $prbl05Completed = collect($prblWorkflow->history)->where('step', 'PRBL05')->where('action', 'completed')->first();
+    expect($prbl05Completed)->not->toBeNull()
+        ->and($prbl05Completed['triggered_by']['step'])->toBe('PRBL04')
+        ->and($prbl05Completed['triggered_by']['action'])->toBe('approved');
+});
+
+// ── PRBL04 Reject to PRBL03 (Minor) ──
+
+it('rejects PRBL04 to PRBL03 and creates fresh PRBL03', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.reject',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.reject', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'rejection_target' => 'PRBL03',
+        'notes' => 'Bukti transfer tidak jelas, perlu foto ulang',
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHas('success');
+
+    $prblWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PrblWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $prblWorkflow->history);
+
+    // PRBL03 should be active (fresh), PRBL01 and PRBL02A/02B should stay completed
+    expect($statuses['PRBL03']['status'])->toBe('active')
+        ->and($statuses['PRBL01']['status'])->toBe('completed')
+        ->and($statuses['PRBL02A']['status'])->toBe('completed')
+        ->and($statuses['PRBL02B']['status'])->toBe('completed');
+
+    // History: PRBL04 rejected with cycleTarget PRBL03
+    $prbl04Rejected = collect($prblWorkflow->history)->where('step', 'PRBL04')->where('action', 'rejected')->first();
+    expect($prbl04Rejected)->not->toBeNull()
+        ->and($prbl04Rejected['notes'])->toBe('Bukti transfer tidak jelas, perlu foto ulang')
+        ->and($prbl04Rejected['cycleTarget'])->toBe('PRBL03')
+        ->and($prbl04Rejected['rejection_target'])->toBe('PRBL03');
+
+    // New PRBL03 data row created
+    $newPrbl03Created = collect($prblWorkflow->history)->where('step', 'PRBL03')->where('action', 'created')->last();
+    expect($newPrbl03Created)->not->toBeNull();
+
+    // Verify fresh PRBL03 inherits nominal_refund
+    $newPrbl03 = Prbl03Data::find($newPrbl03Created['id']);
+    expect($newPrbl03)->not->toBeNull()
+        ->and((float) $newPrbl03->nominal_refund)->toBe(700000.0);
+});
+
+// ── PRBL04 Reject to PRBL01 (Major) ──
+
+it('rejects PRBL04 to PRBL01 and resets entire flow', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.reject',
+        'admin.workflows.prbl.comment',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.reject', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'rejection_target' => 'PRBL01',
+        'notes' => 'Laporan kegiatan tidak akurat, realisasi perlu diperiksa ulang',
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHas('success');
+
+    $prblWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PrblWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $prblWorkflow->history);
+
+    // PRBL01 should be active (fresh), everything else invalidated
+    expect($statuses['PRBL01']['status'])->toBe('active');
+
+    // History: PRBL04 rejected with cycleTarget PRBL01
+    $prbl04Rejected = collect($prblWorkflow->history)->where('step', 'PRBL04')->where('action', 'rejected')->first();
+    expect($prbl04Rejected)->not->toBeNull()
+        ->and($prbl04Rejected['notes'])->toBe('Laporan kegiatan tidak akurat, realisasi perlu diperiksa ulang')
+        ->and($prbl04Rejected['cycleTarget'])->toBe('PRBL01')
+        ->and($prbl04Rejected['rejection_target'])->toBe('PRBL01');
+
+    // New PRBL01 data row created
+    $newPrbl01Created = collect($prblWorkflow->history)->where('step', 'PRBL01')->where('action', 'created')->last();
+    expect($newPrbl01Created)->not->toBeNull();
+
+    // Verify fresh PRBL01 has auto-filled data from previous
+    $newPrbl01 = Prbl01Data::find($newPrbl01Created['id']);
+    expect($newPrbl01)->not->toBeNull();
+
+    // Check that kegiatan items were copied
+    $newKegiatan = $newPrbl01->itemKegiatan;
+    expect($newKegiatan)->toHaveCount(1)
+        ->and($newKegiatan->first()->masalah)->toBe('Test masalah');
+});
+
+// ── PRBL04 Validation ──
+
+it('rejects PRBL04 reject without rejection_target', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.reject',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.reject', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Some rejection reason text here',
+    ]);
+
+    $response->assertSessionHasErrors('rejection_target');
+});
+
+it('rejects PRBL04 reject with notes too short', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.reject',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.reject', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'rejection_target' => 'PRBL03',
+        'notes' => 'Short',
+    ]);
+
+    $response->assertSessionHasErrors('notes');
+});
+
+// ── PRBL04 Permission Denial ──
+
+it('denies PRBL04 approve without permission', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        // Missing: admin.workflows.prbl.prbl04.approve
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.approve', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertForbidden();
+});
+
+it('denies PRBL04 reject without permission', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        // Missing: admin.workflows.prbl.prbl04.reject
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.reject', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'rejection_target' => 'PRBL03',
+        'notes' => 'Bukti transfer tidak sesuai dengan nominal refund',
+    ]);
+
+    $response->assertForbidden();
+});
+
+// ── PRBL04 Optimistic Lock ──
+
+it('rejects PRBL04 approve with stale expected_updated_at', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.approve',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+    advanceToPrbl04($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
+
+    $response = $this->post(route('admin.workflows.prbl.prbl04.approve', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => '2020-01-01T00:00:00+00:00',
+    ]);
+
+    $response->assertStatus(409);
+});
+
+// ── PRBL04 Step Not Active ──
+
+it('rejects PRBL04 approve when step is not active', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.approve',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Don't advance to PRBL04 — step is not active
+    $prblWorkflow->refresh();
+    $response = $this->post(route('admin.workflows.prbl.prbl04.approve', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(409);
+});

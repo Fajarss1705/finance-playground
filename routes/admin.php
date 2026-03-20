@@ -190,6 +190,11 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             // PRBL03 (admin scope — read-only)
             Route::get('/{prblWorkflow}/prbl03/{prbl03Data}', [PrblWorkflowController::class, 'prbl03Show'])->name('prbl03.show');
 
+            // PRBL04 (admin scope — show + approve/reject, no data table param)
+            Route::get('/{prblWorkflow}/prbl04', [PrblWorkflowController::class, 'prbl04Show'])->name('prbl04.show');
+            Route::post('/{prblWorkflow}/prbl04/approve', [PrblWorkflowController::class, 'prbl04Approve'])->name('prbl04.approve');
+            Route::post('/{prblWorkflow}/prbl04/reject', [PrblWorkflowController::class, 'prbl04Reject'])->name('prbl04.reject');
+
             // Comment
             Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });

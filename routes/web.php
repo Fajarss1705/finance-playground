@@ -131,6 +131,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::post('/{prblWorkflow}/prbl03/{prbl03Data}/draft', [PrblWorkflowController::class, 'prbl03Draft'])->name('prbl03.draft');
             Route::post('/{prblWorkflow}/prbl03/{prbl03Data}/submit', [PrblWorkflowController::class, 'prbl03Submit'])->name('prbl03.submit');
 
+            // PRBL04 (team scope — read-only)
+            Route::get('/{prblWorkflow}/prbl04', [PrblWorkflowController::class, 'prbl04Show'])->name('prbl04.show');
+
             // Comment
             Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });
