@@ -2817,7 +2817,7 @@ class PkWorkflowController extends Controller
             }
         }
 
-        // Proposal totals (outside plafon) — only accepted from PK04, review/draft from PABD (not yet implemented)
+        // Proposal totals (outside plafon) — accepted from PK04, review/draft from in-progress proposal PKs
         $proposalAccepted = (float) Pk04Anggaran::query()
             ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
                 ->where('team_id', $teamId)
@@ -2829,6 +2829,42 @@ class PkWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
+        $proposalDraft = 0.0;
+        $proposalReview = 0.0;
+
+        $activeProposalPkWorkflows = PkWorkflow::query()
+            ->where('team_id', $teamId)
+            ->where('workspace_id', $pkWorkflow->workspace_id)
+            ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
+            ->where('tipe', 'proposal')
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($activeProposalPkWorkflows as $wf) {
+            $status = $this->engine->getWorkflowStatus($wf->history ?? []);
+            if (in_array($status, ['completed', 'terminated', 'deleted'])) {
+                continue;
+            }
+            $latestPk01 = $wf->latestPk01();
+            if (! $latestPk01) {
+                continue;
+            }
+
+            $total = (float) $latestPk01->kegiatan()
+                ->with('anggaran')
+                ->get()
+                ->flatMap(fn ($k) => $k->anggaran)
+                ->sum('nominal_anggaran');
+
+            $currentSteps = $this->engine->getCurrentSteps($pkDefinition, $wf->history ?? []);
+
+            if (in_array('PK01', $currentSteps)) {
+                $proposalDraft += $total;
+            } elseif (array_intersect(['PK02A', 'PK02B'], $currentSteps)) {
+                $proposalReview += $total;
+            }
+        }
+
         return [
             'ppLabel' => "PP-{$pp01?->tahun} Revisi {$pp06->revision}",
             'tahun' => $tahun,
@@ -2839,8 +2875,8 @@ class PkWorkflowController extends Controller
             'pendingRaker' => $pendingRaker,
             'draft' => $draft,
             'proposalAccepted' => $proposalAccepted,
-            'proposalReview' => 0.0, // TODO: from PABD workflow
-            'proposalDraft' => 0.0, // TODO: from PABD workflow
+            'proposalReview' => $proposalReview,
+            'proposalDraft' => $proposalDraft,
         ];
     }
 

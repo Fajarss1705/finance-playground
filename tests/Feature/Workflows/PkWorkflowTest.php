@@ -2815,3 +2815,182 @@ it('shows canRevise for completed PK with admin pk05.create permission', functio
             ->where('canTerminate', false)
         );
 });
+
+// ── Budget Counter: proposalReview & proposalDraft ──
+
+function createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, float $nominal = 1000000): PkWorkflow
+{
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    $pkWorkflow = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'proposal',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $team->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [],
+    ]);
+
+    $pk01 = Pk01Data::create(['pk_workflow_id' => $pkWorkflow->id, 'kode_kategori' => 'K01', 'nama_program' => 'Proposal Draft']);
+    $kegiatan = $pk01->kegiatan()->create(['nama_kegiatan' => 'Kegiatan Proposal', 'bulan' => 6]);
+    $kegiatan->anggaran()->create([
+        'kode_bidang' => 'B01', 'kode_sub_bidang' => 'SB01', 'kode_jenis' => 'J01',
+        'mata_anggaran' => 'Konsumsi', 'deskripsi_pk' => 'Anggaran proposal', 'nominal_anggaran' => $nominal,
+    ]);
+
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK01', action: 'created', userId: $user->id, sessionContext: $ctx, table: 'pk01_data', dataId: $pk01->id);
+
+    return $pkWorkflow->fresh();
+}
+
+function createProposalPkAtPk02($workspace, $team, $ppWorkflow, $user, $role, float $nominal = 2000000): PkWorkflow
+{
+    $pkWorkflow = createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, $nominal);
+    $pk01 = $pkWorkflow->latestPk01();
+
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK01', action: 'submitted', userId: $user->id, sessionContext: $ctx, table: 'pk01_data', dataId: $pk01->id);
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02A', action: 'created', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02B', action: 'created', userId: null, sessionContext: []);
+
+    return $pkWorkflow->fresh();
+}
+
+it('returns zero proposalReview and proposalDraft when no proposals exist', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalAccepted', 0)
+            ->where('budgetCounter.proposalReview', 0)
+            ->where('budgetCounter.proposalDraft', 0)
+        );
+});
+
+it('counts proposalDraft from proposal PKs at PK01 step', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a raker PK (the one we'll view)
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create two proposal PKs at PK01 (draft stage)
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 1500000);
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 500000);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalDraft', 2000000)
+            ->where('budgetCounter.proposalReview', 0)
+        );
+});
+
+it('counts proposalReview from proposal PKs at PK02A/PK02B step', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a raker PK (the one we'll view)
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create proposal PKs: one at PK02 (review), one at PK01 (draft)
+    createProposalPkAtPk02($workspace, $team, $ppWorkflow, $user, $role, 3000000);
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 750000);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalReview', 3000000)
+            ->where('budgetCounter.proposalDraft', 750000)
+            ->where('budgetCounter.proposalAccepted', 0)
+        );
+});
+
+it('keeps proposalAccepted correct alongside proposalReview and proposalDraft', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a raker PK (the one we'll view)
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create a completed proposal PK (at PK04) — manually create PK04 anggaran
+    $completedProposal = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'proposal',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $team->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [
+            ['step' => 'PK04', 'action' => 'completed', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()],
+        ],
+    ]);
+
+    $pk04Pt = \App\Models\Pk\Pk04ProgramTahunan::create([
+        'pk_workflow_id' => $completedProposal->id,
+        'kode_kategori' => 'K01',
+        'nama_program' => 'Proposal Completed',
+        'deskripsi_program' => 'Deskripsi proposal selesai',
+        'tujuan_program' => 'Tujuan proposal selesai',
+        'nomer_program' => 1,
+        'revision' => 0,
+        'pk01_created_by_user_name' => 'Test User',
+        'pk01_created_by_role_name' => 'Test Role',
+        'pk01_created_by_team_name' => 'Test Team',
+        'pk01_created_by_organization_name' => 'Test Org',
+        'pk01_created_by_workspace_name' => 'Test WS',
+        'pk01_created_at' => now(),
+    ]);
+    $pk04Keg = $pk04Pt->kegiatan()->create(['nama_kegiatan' => 'Kegiatan Selesai', 'bulan' => 4, 'nomer_kegiatan' => 1]);
+    $pk04Keg->anggaran()->create([
+        'kode_bidang' => 'B01', 'kode_sub_bidang' => 'SB01', 'kode_jenis' => 'J01',
+        'mata_anggaran' => 'Konsumsi', 'deskripsi_pk' => 'Anggaran proposal selesai',
+        'nominal_anggaran' => 5000000, 'nomer_anggaran' => 1, 'status_item' => 'active',
+    ]);
+
+    // Create in-progress proposal PKs
+    createProposalPkAtPk02($workspace, $team, $ppWorkflow, $user, $role, 2000000);
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 1000000);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalAccepted', 5000000)
+            ->where('budgetCounter.proposalReview', 2000000)
+            ->where('budgetCounter.proposalDraft', 1000000)
+        );
+});

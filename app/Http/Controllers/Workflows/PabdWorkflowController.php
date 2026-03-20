@@ -25,13 +25,17 @@ use App\Models\Pabd\Pabd04Data;
 use App\Models\Pabd\Pabd04ItemBuktiTransfer;
 use App\Models\Pabd\Pabd05PengajuanBulanan;
 use App\Models\Pabd\PabdWorkflow;
+use App\Models\Permission;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
 use App\Models\Pk\Pk04AnggaranCatatanPerubahan;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
+use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Pp\PpWorkflow;
 use App\Models\Role;
+use App\Models\User;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
@@ -40,6 +44,8 @@ use App\Services\PkCompileService;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -59,15 +65,111 @@ class PabdWorkflowController extends Controller
     ) {}
 
     // ──────────────────────────────────────
-    // Index & Show (stub — to be built later)
+    // Index & Show
     // ──────────────────────────────────────
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $scope = $this->getScope();
         $this->checkPermission("{$scope}.workflows.pabd.index");
 
-        return Inertia::render("{$scope}/workflows/pabd/index");
+        $workspaceId = $this->session->getActiveWorkspaceId();
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+
+        $query = PabdWorkflow::query()
+            ->with(['team', 'ppWorkflow.pp01Data'])
+            ->where('workspace_id', $workspaceId);
+
+        // Team scope: restrict to user's team
+        $roleId = $this->session->getActiveRoleId();
+        $userTeamId = $roleId ? Role::find($roleId)?->team_id : null;
+        if ($scope === 'team') {
+            $query->where('team_id', $userTeamId);
+        }
+
+        // DB-level filter: PP period
+        if ($request->filled('pp')) {
+            $ppTahun = (int) $request->input('pp');
+            $query->whereHas('ppWorkflow', fn ($q) => $q->whereHas('pp01Data', fn ($q2) => $q2->where('tahun', $ppTahun)));
+        }
+
+        // DB-level filter: bulan
+        if ($request->filled('bulan')) {
+            $query->where('bulan_anggaran', (int) $request->input('bulan'));
+        }
+
+        // DB-level filter: team (admin only)
+        if ($scope === 'admin' && $request->filled('team')) {
+            $query->where('team_id', (int) $request->input('team'));
+        }
+
+        $statusFilter = $request->input('status');
+        $userCache = [];
+        $roleCache = [];
+
+        // Status is computed — load all, transform, filter in-memory, then paginate
+        if ($statusFilter) {
+            $allWorkflows = $query->orderBy('tahun_anggaran', 'desc')->orderBy('bulan_anggaran')->get();
+            $transformed = $allWorkflows->map(fn (PabdWorkflow $wf) => $this->transformPabdForIndex($wf, $definition, $scope, $userCache, $roleCache));
+            $transformed = $transformed->filter(fn ($item) => $item['status'] === $statusFilter);
+            $filtered = $transformed->values();
+            $page = (int) $request->input('page', 1);
+            $perPage = 15;
+            $workflows = new LengthAwarePaginator(
+                $filtered->forPage($page, $perPage)->values(),
+                $filtered->count(),
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()],
+            );
+        } else {
+            $workflows = $query
+                ->orderBy('tahun_anggaran', 'desc')
+                ->orderBy('bulan_anggaran')
+                ->paginate(15)
+                ->withQueryString();
+
+            $workflows->through(fn (PabdWorkflow $wf) => $this->transformPabdForIndex($wf, $definition, $scope, $userCache, $roleCache));
+        }
+
+        // Available PP periods for filter
+        $availablePpPeriods = Pp01Data::query()
+            ->whereIn('pp_workflow_id', PpWorkflow::where('workspace_id', $workspaceId)->select('id'))
+            ->whereNotNull('tahun')
+            ->distinct()
+            ->orderByDesc('tahun')
+            ->pluck('tahun')
+            ->map(fn ($t) => ['value' => (string) $t, 'label' => "PP-{$t}"])
+            ->values();
+
+        // Available teams for filter (admin only)
+        $availableTeams = [];
+        if ($scope === 'admin') {
+            $teamIds = PabdWorkflow::where('workspace_id', $workspaceId)->distinct()->pluck('team_id');
+            $availableTeams = \App\Models\Team::whereIn('id', $teamIds)
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn ($t) => ['value' => (string) $t->id, 'label' => $t->name])
+                ->values();
+        }
+
+        $props = [
+            'workflows' => $workflows,
+            'filters' => [
+                'status' => $request->input('status'),
+                'pp' => $request->input('pp'),
+                'bulan' => $request->input('bulan'),
+                ...($scope === 'admin' ? ['team' => $request->input('team')] : []),
+            ],
+            'availablePpPeriods' => $availablePpPeriods,
+            'scope' => $scope,
+        ];
+
+        if ($scope === 'admin') {
+            $props['availableTeams'] = $availableTeams;
+        }
+
+        return Inertia::render('workflows/pabd/index', $props);
     }
 
     public function show(PabdWorkflow $pabdWorkflow): Response
@@ -79,7 +181,133 @@ class PabdWorkflowController extends Controller
         }
         $this->checkPermission("{$scope}.workflows.pabd.show");
 
-        return Inertia::render("{$scope}/workflows/pabd/show");
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $history = $pabdWorkflow->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+
+        // Label
+        $teamName = $pabdWorkflow->team?->name ?? 'Unknown';
+        $bulanLabel = $this->bulanLabel($pabdWorkflow->bulan_anggaran);
+        $label = "PABD-{$teamName}-{$pabdWorkflow->bulan_anggaran}/{$pabdWorkflow->tahun_anggaran}";
+
+        // Step aktif — always single step (linear)
+        $stepAktifLabel = null;
+        if ($workflowStatus === 'active' && ! empty($currentSteps)) {
+            $stepNames = [
+                'PABD01' => 'Checklist Pencairan',
+                'PABD02A' => 'Form Perubahan',
+                'PABD02B' => 'Persetujuan Perubahan',
+                'PABD03' => 'Persetujuan Transfer',
+                'PABD04' => 'Bukti Transfer',
+                'PABD05' => 'Pengajuan Bulanan',
+            ];
+            $stepLabels = array_map(
+                fn ($s) => $s.': '.($stepNames[$s] ?? $s),
+                $currentSteps
+            );
+            $stepAktifLabel = implode(', ', $stepLabels);
+        }
+
+        // Stepper cycles with scope-aware URL resolver
+        $wfId = $pabdWorkflow->id;
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($wfId, $scope): ?string {
+            $base = "/{$scope}/workflows/pabd/{$wfId}";
+
+            if ($code === 'PABD01' && $dataId) {
+                return "{$base}/pabd01/{$dataId}";
+            }
+            if ($code === 'PABD02A' && $dataId) {
+                return "{$base}/pabd02a/{$dataId}";
+            }
+            if ($code === 'PABD02B') {
+                return "{$base}/pabd02b";
+            }
+            if ($code === 'PABD03') {
+                return "{$base}/pabd03";
+            }
+            if ($code === 'PABD04' && $dataId) {
+                return "{$base}/pabd04/{$dataId}";
+            }
+            if ($code === 'PABD05') {
+                return "{$base}/pabd05";
+            }
+
+            return null;
+        });
+
+        // Inject step roles for tooltips
+        $stepRoleMap = $this->resolveStepRolesForShow($pabdWorkflow->team_id);
+        foreach ($stepperCycles as &$cycle) {
+            foreach ($cycle['steps'] as &$step) {
+                $step['roles'] = $stepRoleMap[$step['code']] ?? [];
+            }
+        }
+        unset($cycle, $step);
+
+        // PP context
+        $ppWorkflow = $pabdWorkflow->ppWorkflow;
+        $ppTahun = $ppWorkflow?->latestPp01()?->tahun;
+
+        // Data Terbaru from PABD05
+        $dataTerbaru = null;
+        $pabd05 = $pabdWorkflow->latestPabd05();
+        if ($pabd05) {
+            $totalAnggaranDicairkan = (float) $pabd05->itemAnggaran()
+                ->where('status', 'dicairkan')
+                ->sum('nominal_anggaran');
+
+            $totalAnggaranHangus = (float) $pabd05->itemAnggaran()
+                ->where('status', 'hangus')
+                ->sum('nominal_anggaran');
+
+            $totalItemDicairkan = (int) ($pabd05->total_item_dicairkan ?? $pabd05->itemAnggaran()->where('status', 'dicairkan')->count());
+            $totalItemHangus = (int) ($pabd05->total_item_hangus ?? $pabd05->itemAnggaran()->where('status', 'hangus')->count());
+
+            $dataTerbaru = [
+                'bulan_label' => $bulanLabel,
+                'tahun_anggaran' => $pabdWorkflow->tahun_anggaran,
+                'verification_code' => $pabd05->verification_code,
+                'pabd05_id' => $pabd05->id,
+                'total_item_dicairkan' => $totalItemDicairkan,
+                'total_anggaran_dicairkan' => $totalAnggaranDicairkan,
+                'total_item_hangus' => $totalItemHangus,
+                'total_anggaran_hangus' => $totalAnggaranHangus,
+                'grand_total' => $totalAnggaranDicairkan + $totalAnggaranHangus,
+                'total_items' => $totalItemDicairkan + $totalItemHangus,
+                'bukti_transfer_count' => $pabd05->buktiTransfer()->count(),
+            ];
+        }
+
+        $permissions = $this->session->getActivePermissions();
+        $permPrefix = $scope === 'team' ? 'team' : 'admin';
+
+        return Inertia::render('workflows/pabd/show', [
+            'workflow' => [
+                'id' => $pabdWorkflow->id,
+                'label' => $label,
+                'status' => $workflowStatus,
+                'history' => $this->historyFormatter->format($history),
+                'stepper_cycles' => $stepperCycles,
+            ],
+            'informasi' => [
+                'team_name' => $teamName,
+                'bulan_anggaran' => $pabdWorkflow->bulan_anggaran,
+                'bulan_label' => $bulanLabel,
+                'tahun_anggaran' => $pabdWorkflow->tahun_anggaran,
+                'pp_label' => $ppTahun ? "PP-{$ppTahun}" : '—',
+                'pp_workflow_id' => $ppWorkflow?->id,
+                'dibuat_tanggal' => $pabdWorkflow->created_at->format('d/m/Y'),
+                'status' => $workflowStatus,
+                'step_aktif' => $stepAktifLabel,
+            ],
+            'dataTerbaru' => $dataTerbaru,
+            'canComment' => in_array("{$permPrefix}.workflows.pabd.comment", $permissions),
+            'canExportZip' => $dataTerbaru !== null
+                && in_array("{$permPrefix}.workflows.pabd.pabd05.export.zip", $permissions),
+            'activeRoleName' => $this->getActiveRoleName(),
+            'scope' => $scope,
+        ]);
     }
 
     public function comment(PabdCommentRequest $request, PabdWorkflow $pabdWorkflow): RedirectResponse
@@ -2963,12 +3191,51 @@ class PabdWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
+        $proposalDraft = 0.0;
+        $proposalReview = 0.0;
+        $pkDefinition = new \App\Workflows\PkWorkflowDefinition;
+
+        $activeProposalPkWorkflows = PkWorkflow::query()
+            ->where('team_id', $teamId)
+            ->where('workspace_id', $pabdWorkflow->workspace_id)
+            ->where('pp_workflow_id', $pabdWorkflow->pp_workflow_id)
+            ->where('tipe', 'proposal')
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($activeProposalPkWorkflows as $wf) {
+            $status = $this->engine->getWorkflowStatus($wf->history ?? []);
+            if (in_array($status, ['completed', 'terminated', 'deleted'])) {
+                continue;
+            }
+            $latestPk01 = $wf->latestPk01();
+            if (! $latestPk01) {
+                continue;
+            }
+
+            $total = (float) $latestPk01->kegiatan()
+                ->with('anggaran')
+                ->get()
+                ->flatMap(fn ($k) => $k->anggaran)
+                ->sum('nominal_anggaran');
+
+            $currentSteps = $this->engine->getCurrentSteps($pkDefinition, $wf->history ?? []);
+
+            if (in_array('PK01', $currentSteps)) {
+                $proposalDraft += $total;
+            } elseif (array_intersect(['PK02A', 'PK02B'], $currentSteps)) {
+                $proposalReview += $total;
+            }
+        }
+
         return [
             'ppLabel' => "PP-{$pp01?->tahun} Revisi {$pp06->revision}",
             'teamName' => $teamName,
             'plafon' => $plafon,
             'accepted' => $accepted,
             'proposalAccepted' => $proposalAccepted,
+            'proposalReview' => $proposalReview,
+            'proposalDraft' => $proposalDraft,
         ];
     }
 
@@ -3133,5 +3400,166 @@ class PabdWorkflowController extends Controller
             5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
         ];
+    }
+
+    private function bulanLabel(int $bulan): string
+    {
+        return $this->bulanNames()[$bulan] ?? (string) $bulan;
+    }
+
+    /**
+     * @param  array<int, string>  $userCache
+     * @param  array<int, string|null>  $roleCache
+     */
+    private function transformPabdForIndex(PabdWorkflow $wf, \App\Contracts\WorkflowDefinition $definition, string $scope, array &$userCache, array &$roleCache): array
+    {
+        $history = $wf->history ?? [];
+        $engineStatus = $this->engine->getWorkflowStatus($history);
+        $status = $engineStatus === 'completed' ? 'completed' : 'active';
+
+        // Step aktif
+        $stepAktif = null;
+        if ($status === 'active') {
+            $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+            if (! empty($currentSteps)) {
+                $stepAktif = implode(', ', $currentSteps);
+            }
+        }
+
+        // PP label
+        $ppTahun = $wf->ppWorkflow?->latestPp01()?->tahun;
+        $ppLabel = $ppTahun ? "PP-{$ppTahun}" : '—';
+
+        // Total anggaran
+        $pabd05 = $wf->latestPabd05();
+        if ($pabd05) {
+            $totalAnggaran = (float) $pabd05->itemAnggaran()->sum('nominal_anggaran');
+        } else {
+            $latestPabd01 = $wf->latestPabd01();
+            $totalAnggaran = $latestPabd01
+                ? (float) $latestPabd01->itemAnggaran()
+                    ->join('pk04_anggaran', 'pabd01_item_anggaran.pk04_anggaran_id', '=', 'pk04_anggaran.id')
+                    ->sum('pk04_anggaran.nominal_anggaran')
+                : null;
+            if ($totalAnggaran !== null && $totalAnggaran == 0) {
+                $totalAnggaran = null;
+            }
+        }
+
+        // Terakhir
+        [$lastActorName, $lastActorRole] = $this->resolveLastActor($history, $userCache, $roleCache);
+
+        $row = [
+            'id' => $wf->id,
+            'bulan_anggaran' => $wf->bulan_anggaran,
+            'bulan_label' => $this->bulanLabel($wf->bulan_anggaran),
+            'tahun_anggaran' => $wf->tahun_anggaran,
+            'status' => $status,
+            'step_aktif' => $stepAktif,
+            'pp_label' => $ppLabel,
+            'total_anggaran' => $totalAnggaran,
+            'terakhir_name' => $lastActorName,
+            'terakhir_role' => $lastActorRole,
+            'tanggal' => $wf->created_at->format('d/m/Y'),
+        ];
+
+        if ($scope === 'admin') {
+            $row['team_name'] = $wf->team?->name ?? 'Unknown';
+        }
+
+        return $row;
+    }
+
+    /**
+     * Resolve last non-comment actor from history.
+     *
+     * @param  array<int, string>  $userCache
+     * @param  array<int, string|null>  $roleCache
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function resolveLastActor(array $history, array &$userCache, array &$roleCache): array
+    {
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            $entry = $history[$i];
+            $action = $entry['action'] ?? '';
+            if ($action === 'commented') {
+                continue;
+            }
+
+            if (! isset($entry['by']) || $entry['by'] === null) {
+                return ['Sistem', null];
+            }
+
+            $uid = $entry['by'];
+            if (! isset($userCache[$uid])) {
+                $userCache[$uid] = User::find($uid)?->name ?? 'Unknown';
+            }
+            $name = $userCache[$uid];
+            $roleName = null;
+            if (isset($entry['role'])) {
+                $rid = $entry['role'];
+                if (! isset($roleCache[$rid])) {
+                    $roleCache[$rid] = Role::find($rid)?->name;
+                }
+                $roleName = $roleCache[$rid];
+            }
+
+            return [$name, $roleName];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * Resolve step roles for show page stepper tooltips.
+     *
+     * @return array<string, list<array{name: string, users: list<string>}>>
+     */
+    private function resolveStepRolesForShow(?int $teamId = null): array
+    {
+        $stepPermissions = [
+            'PABD01' => 'team.workflows.pabd.pabd01.submit',
+            'PABD02A' => 'team.workflows.pabd.pabd02a.submit',
+            'PABD02B' => 'admin.workflows.pabd.pabd02b.approve',
+            'PABD03' => 'admin.workflows.pabd.pabd03.approve',
+            'PABD04' => 'admin.workflows.pabd.pabd04.submit',
+            'PABD05' => null,
+        ];
+
+        $teamScopedSteps = ['PABD01', 'PABD02A'];
+
+        $permNames = array_filter(array_values($stepPermissions));
+        $permissions = Permission::whereIn('name', $permNames)
+            ->with(['roles.team', 'roles.users'])
+            ->get()
+            ->keyBy('name');
+
+        $result = [];
+        foreach ($stepPermissions as $stepCode => $permName) {
+            if (! $permName) {
+                $result[$stepCode] = [];
+
+                continue;
+            }
+
+            $perm = $permissions->get($permName);
+            $roles = [];
+
+            if ($perm) {
+                foreach ($perm->roles->sortBy(fn (Role $r) => $r->team ? "{$r->name} ({$r->team->name})" : $r->name) as $role) {
+                    if (in_array($stepCode, $teamScopedSteps) && $teamId && $role->team_id !== $teamId) {
+                        continue;
+                    }
+                    $roles[] = [
+                        'name' => $role->team ? "{$role->name} ({$role->team->name})" : $role->name,
+                        'users' => $role->users->pluck('name')->sort()->values()->all(),
+                    ];
+                }
+            }
+
+            $result[$stepCode] = $roles;
+        }
+
+        return $result;
     }
 }
