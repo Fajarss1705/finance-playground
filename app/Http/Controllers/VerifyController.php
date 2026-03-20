@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Pabd\Pabd05PengajuanBulanan;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Services\PabdCompileService;
 use App\Services\PkCompileService;
 use App\Services\PpCompileService;
 use Illuminate\Http\JsonResponse;
 
 class VerifyController extends Controller
 {
-    public function __invoke(string $code, PpCompileService $ppCompileService, PkCompileService $pkCompileService): JsonResponse
+    public function __invoke(string $code, PpCompileService $ppCompileService, PkCompileService $pkCompileService, PabdCompileService $pabdCompileService): JsonResponse
     {
         // Try PP06 first
         $pp06 = Pp06PeriodeTahunan::where('verification_code', $code)->first();
@@ -24,11 +26,11 @@ class VerifyController extends Controller
             return $this->verifyPk04($pk04, $code, $pkCompileService);
         }
 
-        // TODO: PABD05 — uncomment when Pabd05PengajuanBulanan model exists
-        // $pabd05 = Pabd05PengajuanBulanan::where('verification_code', $code)->first();
-        // if ($pabd05) {
-        //     return $this->verifyPabd05($pabd05, $code);
-        // }
+        // Try PABD05
+        $pabd05 = Pabd05PengajuanBulanan::where('verification_code', $code)->first();
+        if ($pabd05) {
+            return $this->verifyPabd05($pabd05, $code, $pabdCompileService);
+        }
 
         // TODO: PRBL05 — uncomment when Prbl05PelaporanBulanan model exists
         // $prbl05 = Prbl05PelaporanBulanan::where('verification_code', $code)->first();
@@ -114,6 +116,37 @@ class VerifyController extends Controller
             'total_anggaran' => (int) $totalAnggaran,
             'kegiatan_count' => $pk04->kegiatan->count(),
             'kuisioner_count' => $pk04->kegiatan->flatMap->kuisioner->count(),
+        ]);
+    }
+
+    private function verifyPabd05(Pabd05PengajuanBulanan $pabd05, string $code, PabdCompileService $compileService): JsonResponse
+    {
+        $currentCode = $compileService->generateVerificationCode($pabd05);
+        $tampered = $currentCode !== $code;
+
+        if ($tampered) {
+            $pabd05->update(['verification_code' => $code]);
+        }
+
+        $pabd05->loadMissing(['itemAnggaran', 'buktiTransfer', 'pabdWorkflow.team']);
+        $workflow = $pabd05->pabdWorkflow;
+        $teamName = $workflow?->team?->name ?? 'Unknown';
+        $bulanNames = [1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'];
+        $bulan = $bulanNames[$workflow?->bulan_anggaran ?? 0] ?? 'Unknown';
+
+        return response()->json([
+            'status' => $tampered ? 'tampered' : 'valid',
+            'message' => $tampered
+                ? 'Data telah berubah sejak dokumen ini dikompilasi.'
+                : 'Dokumen terverifikasi — data tidak berubah.',
+            'document_type' => 'Pengajuan Anggaran Bulanan (PABD)',
+            'label' => "PABD-{$teamName}-{$bulan}/{$workflow?->tahun_anggaran}",
+            'compiled_at' => $pabd05->created_at->toIso8601String(),
+            'team' => $teamName,
+            'total_anggaran_dicairkan' => (int) $pabd05->total_anggaran_dicairkan,
+            'total_item_dicairkan' => $pabd05->total_item_dicairkan,
+            'total_item_hangus' => $pabd05->total_item_hangus,
+            'bukti_transfer_count' => $pabd05->buktiTransfer->count(),
         ]);
     }
 }

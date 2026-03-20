@@ -6,6 +6,10 @@ use App\Models\Pabd\Pabd02aData;
 use App\Models\Pabd\Pabd02aItemPerubahan;
 use App\Models\Pabd\Pabd02bData;
 use App\Models\Pabd\Pabd04Data;
+use App\Models\Pabd\Pabd04ItemBuktiTransfer;
+use App\Models\Pabd\Pabd05BuktiTransfer;
+use App\Models\Pabd\Pabd05ItemAnggaran;
+use App\Models\Pabd\Pabd05PengajuanBulanan;
 use App\Models\Pabd\PabdWorkflow;
 use App\Models\Permission;
 use App\Models\Pk\Pk01Data;
@@ -1921,6 +1925,734 @@ it('denies PABD03 reject without permission', function () {
         'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
         'notes' => 'Some rejection reason that is long enough.',
     ]);
+
+    $response->assertForbidden();
+});
+
+// ══════════════════════════════════════════════════════
+// PABD04 — Upload Bukti Transfer
+// ══════════════════════════════════════════════════════
+
+/**
+ * Setup: PABD04 active (PABD03 approved, PABD04 data created).
+ */
+function setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, $bulan, $user, $role): array
+{
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, $bulan, $user, $role);
+
+    $engine = new WorkflowEngine;
+    $sessionContext = ['role' => $role->id, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id];
+
+    // Approve PABD03
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD03',
+        action: 'approved',
+        userId: $user->id,
+        sessionContext: $sessionContext,
+        notes: 'Disetujui.',
+    );
+
+    // Create PABD04 data
+    $pabd04 = Pabd04Data::create([
+        'pabd_workflow_id' => $pabdWorkflow->id,
+    ]);
+
+    $engine->recordAction(
+        workflow: $pabdWorkflow,
+        step: 'PABD04',
+        action: 'created',
+        userId: null,
+        sessionContext: [],
+        table: 'pabd04_data',
+        dataId: $pabd04->id,
+        extra: ['triggered_by' => ['user_id' => $user->id, 'step' => 'PABD03', 'action' => 'approved']],
+    );
+
+    return [$pabdWorkflow, $pabd01, $pabd04];
+}
+
+// ── PABD04 Show ──
+
+it('shows PABD04 page for admin Kantor Pusat with draft/submit permissions', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.draft',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('admin.workflows.pabd.pabd04.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd04')
+            ->where('mode', 'edit')
+            ->where('scope', 'admin')
+            ->where('canDraft', true)
+            ->where('canSubmit', true)
+            ->has('pabd01ChecklistData', 1)
+            ->has('summaryTotals')
+            ->has('bankDetails')
+            ->has('pabd03ApprovalInfo')
+            ->has('buktiTransferFiles')
+            ->has('expectedUpdatedAt')
+        );
+});
+
+it('shows PABD04 as readonly for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd04.show',
+        'team.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.pabd04.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd04')
+            ->where('mode', 'readonly')
+            ->where('scope', 'team')
+            ->where('canDraft', false)
+            ->where('canSubmit', false)
+        );
+});
+
+// ── PABD04 Draft ──
+
+it('drafts PABD04 with bukti transfer file upload', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.draft',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $fakeFile = \Illuminate\Http\UploadedFile::fake()->create('bukti-transfer.pdf', 100);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.draft', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+        'bukti_transfer_files' => [$fakeFile],
+    ]);
+
+    $response->assertRedirect();
+
+    // File should be linked
+    $itemCount = Pabd04ItemBuktiTransfer::where('pabd04_data_id', $pabd04->id)->count();
+    expect($itemCount)->toBe(1);
+
+    // History should have drafted
+    $pabdWorkflow->refresh();
+    $draftedEntry = collect($pabdWorkflow->history)->firstWhere(fn ($e) => ($e['step'] ?? '') === 'PABD04' && ($e['action'] ?? '') === 'drafted');
+    expect($draftedEntry)->not->toBeNull();
+});
+
+it('drafts PABD04 with file removal', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.draft',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Pre-create a bukti transfer file
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'existing.pdf',
+        'filename' => 'existing.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'files/test/existing.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+
+    $item = Pabd04ItemBuktiTransfer::create([
+        'pabd04_data_id' => $pabd04->id,
+        'file_id' => $file->id,
+    ]);
+
+    $pabd04->touch();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.draft', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+        'remove_file_ids' => [$item->id],
+    ]);
+
+    $response->assertRedirect();
+
+    // Item should be removed
+    $itemCount = Pabd04ItemBuktiTransfer::where('pabd04_data_id', $pabd04->id)->count();
+    expect($itemCount)->toBe(0);
+});
+
+// ── PABD04 Submit ──
+
+it('submits PABD04 with bukti transfer file', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $fakeFile = \Illuminate\Http\UploadedFile::fake()->create('bukti-transfer.pdf', 100);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+        'bukti_transfer_files' => [$fakeFile],
+    ]);
+
+    $response->assertRedirect();
+
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    // PABD04 should be completed
+    expect($statuses['PABD04']['status'])->toBe('completed');
+
+    // File should be linked
+    $itemCount = Pabd04ItemBuktiTransfer::where('pabd04_data_id', $pabd04->id)->count();
+    expect($itemCount)->toBe(1);
+
+    // History should have submitted
+    $submittedEntry = collect($pabdWorkflow->history)->firstWhere(fn ($e) => ($e['step'] ?? '') === 'PABD04' && ($e['action'] ?? '') === 'submitted');
+    expect($submittedEntry)->not->toBeNull();
+});
+
+it('rejects PABD04 submit with zero files', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+    ]);
+
+    // Should fail — no files
+    $response->assertStatus(422);
+});
+
+it('submits PABD04 with pre-existing files (no new upload needed)', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Pre-create a bukti transfer file (from earlier draft)
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'earlier-draft.pdf',
+        'filename' => 'earlier-draft.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'files/test/earlier-draft.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+
+    Pabd04ItemBuktiTransfer::create([
+        'pabd04_data_id' => $pabd04->id,
+        'file_id' => $file->id,
+    ]);
+
+    $pabd04->touch();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+    expect($statuses['PABD04']['status'])->toBe('completed');
+});
+
+// ── PABD04 Permission Denial ──
+
+it('denies PABD04 draft without draft permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        // Missing: admin.workflows.pabd.pabd04.draft
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.draft', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertForbidden();
+});
+
+it('denies PABD04 submit without submit permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        // Missing: admin.workflows.pabd.pabd04.submit
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $fakeFile = \Illuminate\Http\UploadedFile::fake()->create('bukti.pdf', 100);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+        'bukti_transfer_files' => [$fakeFile],
+    ]);
+
+    $response->assertForbidden();
+});
+
+it('rejects PABD04 draft with stale expected_updated_at', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.draft',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.draft', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => '2020-01-01T00:00:00+00:00',
+    ]);
+
+    $response->assertStatus(409);
+});
+
+// ── PABD05 — Auto-Compile from PABD04 Submit ──
+
+it('compiles PABD05 when PABD04 is submitted', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $anggaran1, $anggaran2] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Pre-create a bukti transfer file
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'bukti-transfer-bca.pdf',
+        'filename' => 'bukti-transfer-bca.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'files/test/bukti-transfer-bca.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+
+    Pabd04ItemBuktiTransfer::create([
+        'pabd04_data_id' => $pabd04->id,
+        'file_id' => $file->id,
+    ]);
+
+    $pabd04->touch();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    $pabdWorkflow->refresh();
+    $engine = new WorkflowEngine;
+    $definition = new PabdWorkflowDefinition;
+    $statuses = $engine->getStepStatuses($definition, $pabdWorkflow->history);
+
+    // PABD04 should be completed
+    expect($statuses['PABD04']['status'])->toBe('completed');
+
+    // PABD05 should be completed
+    expect($statuses['PABD05']['status'])->toBe('completed');
+
+    // pabd05_pengajuan_bulanan row should exist
+    $pabd05 = Pabd05PengajuanBulanan::where('pabd_workflow_id', $pabdWorkflow->id)->first();
+    expect($pabd05)->not->toBeNull();
+    expect($pabd05->verification_code)->not->toBeNull();
+    expect(strlen($pabd05->verification_code))->toBe(8);
+
+    // Author snapshots should be populated
+    expect($pabd05->pabd01_created_by_user_name)->not->toBeNull();
+    expect($pabd05->pabd03_approved_by_user_name)->not->toBeNull();
+    expect($pabd05->pabd04_created_by_user_name)->not->toBeNull();
+
+    // Bank details should be snapshotted from PP06
+    expect($pabd05->nama_bank)->toBe('Bank Mandiri');
+    expect($pabd05->nama_rekening)->toBe('Demo Test');
+    expect($pabd05->nomor_rekening)->toBe('1234567890');
+
+    // pabd05_item_anggaran rows should exist (2 items from setupPk04WithAnggaran)
+    $pabd05Items = Pabd05ItemAnggaran::where('pabd05_pengajuan_bulanan_id', $pabd05->id)->get();
+    expect($pabd05Items)->toHaveCount(2);
+
+    // All items were marked dicairkan in setupPabd03Active
+    expect($pabd05Items->where('status', 'dicairkan')->count())->toBe(2);
+
+    // Totals should match
+    expect((float) $pabd05->total_anggaran_dicairkan)->toBe(3500000.00);
+    expect($pabd05->total_item_dicairkan)->toBe(2);
+    expect($pabd05->total_item_hangus)->toBe(0);
+
+    // pabd05_bukti_transfer rows should exist
+    $pabd05Bukti = Pabd05BuktiTransfer::where('pabd05_pengajuan_bulanan_id', $pabd05->id)->get();
+    expect($pabd05Bukti)->toHaveCount(1);
+    expect($pabd05Bukti->first()->file_id)->toBe($file->id);
+
+    // pk04_anggaran should have status_pencairan finalized
+    $anggaran1->refresh();
+    $anggaran2->refresh();
+    expect($anggaran1->status_pencairan)->toBe('dicairkan');
+    expect($anggaran1->tanggal_pencairan)->not->toBeNull();
+    expect($anggaran2->status_pencairan)->toBe('dicairkan');
+    expect($anggaran2->tanggal_pencairan)->not->toBeNull();
+
+    // History should have PABD05 completed entry with triggered_by
+    $pabd05Entry = collect($pabdWorkflow->history)->firstWhere(fn ($e) => ($e['step'] ?? '') === 'PABD05' && ($e['action'] ?? '') === 'completed');
+    expect($pabd05Entry)->not->toBeNull();
+    expect($pabd05Entry['triggered_by']['step'])->toBe('PABD04');
+    expect($pabd05Entry['triggered_by']['action'])->toBe('submitted');
+
+    // Export file placeholders should exist in history
+    expect($pabd05Entry['files'] ?? [])->not->toBeEmpty();
+
+    // Flash message should mention compile
+    $response->assertSessionHas('success');
+});
+
+it('compiles PABD05 with mixed dicairkan and hangus items', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $anggaran1, $anggaran2] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Mark first item dicairkan, second hangus
+    $items = $pabd01->itemAnggaran;
+    $items[0]->update(['dicairkan' => true]);
+    $items[1]->update(['dicairkan' => false]);
+
+    $engine = new WorkflowEngine;
+    $sessionContext = ['role' => $role->id, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id];
+
+    // Submit PABD01 (no changes)
+    $pabd01->update(['ada_perubahan' => false]);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD01', action: 'submitted', userId: $user->id, sessionContext: $sessionContext, table: 'pabd01_data', dataId: $pabd01->id);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD02A', action: 'skipped', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD02B', action: 'skipped', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD03', action: 'created', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD03', action: 'approved', userId: $user->id, sessionContext: $sessionContext);
+
+    $pabd04 = Pabd04Data::create(['pabd_workflow_id' => $pabdWorkflow->id]);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD04', action: 'created', userId: null, sessionContext: [], table: 'pabd04_data', dataId: $pabd04->id);
+
+    // Add bukti transfer
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'bukti.pdf',
+        'filename' => 'bukti.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 512,
+        'disk' => 'local',
+        'path' => 'files/test/bukti.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+    Pabd04ItemBuktiTransfer::create(['pabd04_data_id' => $pabd04->id, 'file_id' => $file->id]);
+    $pabd04->touch();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    $pabd05 = Pabd05PengajuanBulanan::where('pabd_workflow_id', $pabdWorkflow->id)->first();
+    expect($pabd05)->not->toBeNull();
+    expect($pabd05->total_item_dicairkan)->toBe(1);
+    expect($pabd05->total_item_hangus)->toBe(1);
+    expect((float) $pabd05->total_anggaran_dicairkan)->toBe(2500000.00);
+
+    // Check pk04_anggaran statuses
+    $anggaran1->refresh();
+    $anggaran2->refresh();
+    expect($anggaran1->status_pencairan)->toBe('dicairkan');
+    expect($anggaran2->status_pencairan)->toBe('hangus');
+    expect($anggaran2->tanggal_pencairan)->toBeNull();
+});
+
+// ── PABD05 Show ──
+
+it('shows PABD05 page for team scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd05.show',
+        'team.workflows.pabd.comment',
+        'admin.workflows.pabd.pabd04.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Submit PABD04 to trigger PABD05 compile
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'bukti.pdf',
+        'filename' => 'bukti.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 512,
+        'disk' => 'local',
+        'path' => 'files/test/bukti.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+    Pabd04ItemBuktiTransfer::create(['pabd04_data_id' => $pabd04->id, 'file_id' => $file->id]);
+    $pabd04->touch();
+
+    $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    // Now visit PABD05 show page
+    $response = $this->get(route('team.workflows.pabd.pabd05.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd05')
+            ->where('scope', 'team')
+            ->where('canComment', true)
+            ->has('pabd05')
+            ->has('items')
+            ->has('buktiTransferFiles')
+            ->has('exportFiles')
+            ->where('pabd05.verification_code', fn ($code) => strlen($code) === 8)
+        );
+});
+
+it('shows PABD05 page for admin scope', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd05.show',
+        'admin.workflows.pabd.comment',
+        'admin.workflows.pabd.pabd04.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Submit PABD04
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'bukti.pdf',
+        'filename' => 'bukti.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 512,
+        'disk' => 'local',
+        'path' => 'files/test/bukti.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+    Pabd04ItemBuktiTransfer::create(['pabd04_data_id' => $pabd04->id, 'file_id' => $file->id]);
+    $pabd04->touch();
+
+    $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $response = $this->get(route('admin.workflows.pabd.pabd05.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/pabd/pabd05')
+            ->where('scope', 'admin')
+            ->has('pabd05.nama_bank')
+            ->has('pabd05.nama_rekening')
+            ->has('pabd05.nomor_rekening')
+        );
+});
+
+it('returns 404 for PABD05 show before compile', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd05.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.pabd05.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
+
+    $response->assertStatus(404);
+});
+
+it('denies PABD05 show without permission', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        // Missing: team.workflows.pabd.pabd05.show
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.pabd05.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]));
 
     $response->assertForbidden();
 });

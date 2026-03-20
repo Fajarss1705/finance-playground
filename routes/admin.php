@@ -155,6 +155,17 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{pabdWorkflow}/pabd03', [PabdWorkflowController::class, 'pabd03Show'])->name('pabd03.show');
             Route::post('/{pabdWorkflow}/pabd03/approve', [PabdWorkflowController::class, 'pabd03Approve'])->name('pabd03.approve');
             Route::post('/{pabdWorkflow}/pabd03/reject', [PabdWorkflowController::class, 'pabd03Reject'])->name('pabd03.reject');
+
+            // PABD04 (admin scope — show + draft + submit, Kantor Pusat)
+            Route::get('/{pabdWorkflow}/pabd04/{pabd04Data}', [PabdWorkflowController::class, 'pabd04Show'])->name('pabd04.show');
+            Route::post('/{pabdWorkflow}/pabd04/{pabd04Data}/draft', [PabdWorkflowController::class, 'pabd04Draft'])->name('pabd04.draft');
+            Route::post('/{pabdWorkflow}/pabd04/{pabd04Data}/submit', [PabdWorkflowController::class, 'pabd04Submit'])->name('pabd04.submit');
+
+            // PABD05 (admin scope — show + export, readonly)
+            Route::get('/{pabdWorkflow}/pabd05', [PabdWorkflowController::class, 'pabd05Show'])->name('pabd05.show');
+            Route::get('/{pabdWorkflow}/pabd05/export/pdf', [PabdWorkflowController::class, 'pabd05ExportPdf'])->name('pabd05.export.pdf');
+            Route::get('/{pabdWorkflow}/pabd05/export/excel', [PabdWorkflowController::class, 'pabd05ExportExcel'])->name('pabd05.export.excel');
+            Route::get('/{pabdWorkflow}/pabd05/export/zip', [PabdWorkflowController::class, 'pabd05ExportZip'])->name('pabd05.export.zip');
         });
 
         // Workflow prototypes — PRBL (admin scope)

@@ -13,12 +13,17 @@ use App\Http\Requests\Workflows\Pabd02bDraftRequest;
 use App\Http\Requests\Workflows\Pabd02bRejectRequest;
 use App\Http\Requests\Workflows\Pabd03ApproveRequest;
 use App\Http\Requests\Workflows\Pabd03RejectRequest;
+use App\Http\Requests\Workflows\Pabd04DraftRequest;
+use App\Http\Requests\Workflows\Pabd04SubmitRequest;
 use App\Http\Requests\Workflows\PabdCommentRequest;
+use App\Models\File;
 use App\Models\Pabd\Pabd01Data;
 use App\Models\Pabd\Pabd02aData;
 use App\Models\Pabd\Pabd02aItemPerubahan;
 use App\Models\Pabd\Pabd02bData;
 use App\Models\Pabd\Pabd04Data;
+use App\Models\Pabd\Pabd04ItemBuktiTransfer;
+use App\Models\Pabd\Pabd05PengajuanBulanan;
 use App\Models\Pabd\PabdWorkflow;
 use App\Models\Pk\Pk01Data;
 use App\Models\Pk\Pk04Anggaran;
@@ -30,11 +35,13 @@ use App\Models\Role;
 use App\Services\ActiveSessionService;
 use App\Services\CommentService;
 use App\Services\HistoryFormatter;
+use App\Services\PabdCompileService;
 use App\Services\PkCompileService;
 use App\Services\WorkflowEngine;
 use App\Services\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -48,6 +55,7 @@ class PabdWorkflowController extends Controller
         private CommentService $commentService,
         private WorkflowNotifier $notifier,
         private PkCompileService $compileService,
+        private PabdCompileService $pabdCompileService,
     ) {}
 
     // ──────────────────────────────────────
@@ -1704,6 +1712,722 @@ class PabdWorkflowController extends Controller
 
         return to_route('admin.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'Transfer ditolak. Checklist pencairan baru telah dibuat.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD04 — Upload Bukti Transfer
+    // ──────────────────────────────────────
+
+    public function pabd04Show(PabdWorkflow $pabdWorkflow, Pabd04Data $pabd04Data): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd04.show");
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $statuses = $this->engine->getStepStatuses($definition, $pabdWorkflow->history ?? []);
+        $permissions = $this->session->getActivePermissions();
+
+        $isActive = ($statuses['PABD04']['status'] ?? '') === 'active';
+        $canDraft = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd04.draft', $permissions);
+        $canSubmit = $isActive && $scope === 'admin' && in_array('admin.workflows.pabd.pabd04.submit', $permissions);
+        $canComment = in_array("{$scope}.workflows.pabd.comment", $permissions);
+        $mode = ($canDraft || $canSubmit) ? 'edit' : 'readonly';
+
+        // PABD01 checklist data
+        $latestPabd01 = $pabdWorkflow->latestPabd01();
+        $pabd01ChecklistData = $latestPabd01 ? $this->resolveAnggaranItems($latestPabd01, $pabdWorkflow) : [];
+        $pabd01Submitter = $this->resolvePabd01Submitter($pabdWorkflow->history ?? []);
+
+        // Summary totals from checklist
+        $summaryTotals = $this->computeChecklistSummary($pabd01ChecklistData);
+
+        // PABD03 approval info
+        $pabd03ApprovalInfo = $this->resolvePabd03ApprovalInfo($pabdWorkflow->history ?? []);
+
+        // Bank details from PP06
+        $bankDetails = $this->resolveBankDetails($pabdWorkflow);
+
+        // Bukti transfer files
+        $buktiTransferFiles = $pabd04Data->itemBuktiTransfer()
+            ->with('file')
+            ->get()
+            ->map(fn (Pabd04ItemBuktiTransfer $item) => [
+                'id' => $item->id,
+                'file_id' => $item->file_id,
+                'original_filename' => $item->file?->original_filename,
+                'mime_type' => $item->file?->mime_type,
+                'size' => $item->file?->size,
+                'uuid' => $item->file?->uuid,
+            ])
+            ->values()
+            ->all();
+
+        // Stepper + history
+        $stepperData = $this->engine->getStepperData($definition, $pabdWorkflow->history ?? [], function (string $code, ?int $dataId) use ($pabdWorkflow, $scope): ?string {
+            $base = "/{$scope}/workflows/pabd/{$pabdWorkflow->id}";
+            if ($dataId) {
+                $stepLower = strtolower($code);
+
+                return "{$base}/{$stepLower}/{$dataId}";
+            }
+            if ($code === 'PABD03') {
+                return "{$base}/pabd03";
+            }
+
+            return null;
+        });
+        $formattedHistory = $this->historyFormatter->format($pabdWorkflow->history ?? []);
+
+        // Action roles
+        $actionRoles = $this->resolveActionRoles([
+            'admin.workflows.pabd.pabd04.draft' => ['Simpan Draft', false],
+            'admin.workflows.pabd.pabd04.submit' => ['Submit', true],
+        ]);
+
+        // Budget counters
+        $budgetCounter = $this->getBudgetCounters($pabdWorkflow);
+
+        // PABD01 previous cycles
+        $pabd01PreviousCycles = $this->resolvePreviousCycles($pabdWorkflow, 'PABD01', $latestPabd01?->id);
+
+        return Inertia::render('workflows/pabd/pabd04', [
+            'scope' => $scope,
+            'mode' => $mode,
+            'canDraft' => $canDraft,
+            'canSubmit' => $canSubmit,
+            'canComment' => $canComment,
+            'canTerminate' => false,
+
+            'workflow' => [
+                'id' => $pabdWorkflow->id,
+                'uuid' => $pabdWorkflow->uuid,
+                'team_name' => $pabdWorkflow->team?->name,
+                'bulan_anggaran' => $pabdWorkflow->bulan_anggaran,
+                'bulan_label' => $this->bulanNames()[$pabdWorkflow->bulan_anggaran] ?? (string) $pabdWorkflow->bulan_anggaran,
+                'tahun_anggaran' => $pabdWorkflow->tahun_anggaran,
+                'updated_at' => $pabdWorkflow->updated_at?->toIso8601String(),
+            ],
+
+            'pabd04Data' => [
+                'id' => $pabd04Data->id,
+                'updated_at' => $pabd04Data->updated_at?->toIso8601String(),
+            ],
+
+            'pabd01ChecklistData' => $pabd01ChecklistData,
+            'pabd01Submitter' => $pabd01Submitter,
+            'pabd01Cycle' => $statuses['PABD01']['cycle'] ?? 1,
+            'pabd01PreviousCycles' => $pabd01PreviousCycles,
+            'summaryTotals' => $summaryTotals,
+            'pabd03ApprovalInfo' => $pabd03ApprovalInfo,
+            'bankDetails' => $bankDetails,
+            'buktiTransferFiles' => $buktiTransferFiles,
+
+            'budgetCounter' => $budgetCounter,
+            'expectedUpdatedAt' => $pabd04Data->updated_at?->toIso8601String(),
+            'stepStatuses' => $statuses,
+            'stepperData' => $stepperData,
+            'history' => $formattedHistory,
+            'actionRoles' => $actionRoles,
+            'activeRoleName' => $this->getActiveRoleName(),
+        ]);
+    }
+
+    public function pabd04Draft(Pabd04DraftRequest $request, PabdWorkflow $pabdWorkflow, Pabd04Data $pabd04Data): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd04.draft');
+        $this->ensureStepActive($pabdWorkflow, 'PABD04');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD04', $pabd04Data->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd04Data, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        DB::transaction(function () use ($pabdWorkflow, $pabd04Data, $validated, $request, $sessionContext) {
+            // Remove files
+            $this->removeBuktiTransferFiles($pabd04Data, $validated['remove_file_ids'] ?? []);
+
+            // Upload new files
+            $this->uploadBuktiTransferFiles($pabd04Data, $request->file('bukti_transfer_files', []), $pabdWorkflow, $request->user()->id, $sessionContext);
+
+            $pabd04Data->touch();
+
+            // Action-level files
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $pabd04Data,
+                'pabd.pabd04.draft',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD04',
+                action: 'drafted',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                table: 'pabd04_data',
+                dataId: $pabd04Data->id,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+            );
+        });
+
+        return back()->with('success', 'Draft bukti transfer berhasil disimpan.');
+    }
+
+    public function pabd04Submit(Pabd04SubmitRequest $request, PabdWorkflow $pabdWorkflow, Pabd04Data $pabd04Data): RedirectResponse
+    {
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        $this->checkPermission('admin.workflows.pabd.pabd04.submit');
+        $this->ensureStepActive($pabdWorkflow, 'PABD04');
+        $this->ensureCurrentRecord($pabdWorkflow, 'PABD04', $pabd04Data->id);
+
+        $validated = $request->validated();
+        $this->checkOptimisticLock($pabd04Data, $validated['expected_updated_at']);
+
+        $sessionContext = $this->getSessionContext();
+
+        $pabd05 = DB::transaction(function () use ($pabdWorkflow, $pabd04Data, $validated, $request, $sessionContext) {
+            // Remove files
+            $this->removeBuktiTransferFiles($pabd04Data, $validated['remove_file_ids'] ?? []);
+
+            // Upload new files
+            $this->uploadBuktiTransferFiles($pabd04Data, $request->file('bukti_transfer_files', []), $pabdWorkflow, $request->user()->id, $sessionContext);
+
+            // Validate at least 1 bukti transfer file
+            $fileCount = $pabd04Data->itemBuktiTransfer()->count();
+            if ($fileCount === 0) {
+                abort(422, 'Minimal 1 bukti transfer harus diupload.');
+            }
+
+            $pabd04Data->touch();
+
+            // Action-level files
+            $fileIds = $this->commentService->storeFiles(
+                $request->file('files', []),
+                $pabd04Data,
+                'pabd.pabd04.submit',
+                $request->user()->id,
+                $sessionContext,
+            );
+
+            // 1. Record PABD04 submitted
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD04',
+                action: 'submitted',
+                userId: $request->user()->id,
+                sessionContext: $sessionContext,
+                table: 'pabd04_data',
+                dataId: $pabd04Data->id,
+                notes: $validated['notes'] ?? null,
+                files: ! empty($fileIds) ? $fileIds : null,
+                extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+            );
+
+            // 2. Compile PABD05 (auto-compile within same transaction)
+            $pabd05 = $this->pabdCompileService->compile($pabdWorkflow);
+
+            // 3. Record PABD05 completed
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD05',
+                action: 'completed',
+                userId: null,
+                sessionContext: [],
+                table: 'pabd05_pengajuan_bulanan',
+                dataId: $pabd05->id,
+                extra: [
+                    'triggered_by' => [
+                        'user_id' => $request->user()->id,
+                        'step' => 'PABD04',
+                        'action' => 'submitted',
+                    ],
+                    'revision' => 0,
+                    'pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow),
+                ],
+            );
+
+            return $pabd05;
+        });
+
+        // 4. Generate export files (outside transaction)
+        $exportResult = $this->pabdCompileService->generateExportFiles(
+            $pabd05,
+            $request->user()->id,
+            $pabdWorkflow->workspace_id,
+        );
+        $this->pabdCompileService->appendExportFilesToHistory($pabdWorkflow, $exportResult);
+
+        // 5. Notify team — workflow complete
+        $this->notifier->notify($pabdWorkflow, 'pabd04.submitted', [
+            'actor_name' => $request->user()->name,
+            'actor_role' => $this->resolveSessionRoleName(),
+        ], $request->user()->id);
+
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Bukti transfer berhasil disubmit. Pengajuan anggaran bulanan telah dikompilasi.');
+    }
+
+    // ──────────────────────────────────────
+    // PABD04 Helpers
+    // ──────────────────────────────────────
+
+    /**
+     * Upload bukti transfer files and create pabd04_item_bukti_transfer rows.
+     *
+     * @param  array<\Illuminate\Http\UploadedFile>  $uploadedFiles
+     */
+    private function uploadBuktiTransferFiles(Pabd04Data $pabd04Data, array $uploadedFiles, PabdWorkflow $pabdWorkflow, int $userId, array $sessionContext): void
+    {
+        foreach ($uploadedFiles as $uploadedFile) {
+            $uuid = (string) Str::uuid();
+            $ext = $uploadedFile->getClientOriginalExtension();
+            $filename = "{$uuid}.{$ext}";
+            $workspaceId = $sessionContext['workspace'] ?? $pabdWorkflow->workspace_id;
+            $path = "files/{$workspaceId}/".now()->format('Y/m')."/{$filename}";
+
+            Storage::disk('local')->putFileAs(
+                dirname($path),
+                $uploadedFile,
+                basename($path),
+            );
+
+            $roleId = $sessionContext['role'] ?? null;
+            $role = $roleId ? Role::with('team')->find($roleId) : null;
+
+            $file = File::create([
+                'uuid' => $uuid,
+                'original_filename' => $uploadedFile->getClientOriginalName(),
+                'filename' => $filename,
+                'mime_type' => $uploadedFile->getMimeType(),
+                'size' => $uploadedFile->getSize(),
+                'disk' => 'local',
+                'path' => $path,
+                'user_id' => $userId,
+                'role_id' => $roleId,
+                'team_id' => $role?->team_id,
+                'organization_id' => $role?->team?->organization_id,
+                'workspace_id' => $workspaceId,
+                'source_route' => 'pabd.pabd04.upload',
+                'attachable_type' => Pabd04Data::class,
+                'attachable_id' => $pabd04Data->id,
+            ]);
+
+            Pabd04ItemBuktiTransfer::create([
+                'pabd04_data_id' => $pabd04Data->id,
+                'file_id' => $file->id,
+            ]);
+        }
+    }
+
+    /**
+     * Remove bukti transfer files by item IDs.
+     *
+     * @param  list<int>  $removeFileIds  pabd04_item_bukti_transfer IDs to remove
+     */
+    private function removeBuktiTransferFiles(Pabd04Data $pabd04Data, array $removeFileIds): void
+    {
+        if (empty($removeFileIds)) {
+            return;
+        }
+
+        $pabd04Data->itemBuktiTransfer()
+            ->whereIn('id', $removeFileIds)
+            ->delete();
+    }
+
+    /**
+     * Resolve PABD03 approval info from history.
+     *
+     * @return array{name: string, role: string, team: string, at: string, notes: string|null}|null
+     */
+    private function resolvePabd03ApprovalInfo(array $history): ?array
+    {
+        $formatted = $this->historyFormatter->format($history);
+        foreach (array_reverse($formatted) as $entry) {
+            if (($entry['step'] ?? '') === 'PABD03' && ($entry['action'] ?? '') === 'approved') {
+                return [
+                    'name' => $entry['by_name'] ?? 'Unknown',
+                    'role' => $entry['role_name'] ?? '',
+                    'team' => $entry['team_name'] ?? '',
+                    'at' => $entry['at'] ?? '',
+                    'notes' => $entry['notes'] ?? null,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    // ──────────────────────────────────────
+    // PABD05 — Show + Export (readonly)
+    // ──────────────────────────────────────
+
+    public function pabd05Show(PabdWorkflow $pabdWorkflow): Response
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd05.show");
+
+        $pabd05 = $pabdWorkflow->latestPabd05();
+        if (! $pabd05) {
+            abort(404, 'PABD05 belum dikompilasi.');
+        }
+
+        $pabd05->load(['itemAnggaran.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', 'buktiTransfer.file']);
+
+        $bulanNames = $this->bulanNames();
+        $teamName = $pabdWorkflow->team?->name ?? 'Unknown';
+        $bulanLabel = $bulanNames[$pabdWorkflow->bulan_anggaran] ?? (string) $pabdWorkflow->bulan_anggaran;
+        $tahun = $pabdWorkflow->tahun_anggaran;
+        $label = "PABD-{$teamName}-{$bulanLabel}/{$tahun}";
+
+        // PP reference label
+        $pp06 = $pabdWorkflow->ppWorkflow?->latestPp06();
+        $ppLabel = $pp06 ? "PP-{$tahun} Revisi {$pp06->revision}" : null;
+
+        // Build grouped items: program → kegiatan → anggaran
+        $items = $this->buildPabd05GroupedItems($pabd05);
+
+        // Bukti transfer files
+        $buktiTransferFiles = $pabd05->buktiTransfer->map(fn ($bt) => [
+            'id' => $bt->id,
+            'file_id' => $bt->file_id,
+            'filename' => $bt->file?->original_filename ?? 'Unknown',
+            'mime_type' => $bt->file?->mime_type,
+            'size' => $bt->file?->size,
+            'path' => $bt->file?->path,
+            'download_url' => $bt->file?->path ? route('files.download', $bt->file) : null,
+        ])->values();
+
+        // Export files from history
+        $exportFiles = $this->resolveExportFiles($pabd05);
+
+        // History + formatting
+        $history = $pabdWorkflow->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+
+        $permPrefix = "{$scope}.workflows.pabd";
+        $permissions = $this->session->getActivePermissions();
+        $basePath = $scope === 'team'
+            ? "/team/workflows/pabd/{$pabdWorkflow->id}"
+            : "/admin/workflows/pabd/{$pabdWorkflow->id}";
+
+        // Stepper data
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $stepperData = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($pabdWorkflow, $scope): ?string {
+            $base = "/{$scope}/workflows/pabd/{$pabdWorkflow->id}";
+            if ($dataId) {
+                $stepLower = strtolower($code);
+
+                return "{$base}/{$stepLower}/{$dataId}";
+            }
+
+            return null;
+        });
+
+        // Action roles
+        $actionRoles = $this->resolveActionRoles([
+            "{$scope}.workflows.pabd.pabd05.show" => ['Lihat', false],
+            "{$scope}.workflows.pabd.pabd05.export.pdf" => ['Unduh PDF', false],
+            "{$scope}.workflows.pabd.pabd05.export.excel" => ['Unduh Excel', false],
+            "{$scope}.workflows.pabd.pabd05.export.zip" => ['Unduh ZIP', false],
+            "{$scope}.workflows.pabd.comment" => ['Komentar', false],
+        ]);
+
+        return Inertia::render('workflows/pabd/pabd05', [
+            'workflow' => [
+                'id' => $pabdWorkflow->id,
+                'label' => $label,
+                'status' => $workflowStatus,
+                'bulan_anggaran' => $pabdWorkflow->bulan_anggaran,
+                'tahun_anggaran' => $tahun,
+                'bulan_label' => $bulanLabel,
+            ],
+            'pabd05' => [
+                'id' => $pabd05->id,
+                'verification_code' => $pabd05->verification_code,
+                'pabd01_created_by_user_name' => $pabd05->pabd01_created_by_user_name,
+                'pabd01_created_by_role_name' => $pabd05->pabd01_created_by_role_name,
+                'pabd01_created_by_team_name' => $pabd05->pabd01_created_by_team_name,
+                'pabd01_created_at' => $pabd05->pabd01_created_at?->toIso8601String(),
+                'pabd03_approved_by_user_name' => $pabd05->pabd03_approved_by_user_name,
+                'pabd03_approved_by_role_name' => $pabd05->pabd03_approved_by_role_name,
+                'pabd03_approved_by_team_name' => $pabd05->pabd03_approved_by_team_name,
+                'pabd03_approved_at' => $pabd05->pabd03_approved_at?->toIso8601String(),
+                'pabd04_created_by_user_name' => $pabd05->pabd04_created_by_user_name,
+                'pabd04_created_by_role_name' => $pabd05->pabd04_created_by_role_name,
+                'pabd04_created_by_team_name' => $pabd05->pabd04_created_by_team_name,
+                'pabd04_created_at' => $pabd05->pabd04_created_at?->toIso8601String(),
+                'nama_bank' => $pabd05->nama_bank,
+                'nama_rekening' => $pabd05->nama_rekening,
+                'nomor_rekening' => $pabd05->nomor_rekening,
+                'total_anggaran_dicairkan' => (float) $pabd05->total_anggaran_dicairkan,
+                'total_item_dicairkan' => $pabd05->total_item_dicairkan,
+                'total_item_hangus' => $pabd05->total_item_hangus,
+                'created_at' => $pabd05->created_at?->toIso8601String(),
+            ],
+            'items' => $items,
+            'buktiTransferFiles' => $buktiTransferFiles,
+            'exportFiles' => $exportFiles,
+            'ppLabel' => $ppLabel,
+            'verifyUrl' => url('/verify'),
+            'canComment' => in_array("{$permPrefix}.comment", $permissions),
+            'commentUrl' => "{$basePath}/comment",
+            'scope' => $scope,
+            'history' => $this->historyFormatter->format($history),
+            'actionRoles' => $actionRoles,
+            'activeRoleName' => $this->getActiveRoleName(),
+            'stepperData' => $stepperData,
+            'teamName' => $teamName,
+        ]);
+    }
+
+    public function pabd05ExportPdf(PabdWorkflow $pabdWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd05.export.pdf");
+
+        $pabd05 = $pabdWorkflow->latestPabd05();
+        if (! $pabd05) {
+            return back()->withErrors(['export' => 'PABD05 belum dikompilasi.']);
+        }
+
+        $file = File::where('attachable_type', Pabd05PengajuanBulanan::class)
+            ->where('attachable_id', $pabd05->id)
+            ->where('source_route', 'pabd05.export.pdf')
+            ->first();
+
+        if ($file && $file->path && Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        return back()->withErrors(['export' => 'File PDF belum tersedia. Silakan coba lagi nanti.']);
+    }
+
+    public function pabd05ExportExcel(PabdWorkflow $pabdWorkflow): \Symfony\Component\HttpFoundation\BinaryFileResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd05.export.excel");
+
+        $pabd05 = $pabdWorkflow->latestPabd05();
+        if (! $pabd05) {
+            return back()->withErrors(['export' => 'PABD05 belum dikompilasi.']);
+        }
+
+        $file = File::where('attachable_type', Pabd05PengajuanBulanan::class)
+            ->where('attachable_id', $pabd05->id)
+            ->where('source_route', 'pabd05.export.excel')
+            ->first();
+
+        if ($file && $file->path && Storage::disk($file->disk)->exists($file->path)) {
+            return response()->download(
+                Storage::disk($file->disk)->path($file->path),
+                $file->original_filename,
+                ['Content-Type' => $file->mime_type],
+            );
+        }
+
+        return back()->withErrors(['export' => 'File Excel belum tersedia. Silakan coba lagi nanti.']);
+    }
+
+    public function pabd05ExportZip(PabdWorkflow $pabdWorkflow): \Symfony\Component\HttpFoundation\StreamedResponse|RedirectResponse
+    {
+        $scope = $this->getScope();
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($pabdWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.pabd.pabd05.export.zip");
+
+        $pabd05 = $pabdWorkflow->latestPabd05();
+        if (! $pabd05) {
+            return back()->withErrors(['export' => 'PABD05 belum dikompilasi.']);
+        }
+
+        $pabd05->load(['buktiTransfer.file']);
+
+        $teamName = $pabdWorkflow->team?->name ?? 'Unknown';
+        $bulanNames = $this->bulanNames();
+        $bulan = $bulanNames[$pabdWorkflow->bulan_anggaran] ?? (string) $pabdWorkflow->bulan_anggaran;
+        $tahun = $pabdWorkflow->tahun_anggaran;
+        $zipFilename = "PABD-{$teamName}-{$bulan}-{$tahun}-Pengajuan-Bulanan.zip";
+        $zipFilename = preg_replace('/[^\w\-. ]/', '', $zipFilename);
+
+        // Export files (PDF + Excel)
+        $exportFiles = File::where('attachable_type', Pabd05PengajuanBulanan::class)
+            ->where('attachable_id', $pabd05->id)
+            ->whereNotNull('path')
+            ->get();
+
+        // Bukti transfer files
+        $buktiFiles = $pabd05->buktiTransfer
+            ->map(fn ($bt) => $bt->file)
+            ->filter(fn ($f) => $f && $f->path);
+
+        // Comment attachment files
+        $historyFileIds = collect($pabdWorkflow->history ?? [])
+            ->pluck('files')
+            ->filter()
+            ->flatten()
+            ->unique()
+            ->all();
+        $commentFiles = ! empty($historyFileIds)
+            ? File::whereIn('id', $historyFileIds)->whereNotNull('path')->get()
+            : collect();
+
+        return response()->streamDownload(function () use ($exportFiles, $buktiFiles, $commentFiles) {
+            $zip = new \ZipStream\ZipStream(
+                outputStream: fopen('php://output', 'wb'),
+                sendHttpHeaders: false,
+            );
+
+            $addedFiles = [];
+            $addFile = function ($zip, string $folder, File $file) use (&$addedFiles) {
+                $name = $file->original_filename;
+                $key = "{$folder}/{$name}";
+                $counter = 1;
+                while (isset($addedFiles[$key])) {
+                    $ext = pathinfo($name, PATHINFO_EXTENSION);
+                    $base = pathinfo($name, PATHINFO_FILENAME);
+                    $key = "{$folder}/{$base} ({$counter}).{$ext}";
+                    $counter++;
+                }
+                $addedFiles[$key] = true;
+
+                $path = Storage::disk($file->disk)->path($file->path);
+                if (file_exists($path)) {
+                    $zip->addFileFromPath($key, $path);
+                }
+            };
+
+            foreach ($exportFiles as $file) {
+                $addFile($zip, '.', $file);
+            }
+
+            foreach ($buktiFiles as $file) {
+                $addFile($zip, 'Bukti Transfer', $file);
+            }
+
+            foreach ($commentFiles as $file) {
+                $addFile($zip, 'Lampiran Komentar', $file);
+            }
+
+            $zip->finish();
+        }, $zipFilename, ['Content-Type' => 'application/zip']);
+    }
+
+    /**
+     * Build grouped items for PABD05 show: program → kegiatan → anggaran.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function buildPabd05GroupedItems(Pabd05PengajuanBulanan $pabd05): array
+    {
+        $bulanNames = $this->bulanNames();
+        $grouped = [];
+
+        foreach ($pabd05->itemAnggaran as $item) {
+            $pk04Anggaran = $item->pk04Anggaran;
+            if (! $pk04Anggaran) {
+                continue;
+            }
+
+            $kegiatan = $pk04Anggaran->pk04Kegiatan;
+            $program = $kegiatan?->pk04ProgramTahunan;
+            $pkWorkflow = $program?->pkWorkflow;
+
+            $programKey = $program?->id ?? 0;
+            $kegiatanKey = $kegiatan?->id ?? 0;
+
+            if (! isset($grouped[$programKey])) {
+                $grouped[$programKey] = [
+                    'program_id' => $program?->id,
+                    'program_name' => $program?->nama_program ?? 'Unknown',
+                    'kode_kategori' => $program?->kode_kategori ?? '',
+                    'tipe' => $pkWorkflow?->tipe ?? 'raker',
+                    'kegiatan' => [],
+                ];
+            }
+
+            if (! isset($grouped[$programKey]['kegiatan'][$kegiatanKey])) {
+                $grouped[$programKey]['kegiatan'][$kegiatanKey] = [
+                    'kegiatan_id' => $kegiatan?->id,
+                    'nama_kegiatan' => $kegiatan?->nama_kegiatan ?? 'Unknown',
+                    'bulan' => $kegiatan?->bulan,
+                    'bulan_label' => $bulanNames[$kegiatan?->bulan ?? 0] ?? '',
+                    'anggaran' => [],
+                ];
+            }
+
+            $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
+                'pabd05_item_id' => $item->id,
+                'pk04_anggaran_id' => $pk04Anggaran->id,
+                'kode_anggaran_baru' => $pk04Anggaran->kode_anggaran_baru,
+                'mata_anggaran' => $pk04Anggaran->mata_anggaran,
+                'nominal_anggaran' => (float) $item->nominal_anggaran,
+                'status' => $item->status,
+            ];
+        }
+
+        // Convert nested associative arrays to indexed arrays
+        return collect($grouped)->map(function ($program) {
+            $program['kegiatan'] = array_values($program['kegiatan']);
+
+            return $program;
+        })->values()->all();
+    }
+
+    /**
+     * Resolve export files (PDF + Excel) for PABD05.
+     *
+     * @return array{pdf: array|null, excel: array|null}
+     */
+    private function resolveExportFiles(Pabd05PengajuanBulanan $pabd05): array
+    {
+        $files = File::where('attachable_type', Pabd05PengajuanBulanan::class)
+            ->where('attachable_id', $pabd05->id)
+            ->whereIn('source_route', ['pabd05.export.pdf', 'pabd05.export.excel'])
+            ->get();
+
+        $pdf = $files->firstWhere('source_route', 'pabd05.export.pdf');
+        $excel = $files->firstWhere('source_route', 'pabd05.export.excel');
+
+        $map = fn (?File $f) => $f ? [
+            'id' => $f->id,
+            'filename' => $f->original_filename,
+            'path' => $f->path,
+            'available' => $f->path !== null,
+        ] : null;
+
+        return [
+            'pdf' => $map($pdf),
+            'excel' => $map($excel),
+        ];
     }
 
     // ──────────────────────────────────────

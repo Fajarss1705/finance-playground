@@ -100,6 +100,15 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
 
             // PABD03 (team scope — read-only, no data table param)
             Route::get('/{pabdWorkflow}/pabd03', [PabdWorkflowController::class, 'pabd03Show'])->name('pabd03.show');
+
+            // PABD04 (team scope — read-only)
+            Route::get('/{pabdWorkflow}/pabd04/{pabd04Data}', [PabdWorkflowController::class, 'pabd04Show'])->name('pabd04.show');
+
+            // PABD05 (team scope — show + export, readonly)
+            Route::get('/{pabdWorkflow}/pabd05', [PabdWorkflowController::class, 'pabd05Show'])->name('pabd05.show');
+            Route::get('/{pabdWorkflow}/pabd05/export/pdf', [PabdWorkflowController::class, 'pabd05ExportPdf'])->name('pabd05.export.pdf');
+            Route::get('/{pabdWorkflow}/pabd05/export/excel', [PabdWorkflowController::class, 'pabd05ExportExcel'])->name('pabd05.export.excel');
+            Route::get('/{pabdWorkflow}/pabd05/export/zip', [PabdWorkflowController::class, 'pabd05ExportZip'])->name('pabd05.export.zip');
         });
 
         // Workflow prototypes — PRBL (team scope)
