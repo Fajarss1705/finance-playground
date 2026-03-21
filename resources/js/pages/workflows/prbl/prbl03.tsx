@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
-import { CheckCircle2, FileText, Info, AlertTriangle, Upload, X } from 'lucide-react';
+import { FileText, Info, AlertTriangle, Upload, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

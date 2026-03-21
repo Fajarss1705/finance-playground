@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Download, FileIcon, Info } from 'lucide-react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -355,7 +355,7 @@ export default function Prbl02b({
     mode, canApprove, canReject, canComment, workflow,
     kegiatanItems, totalDicairkan, totalRealisasi, submitterInfo,
     parallelTrackStatus, ppLabel, workflowMeta, stepStatus, cycle,
-    actionRoles, activeRoleName, basePath,
+    actionRoles, activeRoleName,
 }: Props) {
     const [processing, setProcessing] = useState(false);
 

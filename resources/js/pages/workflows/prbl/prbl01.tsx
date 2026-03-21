@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
-import { AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, Download, FileIcon, Info, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, FileIcon, Info, Trash2, Upload, X } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -167,7 +167,6 @@ export default function Prbl01({
     prbl01,
     kegiatanItems,
     totalDicairkan,
-    totalRealisasi: savedTotalRealisasi,
     ppLabel,
     pabdLabel,
     workflowMeta,

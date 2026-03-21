@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { Info, CheckCircle2 } from 'lucide-react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -197,7 +197,7 @@ function BankDetailsCard({ bankDetails }: { bankDetails: BankDetails }) {
 export default function Pabd03({
     scope, mode, canApprove, canReject, canComment, workflow,
     pabd01ChecklistData, pabd01Submitter, pabd01Cycle,
-    summaryTotals, bankDetails, budgetCounter, stepStatuses,
+    bankDetails, budgetCounter, stepStatuses,
     history, actionRoles, activeRoleName,
 }: Props) {
     const [processing, setProcessing] = useState(false);

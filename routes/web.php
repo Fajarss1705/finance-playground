@@ -15,8 +15,9 @@ Route::inertia('/', 'welcome', [
     'canRegister' => Features::enabled(Features::registration()),
 ])->name('home');
 
+Route::get('verify/{code}', VerifyController::class)->name('verify');
+
 Route::middleware(['auth'])->group(function () {
-    Route::get('verify/{code}', VerifyController::class)->name('verify');
     Route::get('role-selector', [SwitcherController::class, 'index'])->name('role-selector.index');
     Route::post('role-selector', [SwitcherController::class, 'store'])->name('role-selector.store');
     Route::inertia('no-access', 'no-access')->name('no-access');

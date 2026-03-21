@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { CheckCircle2, FileText, Info, Upload, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -312,7 +312,7 @@ function BuktiTransferUpload({
 export default function Pabd04({
     scope, mode, canDraft, canSubmit, canComment, workflow,
     pabd04Data, pabd01ChecklistData, pabd01Submitter, pabd01Cycle,
-    summaryTotals, pabd03ApprovalInfo, bankDetails, buktiTransferFiles,
+    pabd03ApprovalInfo, bankDetails, buktiTransferFiles,
     budgetCounter, expectedUpdatedAt, stepStatuses,
     history, actionRoles, activeRoleName,
 }: Props) {

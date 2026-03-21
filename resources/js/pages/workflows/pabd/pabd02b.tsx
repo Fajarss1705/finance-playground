@@ -1,11 +1,11 @@
-import { useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { Info, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
@@ -293,7 +293,7 @@ function ProposalReadonly({ proposal }: { proposal: ProposalData }) {
 
 export default function Pabd02b({
     scope, mode, canDraft, canApprove, canReject, canComment, workflow,
-    stepData, cycle, pabd01ChecklistData, pabd01Submitter, pabd01Cycle,
+    stepData, pabd01ChecklistData, pabd01Submitter, pabd01Cycle,
     pabd02aSubmitter, pabd02aCycle, tarikMajuCount, proposalBaruCount,
     budgetCounter, stepStatuses, history, actionRoles, activeRoleName,
 }: Props) {
