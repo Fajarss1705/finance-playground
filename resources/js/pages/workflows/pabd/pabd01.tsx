@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import { AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +60,8 @@ type CycleBackNotes = {
     action: string;
     notes: string | null;
     by_name: string | null;
+    role_name: string | null;
+    team_name: string | null;
     at: string | null;
     files: number[] | null;
 };
@@ -261,13 +263,22 @@ export default function Pabd01({
                                       ? 'Persetujuan transfer ditolak. Silakan review ulang checklist pencairan.'
                                       : 'Perubahan anggaran ditolak. Silakan review ulang checklist pencairan.'}
                             </p>
+                            {cycleBackNotes.by_name && (
+                                <p className="text-amber-700 dark:text-amber-300">
+                                    Oleh: {cycleBackNotes.by_name}
+                                    {cycleBackNotes.role_name && ` (${cycleBackNotes.role_name}`}
+                                    {cycleBackNotes.team_name && ` \u00B7 ${cycleBackNotes.team_name}`}
+                                    {cycleBackNotes.role_name && ')'}
+                                    {cycleBackNotes.at && ` — ${cycleBackNotes.at}`}
+                                </p>
+                            )}
+                            {!cycleBackNotes.by_name && cycleBackNotes.at && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">— {cycleBackNotes.at}</p>
+                            )}
                             {cycleBackNotes.notes && (
                                 <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
                                     &ldquo;{cycleBackNotes.notes}&rdquo;
                                 </p>
-                            )}
-                            {cycleBackNotes.at && (
-                                <p className="text-xs text-amber-600 dark:text-amber-400">— {cycleBackNotes.at}</p>
                             )}
                         </div>
                     </div>

@@ -274,6 +274,11 @@ class PrblWorkflowController extends Controller
         $permissions = $this->session->getActivePermissions();
         $permPrefix = $scope === 'team' ? 'team' : 'admin';
 
+        // Resolve latest PRBL04 rejection info for the show page (if any)
+        $latestRejectionInfo = $workflowStatus === 'active'
+            ? $this->resolvePrbl04RejectionInfo($history)
+            : null;
+
         return Inertia::render('workflows/prbl/show', [
             'workflow' => [
                 'id' => $prblWorkflow->id,
@@ -296,6 +301,7 @@ class PrblWorkflowController extends Controller
                 'step_aktif' => $stepAktifLabel,
             ],
             'dataTerbaru' => $dataTerbaru,
+            'latestRejectionInfo' => $latestRejectionInfo,
             'canComment' => in_array("{$permPrefix}.workflows.prbl.comment", $permissions),
             'canExportZip' => $dataTerbaru !== null
                 && in_array("{$permPrefix}.workflows.prbl.prbl05.export.zip", $permissions),

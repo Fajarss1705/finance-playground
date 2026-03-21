@@ -521,3 +521,121 @@ it('completes PRBL flow with dual rejection to PRBL03 then approve', function ()
         ->and($rejectedEntry['cycleTarget'])->toBe('PRBL03')
         ->and($rejectedEntry['notes'])->toBe('Bukti transfer tidak jelas.');
 });
+
+it('passes latestRejectionInfo to PRBL show page after PRBL04 rejection', function () {
+    [$user, $role, $workspace, $team] = prblFlowUser(
+        'team.workflows.prbl.show',
+        'team.workflows.prbl.prbl01.show',
+        'team.workflows.prbl.prbl01.draft',
+        'team.workflows.prbl.prbl01.submit',
+        'admin.workflows.prbl.show',
+        'admin.workflows.prbl.prbl02a.show',
+        'admin.workflows.prbl.prbl02a.approve',
+        'admin.workflows.prbl.prbl02b.show',
+        'admin.workflows.prbl.prbl02b.approve',
+        'team.workflows.prbl.prbl03.show',
+        'team.workflows.prbl.prbl03.draft',
+        'team.workflows.prbl.prbl03.submit',
+        'admin.workflows.prbl.prbl04.show',
+        'admin.workflows.prbl.prbl04.approve',
+        'admin.workflows.prbl.prbl04.reject',
+        'admin.workflows.prbl.comment',
+        'team.workflows.prbl.comment',
+    );
+    prblFlowSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = prblFlowSetupPp($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = prblFlowSetupPk04($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = prblFlowSetupPrbl($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Submit PRBL01
+    $this->travel(1)->seconds();
+    $this->post(route('team.workflows.prbl.prbl01.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $prbl01->id,
+    ]), [
+        'items' => [[
+            'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+            'masalah' => 'Kendala',
+            'langkah_penanganan' => 'Penanganan',
+            'harapan' => 'Harapan',
+            'catatan_tim' => 'Catatan',
+            'kuisioner' => [[
+                'prbl01_item_kuisioner_id' => $itemKuisioner->id,
+                'jawaban' => '30',
+            ]],
+        ]],
+        'realisasi' => [
+            ['prbl01_item_realisasi_id' => $realisasi1->id, 'nominal_realisasi' => 2000000],
+            ['prbl01_item_realisasi_id' => $realisasi2->id, 'nominal_realisasi' => 800000],
+        ],
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    // Approve PRBL02A + PRBL02B
+    $prblWorkflow->refresh();
+    $this->travel(1)->seconds();
+    $this->post(route('admin.workflows.prbl.prbl02a.approve', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    $prblWorkflow->refresh();
+    $this->travel(1)->seconds();
+    $this->post(route('admin.workflows.prbl.prbl02b.approve', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    // Submit PRBL03
+    $prblWorkflow->refresh();
+    $prbl03 = Prbl03Data::where('prbl_workflow_id', $prblWorkflow->id)->latest('id')->first();
+
+    $this->travel(1)->seconds();
+    $this->post(route('team.workflows.prbl.prbl03.submit', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl03Data' => $prbl03->id,
+    ]), [
+        'expected_updated_at' => $prbl03->updated_at->toIso8601String(),
+        'keterangan' => 'Refund.',
+        'bukti_transfer_files' => [UploadedFile::fake()->image('bukti.jpg')],
+        'foto_nota_files' => [UploadedFile::fake()->image('nota.jpg')],
+    ])->assertRedirect();
+
+    // Reject PRBL04 to PRBL01 (major)
+    $prblWorkflow->refresh();
+    $this->travel(1)->seconds();
+    $this->post(route('admin.workflows.prbl.prbl04.reject', ['prblWorkflow' => $prblWorkflow->id]), [
+        'expected_updated_at' => $prblWorkflow->updated_at->toIso8601String(),
+        'rejection_target' => 'PRBL01',
+        'notes' => 'Realisasi anggaran tidak sesuai bukti nota.',
+    ])->assertRedirect();
+
+    // Visit PRBL show page — verify latestRejectionInfo
+    $prblWorkflow->refresh();
+    $response = $this->get(route('team.workflows.prbl.show', ['prblWorkflow' => $prblWorkflow->id]));
+    $response->assertSuccessful();
+
+    $props = $response->viewData('page')['props'];
+
+    expect($props['latestRejectionInfo'])->not->toBeNull()
+        ->and($props['latestRejectionInfo']['target'])->toBe('PRBL01')
+        ->and($props['latestRejectionInfo']['notes'])->toBe('Realisasi anggaran tidak sesuai bukti nota.')
+        ->and($props['latestRejectionInfo']['by_name'])->not->toBeNull()
+        ->and($props['latestRejectionInfo']['role_name'])->not->toBeNull();
+
+    // Also verify PRBL01 re-entry gets cycleBackNotes
+    $freshPrbl01 = Prbl01Data::where('prbl_workflow_id', $prblWorkflow->id)
+        ->latest('id')
+        ->first();
+
+    $response2 = $this->get(route('team.workflows.prbl.prbl01.show', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $freshPrbl01->id,
+    ]));
+    $response2->assertSuccessful();
+
+    $props2 = $response2->viewData('page')['props'];
+    expect($props2['isReentry'])->toBeTrue()
+        ->and($props2['cycleBackNotes'])->not->toBeNull()
+        ->and($props2['cycleBackNotes']['source'])->toBe('prbl04')
+        ->and($props2['cycleBackNotes']['prbl04']['notes'])->toBe('Realisasi anggaran tidak sesuai bukti nota.');
+});

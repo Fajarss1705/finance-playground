@@ -450,3 +450,67 @@ it('completes PABD flow with cycle-back from PABD03 rejection', function () {
     expect($rejectedEntry)->not->toBeNull()
         ->and($rejectedEntry['notes'])->toBe('Checklist pencairan perlu direvisi.');
 });
+
+it('passes enriched cycleBackNotes to PABD01 on re-entry from PABD03 rejection', function () {
+    [$user, $role, $workspace, $team] = flowUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.draft',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd03.show',
+        'admin.workflows.pabd.pabd03.reject',
+        'admin.workflows.pabd.comment',
+    );
+    flowSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = flowSetupPp($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2] = flowSetupPk04($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = flowSetupPabd($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $items = $pabd01->itemAnggaran;
+
+    // Submit PABD01 (no change) → PABD03
+    $this->travel(1)->seconds();
+    $this->post(route('team.workflows.pabd.pabd01.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd01Data' => $pabd01->id,
+    ]), [
+        'ada_perubahan' => false,
+        'items' => $items->map(fn ($item) => [
+            'pabd01_item_anggaran_id' => $item->id,
+            'dicairkan' => true,
+        ])->all(),
+        'expected_updated_at' => $pabd01->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    // Reject PABD03
+    $this->travel(1)->seconds();
+    $pabdWorkflow->refresh();
+    $this->post(route('admin.workflows.pabd.pabd03.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'expected_updated_at' => $pabdWorkflow->updated_at->toIso8601String(),
+        'notes' => 'Item pencairan belum sesuai.',
+    ])->assertRedirect();
+
+    // Visit re-entered PABD01 — verify cycleBackNotes has enriched data
+    $pabdWorkflow->refresh();
+    $freshPabd01 = Pabd01Data::where('pabd_workflow_id', $pabdWorkflow->id)
+        ->latest('id')
+        ->first();
+
+    $response = $this->get(route('team.workflows.pabd.pabd01.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd01Data' => $freshPabd01->id,
+    ]));
+    $response->assertSuccessful();
+
+    $props = $response->viewData('page')['props'];
+
+    expect($props['isReentry'])->toBeTrue()
+        ->and($props['cycleBackNotes'])->not->toBeNull()
+        ->and($props['cycleBackNotes']['step'])->toBe('PABD03')
+        ->and($props['cycleBackNotes']['action'])->toBe('rejected')
+        ->and($props['cycleBackNotes']['notes'])->toBe('Item pencairan belum sesuai.')
+        ->and($props['cycleBackNotes']['by_name'])->not->toBeNull()
+        ->and($props['cycleBackNotes']['role_name'])->not->toBeNull();
+});

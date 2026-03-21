@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { Download } from 'lucide-react';
+import { AlertTriangle, Download } from 'lucide-react';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
@@ -47,10 +47,20 @@ type Workflow = {
     stepper_cycles: StepperCycle[];
 };
 
+type LatestRejectionInfo = {
+    target: string;
+    by_name: string | null;
+    role_name: string | null;
+    team_name: string | null;
+    at: string | null;
+    notes: string | null;
+} | null;
+
 type Props = {
     workflow: Workflow;
     informasi: Informasi;
     dataTerbaru: DataTerbaru | null;
+    latestRejectionInfo: LatestRejectionInfo;
     canComment: boolean;
     canExportZip: boolean;
     activeRoleName: string | null;
@@ -61,6 +71,7 @@ export default function PrblShow({
     workflow,
     informasi,
     dataTerbaru,
+    latestRejectionInfo,
     canComment,
     canExportZip,
     activeRoleName,
@@ -96,6 +107,53 @@ export default function PrblShow({
                         )}
                     </div>
                 </div>
+
+                {/* Rejection Banner (from PRBL04 dual reject) */}
+                {latestRejectionInfo && (
+                    <div className={`flex gap-3 rounded-lg border p-4 ${
+                        latestRejectionInfo.target === 'PRBL01'
+                            ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950'
+                            : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950'
+                    }`}>
+                        <AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${
+                            latestRejectionInfo.target === 'PRBL01'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                        }`} />
+                        <div className="space-y-1 text-sm">
+                            <p className={`font-medium ${
+                                latestRejectionInfo.target === 'PRBL01'
+                                    ? 'text-red-800 dark:text-red-200'
+                                    : 'text-amber-800 dark:text-amber-200'
+                            }`}>
+                                {latestRejectionInfo.target === 'PRBL01'
+                                    ? 'Laporan ditolak — dikembalikan ke PRBL01 untuk perbaikan laporan kegiatan / realisasi.'
+                                    : 'Laporan ditolak — dikembalikan ke PRBL03 untuk perbaikan bukti transfer / foto nota.'}
+                            </p>
+                            {latestRejectionInfo.by_name && (
+                                <p className={latestRejectionInfo.target === 'PRBL01'
+                                    ? 'text-red-700 dark:text-red-300'
+                                    : 'text-amber-700 dark:text-amber-300'
+                                }>
+                                    Oleh: {latestRejectionInfo.by_name}
+                                    {latestRejectionInfo.role_name && ` (${latestRejectionInfo.role_name}`}
+                                    {latestRejectionInfo.team_name && ` \u00B7 ${latestRejectionInfo.team_name}`}
+                                    {latestRejectionInfo.role_name && ')'}
+                                    {latestRejectionInfo.at && ` — ${latestRejectionInfo.at}`}
+                                </p>
+                            )}
+                            {latestRejectionInfo.notes && (
+                                <p className={`whitespace-pre-line ${
+                                    latestRejectionInfo.target === 'PRBL01'
+                                        ? 'text-red-700 dark:text-red-300'
+                                        : 'text-amber-700 dark:text-amber-300'
+                                }`}>
+                                    &ldquo;{latestRejectionInfo.notes}&rdquo;
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Informasi */}
                 <div className="rounded-lg border">

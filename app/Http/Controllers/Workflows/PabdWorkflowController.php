@@ -3128,12 +3128,14 @@ class PabdWorkflowController extends Controller
 
     private function resolveCycleBackNotes(array $history): ?array
     {
+        $formattedHistory = $this->historyFormatter->format($history);
+
         // Walk history backward to find the most recent action that triggered a cycle-back to PABD01
         $cycleBackActions = ['approved', 'rejected'];
         $cycleBackSteps = ['PABD02B', 'PABD03'];
 
-        for ($i = count($history) - 1; $i >= 0; $i--) {
-            $entry = $history[$i];
+        for ($i = count($formattedHistory) - 1; $i >= 0; $i--) {
+            $entry = $formattedHistory[$i];
             if (in_array($entry['action'] ?? '', $cycleBackActions)
                 && in_array($entry['step'] ?? '', $cycleBackSteps)) {
                 return [
@@ -3141,7 +3143,9 @@ class PabdWorkflowController extends Controller
                     'step_label' => $this->engine->resolveDefinition(WorkflowType::PABD)->stepLabel($entry['step']),
                     'action' => $entry['action'],
                     'notes' => $entry['notes'] ?? null,
-                    'by_name' => null, // Will be enriched by frontend from formatted history
+                    'by_name' => $entry['by_name'] ?? null,
+                    'role_name' => $entry['role_name'] ?? null,
+                    'team_name' => $entry['team_name'] ?? null,
                     'at' => $entry['at'] ?? null,
                     'files' => $entry['files'] ?? null,
                 ];
