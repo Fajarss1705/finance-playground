@@ -953,21 +953,37 @@ class PkWorkflowController extends Controller
                     'bulan_label' => $bulanLabels[$k->bulan] ?? null,
                     'nomer_kegiatan' => $k->nomer_kegiatan,
                     'source' => $k->source,
-                    'anggaran' => $k->anggaran->sortBy('nomer_anggaran')->map(fn ($a) => [
-                        'id' => $a->id,
-                        'kode_anggaran_baru' => $a->kode_anggaran_baru,
-                        'kode_anggaran_lama' => $a->kode_anggaran_lama,
-                        'kode_bidang' => $a->kode_bidang,
-                        'kode_sub_bidang' => $a->kode_sub_bidang,
-                        'kode_jenis' => $a->kode_jenis,
-                        'mata_anggaran' => $a->mata_anggaran,
-                        'deskripsi_pk' => $a->deskripsi_pk,
-                        'nominal_anggaran' => (float) $a->nominal_anggaran,
-                        'nomer_anggaran' => $a->nomer_anggaran,
-                        'revisi_terakhir' => $a->revisi_terakhir,
-                        'status_item' => $a->status_item,
-                        'source' => $a->source,
-                    ])->values(),
+                    'anggaran' => $k->anggaran->sortBy('nomer_anggaran')->map(function ($a) {
+                        $hasRealisasiLock = $a->hasRealisasiLock();
+                        $isLocked = $a->status_pencairan !== null || $a->status_item !== 'active' || $hasRealisasiLock;
+
+                        $lockReason = null;
+                        if ($hasRealisasiLock) {
+                            $lockReason = 'sudah_dilaporkan';
+                        } elseif ($a->status_pencairan !== null) {
+                            $lockReason = $a->status_pencairan === 'hangus' ? 'hangus' : 'sudah_dicairkan';
+                        } elseif ($a->status_item !== 'active') {
+                            $lockReason = 'ditarik_maju';
+                        }
+
+                        return [
+                            'id' => $a->id,
+                            'kode_anggaran_baru' => $a->kode_anggaran_baru,
+                            'kode_anggaran_lama' => $a->kode_anggaran_lama,
+                            'kode_bidang' => $a->kode_bidang,
+                            'kode_sub_bidang' => $a->kode_sub_bidang,
+                            'kode_jenis' => $a->kode_jenis,
+                            'mata_anggaran' => $a->mata_anggaran,
+                            'deskripsi_pk' => $a->deskripsi_pk,
+                            'nominal_anggaran' => (float) $a->nominal_anggaran,
+                            'nomer_anggaran' => $a->nomer_anggaran,
+                            'revisi_terakhir' => $a->revisi_terakhir,
+                            'status_item' => $a->status_item,
+                            'source' => $a->source,
+                            'is_locked' => $isLocked,
+                            'lock_reason' => $lockReason,
+                        ];
+                    })->values(),
                     'kuisioner' => $k->kuisioner->map(fn ($q) => [
                         'id' => $q->id,
                         'kode_kuisioner' => $q->kode_kuisioner,

@@ -3097,6 +3097,90 @@ it('treats anggaran with prbl05_item_realisasi as Tier 3 locked in PK05', functi
         );
 });
 
+it('shows Tier 3 realisasi lock indicators on PK04 show page', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $anggaran = $pk04->kegiatan->first()->anggaran->first();
+
+    // Create dummy PABD + PRBL + PRBL05 with item referencing this anggaran
+    $pabdWorkflow = \App\Models\Pabd\PabdWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_anggaran' => 3,
+        'tahun_anggaran' => now()->year,
+        'history' => [],
+    ]);
+    $prblWorkflow = \App\Models\Prbl\PrblWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pabd_workflow_id' => $pabdWorkflow->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_laporan' => 3,
+        'tahun_laporan' => now()->year,
+        'history' => [],
+    ]);
+    $prbl05 = \App\Models\Prbl\Prbl05LaporanBulanan::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'prbl01_created_by_user_name' => 'Test',
+        'prbl01_created_by_role_name' => 'Test',
+        'prbl01_created_by_team_name' => 'Test',
+        'prbl01_created_by_organization_name' => 'Test',
+        'prbl01_created_by_workspace_name' => 'Test',
+        'prbl01_created_at' => now(),
+        'prbl02a_approved_by_user_name' => 'Test',
+        'prbl02a_approved_by_role_name' => 'Test',
+        'prbl02a_approved_by_team_name' => 'Test',
+        'prbl02a_approved_by_organization_name' => 'Test',
+        'prbl02a_approved_by_workspace_name' => 'Test',
+        'prbl02a_approved_at' => now(),
+        'prbl02b_approved_by_user_name' => 'Test',
+        'prbl02b_approved_by_role_name' => 'Test',
+        'prbl02b_approved_by_team_name' => 'Test',
+        'prbl02b_approved_by_organization_name' => 'Test',
+        'prbl02b_approved_by_workspace_name' => 'Test',
+        'prbl02b_approved_at' => now(),
+        'prbl03_created_by_user_name' => 'Test',
+        'prbl03_created_by_role_name' => 'Test',
+        'prbl03_created_by_team_name' => 'Test',
+        'prbl03_created_by_organization_name' => 'Test',
+        'prbl03_created_by_workspace_name' => 'Test',
+        'prbl03_created_at' => now(),
+        'prbl04_approved_by_user_name' => 'Test',
+        'prbl04_approved_by_role_name' => 'Test',
+        'prbl04_approved_by_team_name' => 'Test',
+        'prbl04_approved_by_organization_name' => 'Test',
+        'prbl04_approved_by_workspace_name' => 'Test',
+        'prbl04_approved_at' => now(),
+        'total_anggaran_dicairkan' => 5000000,
+        'total_realisasi' => 4500000,
+        'total_refund' => 500000,
+        'total_item' => 1,
+    ]);
+    \App\Models\Prbl\Prbl05ItemRealisasi::create([
+        'prbl05_laporan_bulanan_id' => $prbl05->id,
+        'pk04_anggaran_id' => $anggaran->id,
+        'nominal_anggaran' => $anggaran->nominal_anggaran,
+        'nominal_realisasi' => 4500000,
+        'selisih' => (float) $anggaran->nominal_anggaran - 4500000,
+    ]);
+
+    // PK04 show should report this anggaran as locked with 'sudah_dilaporkan'
+    $this->get(route('admin.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('pk04Data.kegiatan.0.anggaran.0.is_locked', true)
+            ->where('pk04Data.kegiatan.0.anggaran.0.lock_reason', 'sudah_dilaporkan')
+        );
+});
+
 it('blocks nominal changes on Tier 3 locked anggaran during PK05 recompile', function () {
     [$user, $role, $workspace, $team] = setupPkUser(
         'admin.workflows.pk.pk05.show',
