@@ -320,6 +320,63 @@ it('filters PABD index by bulan', function () {
     );
 });
 
+it('filters PABD index by status', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser('team.workflows.pabd.index');
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Filter by active — should return 1
+    $response = $this->get(route('team.workflows.pabd.index', ['status' => 'active']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    // Filter by completed — should return 0 (workflow is still active)
+    $response = $this->get(route('team.workflows.pabd.index', ['status' => 'completed']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
+it('filters PABD admin index by team', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser('admin.workflows.pabd.index');
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Filter by correct team — should return 1
+    $response = $this->get(route('admin.workflows.pabd.index', ['team' => $team->id]));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    // Filter by wrong team — should return 0
+    $response = $this->get(route('admin.workflows.pabd.index', ['team' => 99999]));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
+it('filters PABD index by PP period', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser('team.workflows.pabd.index');
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Filter by PP tahun 2027 — should return 1
+    $response = $this->get(route('team.workflows.pabd.index', ['pp' => '2027']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    // Filter by PP tahun 2099 — should return 0
+    $response = $this->get(route('team.workflows.pabd.index', ['pp' => '2099']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
 it('denies PABD index without permission', function () {
     [$user, $role, $workspace, $team] = setupPabdUser(
         'team.workflows.pabd.pabd01.show',

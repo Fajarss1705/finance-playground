@@ -309,6 +309,24 @@ it('filters PRBL index by status', function () {
     $response->assertInertia(fn ($page) => $page->has('workflows.data', 0));
 });
 
+it('filters PRBL index by PP period', function () {
+    [$user, $role, $workspace, $team] = setupPrblIndexUser('team.workflows.prbl.index');
+    activatePrblIndexSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpIndex($workspace, $team);
+    setupPrblWorkflowIndex($workspace, $team, $ppWorkflow, 3, $user, $role);
+
+    // Filter by PP tahun 2027 — should return 1
+    $response = $this->get(route('team.workflows.prbl.index', ['pp' => '2027']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 1));
+
+    // Filter by PP tahun 2099 — should return 0
+    $response = $this->get(route('team.workflows.prbl.index', ['pp' => '2099']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page->has('workflows.data', 0));
+});
+
 it('returns correct PRBL row data structure', function () {
     [$user, $role, $workspace, $team] = setupPrblIndexUser('team.workflows.prbl.index');
     activatePrblIndexSession($this, $user, $role, $workspace);
