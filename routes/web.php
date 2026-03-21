@@ -127,6 +127,12 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/nota-upload', [PrblWorkflowController::class, 'prbl01NotaUpload'])->name('prbl01.nota.upload');
             Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/nota-delete', [PrblWorkflowController::class, 'prbl01NotaDelete'])->name('prbl01.nota.delete');
 
+            // PRBL02A (team scope — read-only)
+            Route::get('/{prblWorkflow}/prbl02a', [PrblWorkflowController::class, 'prbl02aShow'])->name('prbl02a.show');
+
+            // PRBL02B (team scope — read-only)
+            Route::get('/{prblWorkflow}/prbl02b', [PrblWorkflowController::class, 'prbl02bShow'])->name('prbl02b.show');
+
             // PRBL03 (team scope — show + draft + submit)
             Route::get('/{prblWorkflow}/prbl03/{prbl03Data}', [PrblWorkflowController::class, 'prbl03Show'])->name('prbl03.show');
             Route::post('/{prblWorkflow}/prbl03/{prbl03Data}/draft', [PrblWorkflowController::class, 'prbl03Draft'])->name('prbl03.draft');

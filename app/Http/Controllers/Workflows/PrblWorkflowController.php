@@ -754,8 +754,12 @@ class PrblWorkflowController extends Controller
      */
     private function showParallelApproval(PrblWorkflow $prblWorkflow, string $thisStep, string $otherStep): Response
     {
+        $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($prblWorkflow);
-        $this->checkPermission("admin.workflows.prbl.{$this->stepLower($thisStep)}.show");
+        if ($scope === 'team') {
+            $this->ensureTeamOwnership($prblWorkflow);
+        }
+        $this->checkPermission("{$scope}.workflows.prbl.{$this->stepLower($thisStep)}.show");
 
         $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
         $history = $prblWorkflow->history ?? [];
@@ -770,13 +774,13 @@ class PrblWorkflowController extends Controller
             }
         }
 
-        // Permissions
+        // Permissions — approve/reject only available in admin scope
         $permissions = $this->session->getActivePermissions();
-        $permPrefix = 'admin.workflows.prbl';
+        $permPrefix = "{$scope}.workflows.prbl";
         $stepLower = $this->stepLower($thisStep);
         $isStepActive = $statuses[$thisStep]['status'] === 'active';
-        $canApprove = $isStepActive && in_array("{$permPrefix}.{$stepLower}.approve", $permissions);
-        $canReject = $isStepActive && in_array("{$permPrefix}.{$stepLower}.reject", $permissions);
+        $canApprove = $scope === 'admin' && $isStepActive && in_array("{$permPrefix}.{$stepLower}.approve", $permissions);
+        $canReject = $scope === 'admin' && $isStepActive && in_array("{$permPrefix}.{$stepLower}.reject", $permissions);
         $mode = ($canApprove || $canReject) ? 'review' : 'readonly';
 
         // Other track status
@@ -819,8 +823,8 @@ class PrblWorkflowController extends Controller
         $previousCycles = $this->resolvePreviousCycles($history, 'PRBL01');
 
         // Stepper
-        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow): ?string {
-            return $this->resolveStepUrl($code, $dataId, $prblWorkflow, 'admin');
+        $stepperCycles = $this->engine->getStepperData($definition, $history, function (string $code, ?int $dataId) use ($prblWorkflow, $scope): ?string {
+            return $this->resolveStepUrl($code, $dataId, $prblWorkflow, $scope);
         });
 
         $thisStepLabel = $thisStep === 'PRBL02A' ? 'Persetujuan Narasi' : 'Persetujuan Anggaran';
@@ -855,13 +859,13 @@ class PrblWorkflowController extends Controller
             'canReject' => $canReject,
             'canComment' => in_array("{$permPrefix}.comment", $permissions),
             'actionRoles' => $this->resolveActionRoles([
-                "{$permPrefix}.{$stepLower}.approve" => ['Setujui', true],
-                "{$permPrefix}.{$stepLower}.reject" => ['Tolak', true],
+                "admin.workflows.prbl.{$stepLower}.approve" => ['Setujui', true],
+                "admin.workflows.prbl.{$stepLower}.reject" => ['Tolak', true],
                 "{$permPrefix}.comment" => ['Komentar', false],
             ]),
             'activeRoleName' => $this->getActiveRoleName(),
-            'scope' => 'admin',
-            'basePath' => "/admin/workflows/prbl/{$prblWorkflow->id}",
+            'scope' => $scope,
+            'basePath' => "/{$scope}/workflows/prbl/{$prblWorkflow->id}",
         ]);
     }
 

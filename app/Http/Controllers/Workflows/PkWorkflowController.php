@@ -1241,10 +1241,13 @@ class PkWorkflowController extends Controller
                     'bulan' => $k->bulan,
                     'source' => $k->source,
                     'anggaran' => $k->anggaran->sortBy('nomer_anggaran')->map(function ($a) {
-                        $isLocked = $a->status_pencairan !== null || $a->status_item !== 'active';
+                        $hasRealisasiLock = $a->hasRealisasiLock();
+                        $isLocked = $a->status_pencairan !== null || $a->status_item !== 'active' || $hasRealisasiLock;
 
                         $lockReason = null;
-                        if ($a->status_pencairan !== null) {
+                        if ($hasRealisasiLock) {
+                            $lockReason = 'sudah_dilaporkan';
+                        } elseif ($a->status_pencairan !== null) {
                             $lockReason = $a->status_pencairan === 'hangus' ? 'hangus' : 'sudah_dicairkan';
                         } elseif ($a->status_item !== 'active') {
                             $lockReason = 'ditarik_maju';

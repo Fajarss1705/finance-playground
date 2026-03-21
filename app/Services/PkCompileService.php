@@ -10,6 +10,7 @@ use App\Models\Pk\Pk04Kuisioner;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Prbl\Prbl05ItemRealisasi;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\User;
@@ -718,6 +719,7 @@ class PkCompileService
             }
 
             // 3. Check each existing anggaran
+            $kegiatanHasRealisasiLock = false;
             foreach ($kegiatan->anggaran as $anggaran) {
                 // Anggaran cannot be deleted
                 if (! isset($draftAnggaranById[$anggaran->id])) {
@@ -737,6 +739,26 @@ class PkCompileService
                             'kode_jenis' => 'Jenis',
                         };
                         $errors[] = "{$label} pada \"{$anggaran->mata_anggaran}\" tidak dapat diubah setelah kompilasi.";
+                    }
+                }
+
+                // Tier 3: realisasi lock — track for kuisioner deletion check
+                if ($anggaran->hasRealisasiLock()) {
+                    $kegiatanHasRealisasiLock = true;
+                }
+            }
+
+            // 4. Tier 3: kuisioner deletion blocked when kegiatan has realisasi lock
+            if ($kegiatanHasRealisasiLock) {
+                $draftKuisionerIds = collect($dk['kuisioner'] ?? [])
+                    ->pluck('pk04_kuisioner_id')
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
+
+                foreach ($kegiatan->kuisioner as $kuisioner) {
+                    if (! in_array($kuisioner->id, $draftKuisionerIds, true)) {
+                        $errors[] = "Kuisioner \"{$kuisioner->pertanyaan}\" pada kegiatan \"{$kegiatan->nama_kegiatan}\" tidak dapat dihapus karena sudah dilaporkan di PRBL.";
                     }
                 }
             }
@@ -1244,7 +1266,7 @@ class PkCompileService
         foreach ($kegiatan->anggaran as $anggaran) {
             if (isset($draftAnggaranById[$anggaran->id])) {
                 $da = $draftAnggaranById[$anggaran->id];
-                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active';
+                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active' || $anggaran->hasRealisasiLock();
 
                 if (! $isLocked) {
                     $changed = false;
@@ -1308,6 +1330,12 @@ class PkCompileService
             }
         }
 
+        // Tier 3: block kuisioner deletion when kegiatan has realisasi-locked anggaran
+        $kegiatanHasRealisasiLock = Prbl05ItemRealisasi::whereIn(
+            'pk04_anggaran_id',
+            $kegiatan->anggaran->pluck('id')
+        )->exists();
+
         // Update or delete existing kuisioner
         foreach ($kegiatan->kuisioner as $kuisioner) {
             if (isset($draftKuisionerById[$kuisioner->id])) {
@@ -1318,9 +1346,10 @@ class PkCompileService
                     'tipe' => $dq['tipe'],
                     'satuan' => $dq['satuan'] ?? null,
                 ]);
-            } else {
+            } elseif (! $kegiatanHasRealisasiLock) {
                 $kuisioner->delete();
             }
+            // If realisasi-locked, silently skip deletion (validated upstream)
         }
 
         // Insert new kuisioner
