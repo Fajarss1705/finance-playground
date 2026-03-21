@@ -20,6 +20,7 @@ class SwitchRoleRequest extends FormRequest
         return [
             'role_id' => ['required', 'integer', 'exists:roles,id'],
             'workspace_id' => ['required', 'integer', 'exists:workspaces,id'],
+            'redirect_to' => ['sometimes', 'nullable', 'string'],
         ];
     }
 

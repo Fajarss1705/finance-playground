@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PersonalDashboardController;
 use App\Http\Controllers\SwitcherController;
 use App\Http\Controllers\Team\TeamDashboardController;
 use App\Http\Controllers\VerifyController;
@@ -37,7 +38,7 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->group(function () {
     // Personal scope
     Route::prefix('personal')->name('personal.')->group(function () {
-        Route::inertia('/', 'personal/index')->name('index');
+        Route::get('/', PersonalDashboardController::class)->name('index');
         Route::inertia('verify', 'personal/verify')->name('verify');
         Route::get('files', [FileController::class, 'personal'])->name('files');
         Route::get('notifications', [NotificationController::class, 'personal'])->name('notifications');
