@@ -11,12 +11,10 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call([
-            FeatureTestPpPrototype20260307Seeder::class,
-        ]);
-
         if (app()->environment('local')) {
-            $this->call(DevWorkflowSeeder::class);
+            $this->call(ManualTestingSeeder::class);
+        } else {
+            $this->call(FeatureTestPpPrototype20260307Seeder::class);
         }
     }
 }
