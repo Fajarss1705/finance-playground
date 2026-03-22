@@ -43,7 +43,7 @@ function setupTeamUser(string ...$permissionNames): array
     return [$user, $role, $workspace, $team];
 }
 
-function activateSession(object $test, User $user, Role $role, Workspace $workspace): void
+function activateTeamDashboardSession(object $test, User $user, Role $role, Workspace $workspace): void
 {
     $test->actingAs($user);
     app(ActiveSessionService::class)->switchTo($role, $workspace);
@@ -208,7 +208,7 @@ test('guests are redirected to the login page', function () {
 test('authenticated users with team.index permission can visit the dashboard', function () {
     [$user, $role, $workspace] = setupTeamUser();
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
     $response->assertOk();
@@ -232,7 +232,7 @@ test('authenticated users without team.index permission get 403', function () {
 test('no PP06 shows empty state with no year selector', function () {
     [$user, $role, $workspace, $team] = setupTeamUser();
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -256,7 +256,7 @@ test('year selector returns available PP06 years', function () {
     createPp06WithPlafon($workspace->id, $team->id, 2025);
     createPp06WithPlafon($workspace->id, $team->id, 2026);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -273,7 +273,7 @@ test('year selector filters data by selected year', function () {
     createPp06WithPlafon($workspace->id, $team->id, 2025, 30000000);
     createPp06WithPlafon($workspace->id, $team->id, 2026, 45000000);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index', ['year' => 2025]));
 
@@ -289,7 +289,7 @@ test('invalid year falls back to latest', function () {
 
     createPp06WithPlafon($workspace->id, $team->id, 2026);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index', ['year' => 9999]));
 
@@ -304,7 +304,7 @@ test('PK status shows belum_ada when no PK workflow', function () {
 
     createPp06WithPlafon($workspace->id, $team->id);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -323,7 +323,7 @@ test('PK status shows selesai when PK04 completed', function () {
     [$ppWorkflow] = createPp06WithPlafon($workspace->id, $team->id);
     createPkWithPk04($workspace->id, $team->id, $ppWorkflow->id, true);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -342,7 +342,7 @@ test('PK status shows aktif with current step when PK in progress', function () 
     [$ppWorkflow] = createPp06WithPlafon($workspace->id, $team->id);
     createPkWithPk04($workspace->id, $team->id, $ppWorkflow->id, false);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -380,7 +380,7 @@ test('PK status shows proposal count', function () {
         ],
     ]));
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -406,7 +406,7 @@ test('no plafon shows tidak_tersedia status', function () {
         'revision' => 0,
     ]));
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -428,7 +428,7 @@ test('calendar shows belum for months with budget but no workflow', function () 
     createPk04Anggaran($pk04->id, 3, 5000000);
     createPk04Anggaran($pk04->id, 6, 3000000);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -451,7 +451,7 @@ test('calendar shows skip for months with no budget', function () {
 
     createPk04Anggaran($pk04->id, 3, 5000000);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -474,7 +474,7 @@ test('calendar shows aktif for active workflows', function () {
         ['step' => 'PABD01', 'action' => 'created', 'by' => null, 'role' => null, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pabd01_data', 'id' => 1],
     ]);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -498,7 +498,7 @@ test('calendar shows selesai for completed workflows', function () {
         ['step' => 'PABD05', 'action' => 'completed', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->subMonth()->toIso8601String()],
     ]);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -522,7 +522,7 @@ test('anggaran table shows direncanakan from pk04', function () {
     createPk04Anggaran($pk04->id, 3, 3000000);
     createPk04Anggaran($pk04->id, 6, 2000000);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -544,7 +544,7 @@ test('anggaran table shows null for months without PABD05/PRBL05', function () {
     [, $pk04] = createPkWithPk04($workspace->id, $team->id, $ppWorkflow->id);
     createPk04Anggaran($pk04->id, 4, 5000000);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -572,7 +572,7 @@ test('active workflows list shows PABD at current step with canAct', function ()
 
     \App\Models\Pabd\Pabd01Data::create(['pabd_workflow_id' => $pabd->id]);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -597,7 +597,7 @@ test('active workflows shows Lihat when role cannot act', function () {
         ['step' => 'PABD01', 'action' => 'created', 'by' => null, 'role' => null, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'pabd01_data', 'id' => 1],
     ]);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -619,7 +619,7 @@ test('completed workflows are excluded from active list', function () {
         ['step' => 'PABD05', 'action' => 'completed', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->subMonth()->toIso8601String()],
     ]);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -638,7 +638,7 @@ test('active PK raker appears in active workflows', function () {
     [$ppWorkflow] = createPp06WithPlafon($workspace->id, $team->id);
     createPkWithPk04($workspace->id, $team->id, $ppWorkflow->id, false);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -676,7 +676,7 @@ test('active workflows sorted PABD first then PRBL then PK', function () {
         ['step' => 'PRBL01', 'action' => 'created', 'by' => null, 'role' => null, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String(), 'table' => 'prbl01_data', 'id' => 1],
     ]);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 
@@ -698,7 +698,7 @@ test('empty calendar and anggaran when no PK04', function () {
 
     createPp06WithPlafon($workspace->id, $team->id);
 
-    activateSession($this, $user, $role, $workspace);
+    activateTeamDashboardSession($this, $user, $role, $workspace);
 
     $response = $this->get(route('team.index'));
 

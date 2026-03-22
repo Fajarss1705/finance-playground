@@ -14,5 +14,9 @@ class DatabaseSeeder extends Seeder
         $this->call([
             FeatureTestPpPrototype20260307Seeder::class,
         ]);
+
+        if (app()->environment('local')) {
+            $this->call(DevWorkflowSeeder::class);
+        }
     }
 }
