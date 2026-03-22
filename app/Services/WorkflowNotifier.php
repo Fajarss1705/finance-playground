@@ -259,6 +259,31 @@ class WorkflowNotifier
             ],
             'pk03.rejected' => 'team.workflows.pk.pk01.draft',
 
+            // PABD workflow events
+            'pabd.auto_created' => 'team.workflows.pabd.pabd01.submit',
+            'pabd01.submitted_change' => 'team.workflows.pabd.pabd02a.draft',
+            'pabd01.submitted_skip' => 'admin.workflows.pabd.pabd03.approve',
+            'pabd.pk04_staleness_reset' => 'team.workflows.pabd.pabd01.submit',
+            'pabd02a.submitted' => 'admin.workflows.pabd.pabd02b.approve',
+            'pabd02b.approved' => 'team.workflows.pabd.pabd01.submit',
+            'pabd02b.rejected' => 'team.workflows.pabd.pabd01.submit',
+            'pabd03.approved' => 'admin.workflows.pabd.pabd04.submit',
+            'pabd03.rejected' => 'team.workflows.pabd.pabd01.submit',
+            'pabd04.submitted' => 'team.workflows.pabd.pabd05.show',
+
+            // PRBL workflow events
+            'prbl.auto_created' => 'team.workflows.prbl.prbl01.submit',
+            'prbl01.submitted' => [
+                'admin.workflows.prbl.prbl02a.approve',
+                'admin.workflows.prbl.prbl02b.approve',
+            ],
+            'prbl02.both_approved' => 'team.workflows.prbl.prbl03.draft',
+            'prbl02.rejected' => 'team.workflows.prbl.prbl01.draft',
+            'prbl03.submitted' => 'admin.workflows.prbl.prbl04.approve',
+            'prbl04.approved' => 'team.workflows.prbl.prbl05.show',
+            'prbl04.reject_to_prbl03' => 'team.workflows.prbl.prbl03.draft',
+            'prbl04.reject_to_prbl01' => 'team.workflows.prbl.prbl01.draft',
+
             default => null,
         };
     }
@@ -322,6 +347,28 @@ class WorkflowNotifier
             'pk03.approved' => ['disetujui', 'RAKER (PK03)', 'Program Tahunan (PK04) telah dibuat.'],
             'pk03.rejected' => ['ditolak', 'RAKER (PK03)', 'Flow dikembalikan ke PK01 untuk perbaikan.'],
 
+            // PABD workflow events
+            'pabd.auto_created' => ['dibuat', 'Pengajuan Anggaran Bulanan (PABD)', 'Silakan isi checklist pencairan (PABD01).'],
+            'pabd01.submitted_change' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Silakan lanjutkan pengisian Perubahan Anggaran (PABD02A).'],
+            'pabd01.submitted_skip' => ['disubmit', 'Checklist Pencairan (PABD01)', 'Tidak ada perubahan anggaran. Silakan review dan setujui/tolak transfer (PABD03).'],
+            'pabd.pk04_staleness_reset' => ['direset', 'Checklist Pencairan (PABD01)', 'PK04 telah direvisi. Silakan review ulang checklist pencairan.'],
+            'pabd02a.submitted' => ['disubmit', 'Perubahan Anggaran (PABD02A)', 'Silakan review dan setujui/tolak perubahan anggaran (PABD02B).'],
+            'pabd02b.approved' => ['disetujui', 'Persetujuan Perubahan (PABD02B)', 'Perubahan anggaran disetujui. PK04 telah di-recompile. Silakan review ulang checklist pencairan.'],
+            'pabd02b.rejected' => ['ditolak', 'Persetujuan Perubahan (PABD02B)', 'Perubahan anggaran ditolak. Silakan review ulang checklist pencairan.'],
+            'pabd03.approved' => ['disetujui', 'Persetujuan Transfer (PABD03)', 'Transfer disetujui. Silakan upload bukti transfer (PABD04).'],
+            'pabd03.rejected' => ['ditolak', 'Persetujuan Transfer (PABD03)', 'Transfer ditolak. Silakan review ulang checklist pencairan.'],
+            'pabd04.submitted' => ['dikompilasi', 'Pengajuan Anggaran Bulanan (PABD05)', 'Sistem telah mengompilasi pengajuan anggaran bulanan. Silakan unduh dokumen final.'],
+
+            // PRBL workflow events
+            'prbl.auto_created' => ['dibuat', 'Laporan Bulanan (PRBL)', 'Silakan isi laporan kegiatan dan realisasi anggaran (PRBL01).'],
+            'prbl01.submitted' => ['disubmit', 'Laporan Kegiatan (PRBL01)', 'Silakan review narasi (PRBL02A) dan anggaran (PRBL02B).'],
+            'prbl02.both_approved' => ['disetujui', 'Approval Narasi & Anggaran (PRBL02A/PRBL02B)', 'Silakan lanjutkan ke Refund (PRBL03).'],
+            'prbl02.rejected' => ['ditolak', 'Approval Narasi/Anggaran (PRBL02A/PRBL02B)', 'Flow dikembalikan ke PRBL01 untuk perbaikan.'],
+            'prbl03.submitted' => ['disubmit', 'Refund (PRBL03)', 'Silakan review dan setujui/tolak laporan final (PRBL04).'],
+            'prbl04.approved' => ['dikompilasi', 'Laporan Bulanan (PRBL05)', 'Sistem telah mengompilasi laporan bulanan. Silakan unduh dokumen final.'],
+            'prbl04.reject_to_prbl03' => ['ditolak', 'Review Final (PRBL04)', 'Flow dikembalikan ke PRBL03 untuk perbaikan bukti refund.'],
+            'prbl04.reject_to_prbl01' => ['ditolak', 'Review Final (PRBL04)', 'Flow dikembalikan ke PRBL01 untuk perbaikan laporan kegiatan.'],
+
             default => [
                 $context['action_verb'] ?? 'diproses',
                 $context['step_label'] ?? 'Step',
@@ -345,6 +392,14 @@ class WorkflowNotifier
             $pk01 = $workflow->latestPk01();
 
             return $pk01?->nama_program ? "PK-{$pk01->nama_program}" : 'PK-Baru';
+        }
+
+        if (method_exists($workflow, 'latestPabd01')) {
+            $teamName = $workflow->team?->name ?? 'Tim';
+            $bulanNames = [1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'];
+            $bulan = $bulanNames[$workflow->bulan_anggaran] ?? (string) $workflow->bulan_anggaran;
+
+            return "PABD-{$teamName}-{$bulan}/{$workflow->tahun_anggaran}";
         }
 
         return 'Workflow';

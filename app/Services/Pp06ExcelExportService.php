@@ -21,7 +21,7 @@ class Pp06ExcelExportService
         $pp06->loadMissing([
             'kodeBidangPelayanan', 'kodeSubBidangPelayanan',
             'kodeKategoriPelayanan', 'kodeJenisProgram',
-            'itemKuisioner', 'itemPlafonAnggaran.team', 'itemDokumenSop.file',
+            'itemKuisioner', 'itemPlafonAnggaran.team', 'rekeningOrganisasi', 'itemDokumenSop.file',
             'ppWorkflow',
         ]);
 
@@ -213,6 +213,27 @@ class Pp06ExcelExportService
         $sheet->setCellValue("C{$row}", (int) $totalPlafon);
         $sheet->getStyle("C{$row}")->getNumberFormat()->setFormatCode('#,##0');
         $sheet->getStyle("A{$row}:F{$row}")->getFont()->setBold(true);
+
+        if ($pp06->rekeningOrganisasi->isNotEmpty()) {
+            $row += 2;
+            $sheet->setCellValue("A{$row}", 'Rekening Organisasi untuk Refund');
+            $sheet->mergeCells("A{$row}:C{$row}");
+            $this->styleSubHeader($sheet, "A{$row}:C{$row}");
+            $row++;
+
+            $sheet->setCellValue("A{$row}", 'Bank');
+            $sheet->setCellValue("B{$row}", 'Nama Rekening');
+            $sheet->setCellValue("C{$row}", 'No. Rekening');
+            $this->styleTableHeader($sheet, "A{$row}:C{$row}");
+            $row++;
+
+            foreach ($pp06->rekeningOrganisasi as $rek) {
+                $sheet->setCellValue("A{$row}", $rek->nama_bank);
+                $sheet->setCellValue("B{$row}", $rek->nama_rekening);
+                $sheet->setCellValue("C{$row}", $rek->nomor_rekening);
+                $row++;
+            }
+        }
 
         $sheet->getColumnDimension('A')->setWidth(10);
         $sheet->getColumnDimension('B')->setWidth(30);

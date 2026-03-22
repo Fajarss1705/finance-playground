@@ -34,6 +34,11 @@ class SwitcherController extends Controller
 
         $this->sessionService->switchTo($role, $workspace);
 
+        $redirectTo = $request->validated('redirect_to');
+        if ($redirectTo && str_starts_with($redirectTo, '/')) {
+            return redirect($redirectTo);
+        }
+
         return to_route('personal.index');
     }
 }

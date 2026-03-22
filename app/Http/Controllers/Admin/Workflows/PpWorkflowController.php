@@ -669,13 +669,14 @@ class PpWorkflowController extends Controller
         $isEditable = $mode === 'edit' || $mode === 'create';
         $isWorkflowActive = $this->engine->getWorkflowStatus($history) === 'active';
 
-        $pp03Data->load('itemPlafonAnggaran.team');
+        $pp03Data->load(['itemPlafonAnggaran.team', 'rekeningOrganisasi']);
 
         return Inertia::render('admin/workflows/pp/pp03', [
             'workflow' => $this->workflowProps($ppWorkflow, $definition),
             'stepData' => [
                 'id' => $pp03Data->id,
                 'item_plafon_anggaran' => $pp03Data->itemPlafonAnggaran,
+                'rekening_organisasi' => $pp03Data->rekeningOrganisasi,
                 'updated_at' => $pp03Data->updated_at->toIso8601String(),
             ],
             'mode' => $mode,
@@ -718,6 +719,20 @@ class PpWorkflowController extends Controller
                 ...$item,
                 'team_id' => ! empty($item['team_id']) ? $item['team_id'] : null,
                 'plafon_anggaran' => $item['plafon_anggaran'] ?? 0,
+                'nama_bank' => $item['nama_bank'] ?? '',
+                'nama_rekening' => $item['nama_rekening'] ?? '',
+                'nomor_rekening' => $item['nomor_rekening'] ?? '',
+            ]);
+        }
+
+        $pp03Data->rekeningOrganisasi()->delete();
+
+        foreach ($validated['rekening_organisasi'] ?? [] as $item) {
+            if (empty($item['nama_bank']) && empty($item['nama_rekening']) && empty($item['nomor_rekening'])) {
+                continue;
+            }
+
+            $pp03Data->rekeningOrganisasi()->create([
                 'nama_bank' => $item['nama_bank'] ?? '',
                 'nama_rekening' => $item['nama_rekening'] ?? '',
                 'nomor_rekening' => $item['nomor_rekening'] ?? '',
@@ -769,6 +784,12 @@ class PpWorkflowController extends Controller
 
         foreach ($validated['item_plafon_anggaran'] as $item) {
             $pp03Data->itemPlafonAnggaran()->create($item);
+        }
+
+        $pp03Data->rekeningOrganisasi()->delete();
+
+        foreach ($validated['rekening_organisasi'] ?? [] as $item) {
+            $pp03Data->rekeningOrganisasi()->create($item);
         }
 
         $pp03Data->touch();
@@ -1250,6 +1271,7 @@ class PpWorkflowController extends Controller
             'kodeJenisProgram',
             'itemKuisioner',
             'itemDokumenSop.file',
+            'rekeningOrganisasi',
         ]);
 
         $activeDraft = $ppWorkflow->pp07Data()->whereNull('submitted_at')->first();
@@ -1539,6 +1561,7 @@ class PpWorkflowController extends Controller
             'itemKuisioner',
             'itemPlafonAnggaran',
             'itemDokumenSop',
+            'rekeningOrganisasi',
         ]);
 
         $draftData = [
@@ -1552,6 +1575,7 @@ class PpWorkflowController extends Controller
             'item_kuisioner' => $latestPp06->itemKuisioner->map->only(['kode', 'pertanyaan', 'tipe', 'satuan'])->values()->toArray(),
             'item_plafon_anggaran' => $latestPp06->itemPlafonAnggaran->map->only(['team_id', 'kode_team', 'plafon_anggaran', 'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan'])->values()->toArray(),
             'item_dokumen_sop' => $latestPp06->itemDokumenSop->map->only(['file_id'])->values()->toArray(),
+            'rekening_organisasi' => $latestPp06->rekeningOrganisasi->map->only(['nama_bank', 'nama_rekening', 'nomor_rekening'])->values()->toArray(),
         ];
 
         $pp07 = Pp07Data::create([
@@ -1843,6 +1867,7 @@ class PpWorkflowController extends Controller
                 'kodeBidangPelayanan', 'kodeSubBidangPelayanan',
                 'kodeKategoriPelayanan', 'kodeJenisProgram',
                 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop',
+                'rekeningOrganisasi',
             ]), $draftData)
             : [];
 

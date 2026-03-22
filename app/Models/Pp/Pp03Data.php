@@ -30,4 +30,9 @@ class Pp03Data extends Model
     {
         return $this->hasMany(Pp03ItemPlafonAnggaran::class, 'pp03_data_id');
     }
+
+    public function rekeningOrganisasi(): HasMany
+    {
+        return $this->hasMany(Pp03RekeningOrganisasi::class, 'pp03_data_id');
+    }
 }

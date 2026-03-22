@@ -27,11 +27,18 @@ type PlafonItem = {
     catatan: string | null;
 };
 
+type RekeningOrganisasiItem = {
+    nama_bank: string;
+    nama_rekening: string;
+    nomor_rekening: string;
+};
+
 type Team = { id: number; name: string };
 
 type StepData = {
     id: number;
     item_plafon_anggaran: PlafonItem[];
+    rekening_organisasi: RekeningOrganisasiItem[];
     updated_at: string;
 };
 
@@ -88,6 +95,16 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
             : [],
     );
 
+    const [rekeningOrganisasi, setRekeningOrganisasi] = useState<RekeningOrganisasiItem[]>(
+        stepData.rekening_organisasi.length > 0
+            ? stepData.rekening_organisasi.map((item) => ({
+                nama_bank: item.nama_bank,
+                nama_rekening: item.nama_rekening,
+                nomor_rekening: item.nomor_rekening,
+            }))
+            : [],
+    );
+
     const usedTeamIds = items.map((item) => item.team_id);
     const totalPlafon = items.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
 
@@ -108,6 +125,18 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
 
     function updateRow(index: number, field: keyof PlafonItem, value: string | number) {
         setItems(items.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+    }
+
+    function addRekeningRow() {
+        setRekeningOrganisasi([...rekeningOrganisasi, { nama_bank: '', nama_rekening: '', nomor_rekening: '' }]);
+    }
+
+    function removeRekeningRow(index: number) {
+        setRekeningOrganisasi(rekeningOrganisasi.filter((_, i) => i !== index));
+    }
+
+    function updateRekeningRow(index: number, field: keyof RekeningOrganisasiItem, value: string) {
+        setRekeningOrganisasi(rekeningOrganisasi.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
     }
 
     const pasteFields: (keyof PlafonItem)[] = ['kode_team', 'plafon_anggaran', 'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan'];
@@ -162,6 +191,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                 ...item,
                 team_id: item.team_id || null,
             })),
+            rekening_organisasi: rekeningOrganisasi,
             expected_updated_at: stepData.updated_at,
             notes: notes || undefined,
             ...(files.length > 0 ? { files } : {}),
@@ -314,6 +344,63 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                 <ClipboardPaste className="mr-1 inline h-3 w-3" />
                                 Paste dari Excel ke sel mana saja — data mengisi ke kanan dan ke bawah otomatis. Tim dipilih manual.
                             </span>
+                        </div>
+                    )}
+                </SectionCard>
+
+                <SectionCard title="Rekening Organisasi untuk Refund">
+                    <p className="mb-3 text-xs text-muted-foreground">
+                        Rekening milik organisasi untuk penerimaan refund dari tim. Data ini akan ditampilkan ke tim saat pelaporan bulanan.
+                    </p>
+                    {errors.rekening_organisasi && <p className="mb-2 text-xs text-destructive">{errors.rekening_organisasi}</p>}
+                    {rekeningOrganisasi.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="px-3 py-2 text-left font-medium w-40">Nama Bank <span className="text-destructive">*</span></th>
+                                        <th className="px-3 py-2 text-left font-medium w-56">Nama Rekening <span className="text-destructive">*</span></th>
+                                        <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening <span className="text-destructive">*</span></th>
+                                        {!isReadonly && <th className="px-3 py-2 w-12" />}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rekeningOrganisasi.map((item, i) => (
+                                        <tr key={i} className="border-b last:border-0">
+                                            <td className="px-3 py-1.5">
+                                                <Input value={item.nama_bank} onChange={(e) => updateRekeningRow(i, 'nama_bank', e.target.value)} disabled={isReadonly} className="h-8" />
+                                                {errors[`rekening_organisasi.${i}.nama_bank`] && <p className="text-xs text-destructive">{errors[`rekening_organisasi.${i}.nama_bank`]}</p>}
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                                <Input value={item.nama_rekening} onChange={(e) => updateRekeningRow(i, 'nama_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                                {errors[`rekening_organisasi.${i}.nama_rekening`] && <p className="text-xs text-destructive">{errors[`rekening_organisasi.${i}.nama_rekening`]}</p>}
+                                            </td>
+                                            <td className="px-3 py-1.5">
+                                                <Input value={item.nomor_rekening} onChange={(e) => updateRekeningRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
+                                                {errors[`rekening_organisasi.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`rekening_organisasi.${i}.nomor_rekening`]}</p>}
+                                            </td>
+                                            {!isReadonly && (
+                                                <td className="px-3 py-1.5">
+                                                    <Button variant="ghost" size="sm" onClick={() => removeRekeningRow(i)} className="h-8 w-8 p-0">
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    {rekeningOrganisasi.length === 0 && isReadonly && (
+                        <p className="text-sm text-muted-foreground">Belum ada rekening organisasi yang ditambahkan.</p>
+                    )}
+                    {!isReadonly && (
+                        <div className="mt-2">
+                            <Button variant="outline" size="sm" onClick={addRekeningRow}>
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Tambah Rekening
+                            </Button>
                         </div>
                     )}
                 </SectionCard>

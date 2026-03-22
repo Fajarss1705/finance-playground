@@ -217,7 +217,7 @@ it('returns valid status for a legitimate verification code', function () {
     $response->assertOk()
         ->assertJson([
             'status' => 'valid',
-            'document_type' => 'Periode Tahunan',
+            'document_type' => 'Periode Tahunan (PP)',
             'revision' => 0,
         ]);
 });

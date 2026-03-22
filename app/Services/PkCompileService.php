@@ -10,6 +10,7 @@ use App\Models\Pk\Pk04Kuisioner;
 use App\Models\Pk\Pk04ProgramTahunan;
 use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Prbl\Prbl05ItemRealisasi;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\User;
@@ -475,13 +476,16 @@ class PkCompileService
             }
         }
 
+        // Fallback: resolve from workflow creator metadata
+        $creatorUser = $pkWorkflow->created_by_user_id ? User::find($pkWorkflow->created_by_user_id) : null;
+
         return [
-            'pk01_created_by_user_name' => 'System',
-            'pk01_created_by_role_name' => 'System',
-            'pk01_created_by_team_name' => null,
-            'pk01_created_by_organization_name' => 'System',
-            'pk01_created_by_workspace_name' => 'System',
-            'pk01_created_at' => now()->toIso8601String(),
+            'pk01_created_by_user_name' => $creatorUser?->name ?? 'System',
+            'pk01_created_by_role_name' => $this->resolveRoleName($pkWorkflow->created_by_role_id),
+            'pk01_created_by_team_name' => $this->resolveTeamName($pkWorkflow->created_by_team_id),
+            'pk01_created_by_organization_name' => $this->resolveOrgName($pkWorkflow->created_by_org_id),
+            'pk01_created_by_workspace_name' => $this->resolveWorkspaceName($pkWorkflow->workspace_id),
+            'pk01_created_at' => $pkWorkflow->created_at?->toIso8601String() ?? now()->toIso8601String(),
         ];
     }
 
@@ -715,6 +719,7 @@ class PkCompileService
             }
 
             // 3. Check each existing anggaran
+            $kegiatanHasRealisasiLock = false;
             foreach ($kegiatan->anggaran as $anggaran) {
                 // Anggaran cannot be deleted
                 if (! isset($draftAnggaranById[$anggaran->id])) {
@@ -734,6 +739,26 @@ class PkCompileService
                             'kode_jenis' => 'Jenis',
                         };
                         $errors[] = "{$label} pada \"{$anggaran->mata_anggaran}\" tidak dapat diubah setelah kompilasi.";
+                    }
+                }
+
+                // Tier 3: realisasi lock — track for kuisioner deletion check
+                if ($anggaran->hasRealisasiLock()) {
+                    $kegiatanHasRealisasiLock = true;
+                }
+            }
+
+            // 4. Tier 3: kuisioner deletion blocked when kegiatan has realisasi lock
+            if ($kegiatanHasRealisasiLock) {
+                $draftKuisionerIds = collect($dk['kuisioner'] ?? [])
+                    ->pluck('pk04_kuisioner_id')
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
+
+                foreach ($kegiatan->kuisioner as $kuisioner) {
+                    if (! in_array($kuisioner->id, $draftKuisionerIds, true)) {
+                        $errors[] = "Kuisioner \"{$kuisioner->pertanyaan}\" pada kegiatan \"{$kegiatan->nama_kegiatan}\" tidak dapat dihapus karena sudah dilaporkan di PRBL.";
                     }
                 }
             }
@@ -900,6 +925,267 @@ class PkCompileService
     }
 
     // ──────────────────────────────────────────────────────────
+    //  PABD02B — Tarik Maju Recompile
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * Recompile PK04 after tarik maju approval (PABD02B approve).
+     *
+     * Snapshot-then-move pattern (same as PK05 recompile):
+     * 1. Snapshot current state on OLD pk04
+     * 2. Create NEW pk04 with incremented revision
+     * 3. Reassign live kegiatan to new parent
+     * 4. Apply tarik maju changes (zero old, create new in destination month)
+     * 5. Regenerate all kode_anggaran
+     *
+     * Called inside DB::transaction from pabd02bApprove.
+     *
+     * @param  list<array{pk04_anggaran_id: int, bulan_tujuan: int}>  $tarikMajuItems
+     *
+     * @throws \RuntimeException if PK04 or PP06 not found
+     */
+    public function recompileFromTarikMaju(PkWorkflow $pkWorkflow, array $tarikMajuItems): Pk04ProgramTahunan
+    {
+        $currentPk04 = $pkWorkflow->latestPk04();
+        if (! $currentPk04) {
+            throw new \RuntimeException('PK04 tidak ditemukan.');
+        }
+        $currentPk04->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        $pp06 = $this->getLatestPp06($pkWorkflow);
+        if (! $pp06) {
+            throw new \RuntimeException('PP06 tidak ditemukan.');
+        }
+        $kodeTeam = $this->resolveKodeTeam($pkWorkflow, $pp06);
+        $tahun = $this->resolveTahun($pkWorkflow);
+        $newRevision = $currentPk04->revision + 1;
+
+        // 1. Snapshot current state on OLD pk04
+        $this->snapshotCurrentState($currentPk04);
+
+        // 2. Create new pk04_program_tahunan (carry forward all fields)
+        $newPk04 = Pk04ProgramTahunan::create([
+            'pk_workflow_id' => $pkWorkflow->id,
+            'revision' => $newRevision,
+            'kode_kategori' => $currentPk04->kode_kategori,
+            'nama_program' => $currentPk04->nama_program,
+            'deskripsi_program' => $currentPk04->deskripsi_program,
+            'tujuan_program' => $currentPk04->tujuan_program,
+            'nomer_program' => $currentPk04->nomer_program,
+            'pk01_created_by_user_name' => $currentPk04->pk01_created_by_user_name,
+            'pk01_created_by_role_name' => $currentPk04->pk01_created_by_role_name,
+            'pk01_created_by_team_name' => $currentPk04->pk01_created_by_team_name,
+            'pk01_created_by_organization_name' => $currentPk04->pk01_created_by_organization_name,
+            'pk01_created_by_workspace_name' => $currentPk04->pk01_created_by_workspace_name,
+            'pk01_created_at' => $currentPk04->pk01_created_at,
+        ]);
+
+        // 3. Reassign all live kegiatan to new parent
+        foreach ($currentPk04->kegiatan as $kegiatan) {
+            $kegiatan->update(['pk04_program_tahunan_id' => $newPk04->id]);
+        }
+
+        // 4. Apply tarik maju changes
+        // Index items by pk04_anggaran_id for fast lookup
+        $tarikMap = collect($tarikMajuItems)->keyBy('pk04_anggaran_id');
+        $maxNomerKegiatan = (int) $newPk04->kegiatan()->max('nomer_kegiatan');
+
+        foreach ($tarikMap as $anggaranId => $item) {
+            $oldAnggaran = Pk04Anggaran::find($anggaranId);
+            if (! $oldAnggaran || $oldAnggaran->status_item !== 'active') {
+                continue;
+            }
+
+            $bulanTujuan = (int) $item['bulan_tujuan'];
+            $oldKegiatan = $oldAnggaran->pk04Kegiatan;
+
+            // Capture original nominal before zeroing
+            $originalNominal = $oldAnggaran->nominal_anggaran;
+
+            // Zero old anggaran
+            $oldAnggaran->update([
+                'nominal_anggaran' => 0,
+                'status_item' => 'ditarik_maju',
+                'revisi_terakhir' => $newRevision,
+            ]);
+
+            // Create new kegiatan in destination month (copy from old)
+            $maxNomerKegiatan++;
+            $newKegiatan = Pk04Kegiatan::create([
+                'pk04_program_tahunan_id' => $newPk04->id,
+                'nama_kegiatan' => $oldKegiatan->nama_kegiatan,
+                'bulan' => $bulanTujuan,
+                'nomer_kegiatan' => $maxNomerKegiatan,
+                'source' => 'tarik_maju',
+                'source_pabd_workflow_id' => $item['pabd_workflow_id'] ?? null,
+                'previous_kegiatan_id' => $oldKegiatan->id,
+            ]);
+
+            // Create new anggaran with original nominal
+            $newAnggaran = Pk04Anggaran::create([
+                'pk04_kegiatan_id' => $newKegiatan->id,
+                'kode_bidang' => $oldAnggaran->kode_bidang,
+                'kode_sub_bidang' => $oldAnggaran->kode_sub_bidang,
+                'kode_jenis' => $oldAnggaran->kode_jenis,
+                'mata_anggaran' => $oldAnggaran->mata_anggaran,
+                'deskripsi_pk' => $oldAnggaran->deskripsi_pk,
+                'nominal_anggaran' => $originalNominal,
+                'nomer_anggaran' => 1,
+                'revisi_terakhir' => $newRevision,
+                'status_item' => 'active',
+                'previous_anggaran_id' => $oldAnggaran->id,
+                'source' => 'tarik_maju',
+                'source_pabd_workflow_id' => $item['pabd_workflow_id'] ?? null,
+            ]);
+
+            // Copy kuisioner from old kegiatan
+            foreach ($oldKegiatan->kuisioner ?? [] as $q) {
+                Pk04Kuisioner::create([
+                    'pk04_kegiatan_id' => $newKegiatan->id,
+                    'kode_kuisioner' => $q->kode_kuisioner,
+                    'pertanyaan' => $q->pertanyaan,
+                    'tipe' => $q->tipe,
+                    'satuan' => $q->satuan,
+                ]);
+            }
+        }
+
+        // 5. Regenerate kode_anggaran for ALL live anggaran
+        $tipe = $pkWorkflow->tipe;
+        $newPk04->load(['kegiatan.anggaran']);
+        foreach ($newPk04->kegiatan as $kegiatan) {
+            foreach ($kegiatan->anggaran as $anggaran) {
+                $this->generateKodeAnggaran($anggaran, $newPk04, $kegiatan, $kodeTeam, $tahun, $tipe);
+            }
+        }
+
+        // 6. Generate verification code
+        $this->generateVerificationCode($newPk04);
+
+        return $newPk04;
+    }
+
+    /**
+     * Compile a PK Proposal (tipe='proposal') straight to PK04, skipping PK02A/02B/PK03.
+     *
+     * Creates a new pk04_program_tahunan with tipe='proposal' (excluded from plafon).
+     * Used by PABD02B approve for proposal_baru items.
+     *
+     * Called inside DB::transaction from pabd02bApprove.
+     *
+     * @throws \RuntimeException if PK01 data or PP06 not found
+     */
+    public function compileProposalToPk04(PkWorkflow $proposalWorkflow, ?int $pabdWorkflowId = null): Pk04ProgramTahunan
+    {
+        $pk01 = $proposalWorkflow->pk01Data?->sortByDesc('id')->first();
+        if (! $pk01) {
+            throw new \RuntimeException('PK01 data untuk proposal tidak ditemukan.');
+        }
+        $pk01->load(['kegiatan.anggaran', 'kegiatan.kuisioner']);
+
+        $pp06 = $this->getLatestPp06($proposalWorkflow);
+        if (! $pp06) {
+            throw new \RuntimeException('PP06 tidak ditemukan.');
+        }
+
+        $authorData = $this->resolveAuthor($proposalWorkflow);
+        $nomerProgram = $this->getNextNomerProgram($proposalWorkflow);
+        $kodeTeam = $this->resolveKodeTeam($proposalWorkflow, $pp06);
+        $tahun = $this->resolveTahun($proposalWorkflow);
+
+        // Create pk04_program_tahunan
+        $pk04 = Pk04ProgramTahunan::create([
+            'pk_workflow_id' => $proposalWorkflow->id,
+            'revision' => 0,
+            'kode_kategori' => $pk01->kode_kategori,
+            'nama_program' => $pk01->nama_program,
+            'deskripsi_program' => $pk01->deskripsi_program,
+            'tujuan_program' => $pk01->tujuan_program,
+            'nomer_program' => $nomerProgram,
+            ...$authorData,
+        ]);
+
+        // Copy kegiatan → pk04_kegiatan
+        $nomerKegiatan = 0;
+        foreach ($pk01->kegiatan as $kegiatan) {
+            $nomerKegiatan++;
+
+            $pk04Kegiatan = Pk04Kegiatan::create([
+                'pk04_program_tahunan_id' => $pk04->id,
+                'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                'bulan' => $kegiatan->bulan,
+                'nomer_kegiatan' => $nomerKegiatan,
+                'source' => 'proposal',
+                'source_pabd_workflow_id' => $pabdWorkflowId,
+            ]);
+
+            // Copy anggaran → pk04_anggaran
+            $nomerAnggaran = 0;
+            foreach ($kegiatan->anggaran as $anggaran) {
+                $nomerAnggaran++;
+
+                $pk04Anggaran = Pk04Anggaran::create([
+                    'pk04_kegiatan_id' => $pk04Kegiatan->id,
+                    'kode_bidang' => $anggaran->kode_bidang,
+                    'kode_sub_bidang' => $anggaran->kode_sub_bidang,
+                    'kode_jenis' => $anggaran->kode_jenis,
+                    'mata_anggaran' => $anggaran->mata_anggaran,
+                    'deskripsi_pk' => $anggaran->deskripsi_pk,
+                    'nominal_anggaran' => $anggaran->nominal_anggaran,
+                    'nomer_anggaran' => $nomerAnggaran,
+                    'revisi_terakhir' => 0,
+                    'status_item' => 'active',
+                    'source' => 'proposal',
+                    'source_pabd_workflow_id' => $pabdWorkflowId,
+                ]);
+
+                $this->generateKodeAnggaran(
+                    $pk04Anggaran,
+                    $pk04,
+                    $pk04Kegiatan,
+                    $kodeTeam,
+                    $tahun,
+                    'proposal',
+                );
+            }
+
+            // Copy kuisioner → pk04_kuisioner
+            foreach ($kegiatan->kuisioner as $kuisioner) {
+                Pk04Kuisioner::create([
+                    'pk04_kegiatan_id' => $pk04Kegiatan->id,
+                    'kode_kuisioner' => $kuisioner->kode_kuisioner,
+                    'pertanyaan' => $kuisioner->pertanyaan,
+                    'tipe' => $kuisioner->tipe,
+                    'satuan' => $kuisioner->satuan,
+                ]);
+            }
+        }
+
+        // Generate verification code
+        $this->generateVerificationCode($pk04);
+
+        // Record PK04 completion in proposal workflow history
+        $proposalWorkflow->update([
+            'history' => array_merge($proposalWorkflow->history ?? [], [
+                [
+                    'step' => 'PK04',
+                    'action' => 'completed',
+                    'by' => null,
+                    'role' => null,
+                    'team' => null,
+                    'org' => null,
+                    'workspace' => $proposalWorkflow->workspace_id,
+                    'at' => now()->toIso8601String(),
+                    'triggered_by' => ['step' => 'PABD02B', 'action' => 'approved'],
+                    'revision' => 0,
+                ],
+            ]),
+        ]);
+
+        return $pk04;
+    }
+
+    // ──────────────────────────────────────────────────────────
     //  PK05 Private Helpers
     // ──────────────────────────────────────────────────────────
 
@@ -940,9 +1226,6 @@ class PkCompileService
                     'status_pencairan' => $anggaran->status_pencairan,
                     'tanggal_pencairan' => $anggaran->tanggal_pencairan,
                     'pencairan_pabd_workflow_id' => $anggaran->pencairan_pabd_workflow_id,
-                    'nominal_realisasi' => $anggaran->nominal_realisasi,
-                    'status_realisasi' => $anggaran->status_realisasi,
-                    'prbl_workflow_id' => $anggaran->prbl_workflow_id,
                 ]);
             }
 
@@ -983,7 +1266,7 @@ class PkCompileService
         foreach ($kegiatan->anggaran as $anggaran) {
             if (isset($draftAnggaranById[$anggaran->id])) {
                 $da = $draftAnggaranById[$anggaran->id];
-                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active';
+                $isLocked = $anggaran->status_pencairan !== null || $anggaran->status_item !== 'active' || $anggaran->hasRealisasiLock();
 
                 if (! $isLocked) {
                     $changed = false;
@@ -1047,6 +1330,12 @@ class PkCompileService
             }
         }
 
+        // Tier 3: block kuisioner deletion when kegiatan has realisasi-locked anggaran
+        $kegiatanHasRealisasiLock = Prbl05ItemRealisasi::whereIn(
+            'pk04_anggaran_id',
+            $kegiatan->anggaran->pluck('id')
+        )->exists();
+
         // Update or delete existing kuisioner
         foreach ($kegiatan->kuisioner as $kuisioner) {
             if (isset($draftKuisionerById[$kuisioner->id])) {
@@ -1057,9 +1346,10 @@ class PkCompileService
                     'tipe' => $dq['tipe'],
                     'satuan' => $dq['satuan'] ?? null,
                 ]);
-            } else {
+            } elseif (! $kegiatanHasRealisasiLock) {
                 $kuisioner->delete();
             }
+            // If realisasi-locked, silently skip deletion (validated upstream)
         }
 
         // Insert new kuisioner

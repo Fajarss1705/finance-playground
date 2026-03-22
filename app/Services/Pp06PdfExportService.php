@@ -23,7 +23,7 @@ class Pp06PdfExportService
         $pp06->loadMissing([
             'kodeBidangPelayanan', 'kodeSubBidangPelayanan',
             'kodeKategoriPelayanan', 'kodeJenisProgram',
-            'itemKuisioner', 'itemPlafonAnggaran.team', 'itemDokumenSop.file',
+            'itemKuisioner', 'itemPlafonAnggaran.team', 'rekeningOrganisasi', 'itemDokumenSop.file',
             'ppWorkflow',
         ]);
 
@@ -78,12 +78,12 @@ class Pp06PdfExportService
         // Pre-load step data for submitted entries
         $pp01Data = $workflow->pp01Data()->with(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram'])->get()->keyBy('id');
         $pp02Data = $workflow->pp02Data()->with('itemKuisioner')->get()->keyBy('id');
-        $pp03Data = $workflow->pp03Data()->with('itemPlafonAnggaran.team')->get()->keyBy('id');
+        $pp03Data = $workflow->pp03Data()->with(['itemPlafonAnggaran.team', 'rekeningOrganisasi'])->get()->keyBy('id');
         $pp04Data = $workflow->pp04Data()->with('itemDokumen.file')->get()->keyBy('id');
 
         // Pre-load PP06 revisions for diff
         $pp06Revisions = $workflow->pp06PeriodeTahunan()
-            ->with(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop'])
+            ->with(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram', 'itemKuisioner', 'itemPlafonAnggaran', 'rekeningOrganisasi', 'itemDokumenSop'])
             ->orderBy('revision')
             ->get()
             ->keyBy('revision');
@@ -263,6 +263,11 @@ class Pp06PdfExportService
                 'nomor_rekening' => $i->nomor_rekening,
             ])->all(),
             'total' => $data->itemPlafonAnggaran->sum('plafon_anggaran'),
+            'rekening_organisasi' => $data->rekeningOrganisasi->map(fn ($r) => [
+                'nama_bank' => $r->nama_bank,
+                'nama_rekening' => $r->nama_rekening,
+                'nomor_rekening' => $r->nomor_rekening,
+            ])->all(),
         ];
     }
 

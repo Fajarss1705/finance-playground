@@ -1,142 +1,130 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import RoleTaskSection from '@/components/dashboard/role-task-section';
+import TaskCard from '@/components/dashboard/task-card';
+import type {TaskItem} from '@/components/dashboard/task-card';
 import Heading from '@/components/heading';
-import SectionCard from '@/components/workflow/section-card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import AppLayout from '@/layouts/app-layout';
 import { index as personalIndex } from '@/routes/personal';
 import type { BreadcrumbItem } from '@/types';
 
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Personal', href: personalIndex() },
-];
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Personal', href: personalIndex() }];
 
-const workflows = [
-    {
-        title: 'PP — Perencanaan Periode',
-        description: 'Workflow tahunan untuk menetapkan jadwal, kode pelayanan, kuisioner, plafon anggaran, dan dokumen SOP.',
-        steps: [
-            { code: 'PP01', name: 'Jadwal & Kode Pelayanan', type: 'Form', role: 'Monev + Bendahara Umum', team: 'Tim Monev / Tim Bendahara Umum' },
-            { code: 'PP02', name: 'Kuisioner Evaluasi', type: 'Form', role: 'Monev', team: 'Tim Monev' },
-            { code: 'PP03', name: 'Plafon Anggaran Tim', type: 'Form', role: 'Bendahara Umum', team: 'Tim Bendahara Umum' },
-            { code: 'PP04', name: 'Dokumen SOP', type: 'Form', role: 'Bendahara Umum', team: 'Tim Bendahara Umum' },
-            { code: 'PP05', name: 'Persetujuan', type: 'Approval', role: 'Monev (spesifik)', team: 'Tim Monev' },
-            { code: 'PP06', name: 'Kompilasi Final', type: 'Final', role: 'Sistem', team: '—' },
-            { code: 'PP07', name: 'Revisi', type: 'Revision', role: 'Monev + Bendahara Umum', team: 'Tim Monev / Tim Bendahara Umum' },
-        ],
-        pageLinks: [],
-    },
-    {
-        title: 'PK — Perencanaan Kegiatan dan Anggaran',
-        description: 'Workflow per program — 1 PK = 1 program. Tim mengajukan program + kegiatan + anggaran, di-review paralel.',
-        steps: [
-            { code: 'PK01', name: 'Input Program & Kegiatan', type: 'Form', role: 'Semua role tim', team: 'Divisi (masing-masing)' },
-            { code: 'PK02A', name: 'Review Narasi', type: 'Approval (paralel)', role: 'Monev', team: 'Tim Monev' },
-            { code: 'PK02B', name: 'Review Anggaran', type: 'Approval (paralel)', role: 'Bendahara Umum', team: 'Tim Bendahara Umum' },
-            { code: 'PK03', name: 'Persetujuan RAKER', type: 'Approval', role: 'BU / Monev', team: 'Tim BU / Tim Monev' },
-            { code: 'PK04', name: 'Kompilasi Final', type: 'Final', role: 'Sistem', team: '—' },
-            { code: 'PK05', name: 'Revisi', type: 'Revision', role: 'BU / Monev', team: 'Tim BU / Tim Monev' },
-        ],
-        pageLinks: [],
-    },
-    {
-        title: 'PABD — Pengajuan Anggaran Bulan Depan',
-        description: 'Workflow bulanan (auto-created). Konfirmasi anggaran, opsional perubahan (tarik/penambahan), pencairan.',
-        steps: [
-            { code: 'PABD01', name: 'Konfirmasi Anggaran', type: 'Form (auto)', role: 'Semua role tim', team: 'Divisi (masing-masing)', demo: '/team/workflows/pabd/pabd-uuid-001/pabd01' },
-            { code: 'PABD02A', name: 'Permohonan Perubahan', type: 'Form (kondisional)', role: 'Semua role tim', team: 'Divisi (masing-masing)', demo: '/team/workflows/pabd/pabd-uuid-001/pabd02a' },
-            { code: 'PABD02B', name: 'Persetujuan Perubahan', type: 'Approval', role: 'Bendahara Umum', team: 'Tim Bendahara Umum', demo: '/admin/workflows/pabd/pabd-uuid-001/pabd02b' },
-            { code: 'PABD03', name: 'Persetujuan Pencairan', type: 'Approval', role: 'Bendahara Umum', team: 'Tim Bendahara Umum', demo: '/admin/workflows/pabd/pabd-uuid-001/pabd03' },
-            { code: 'PABD04', name: 'Upload Bukti Transfer', type: 'Form (auto)', role: 'Kantor Pusat', team: 'Tim Kantor Pusat', demo: '/team/workflows/pabd/pabd-uuid-001/pabd04' },
-            { code: 'PABD05', name: 'Kompilasi Final', type: 'Final', role: 'Sistem', team: '—', demo: '/team/workflows/pabd/pabd-uuid-001/pabd05' },
-        ],
-        pageLinks: [
-            { label: 'Index (Tim)', href: '/team/workflows/pabd' },
-            { label: 'Index (Admin)', href: '/admin/workflows/pabd' },
-            { label: 'Show (Tim)', href: '/team/workflows/pabd/pabd-uuid-001' },
-            { label: 'Show (Admin)', href: '/admin/workflows/pabd/pabd-uuid-001' },
-        ],
-    },
-    {
-        title: 'PRBL — Pelaporan dan Refund Bulan Lalu',
-        description: 'Workflow bulanan (auto-created). Tim lapor realisasi + kuisioner, di-review paralel, refund selisih.',
-        steps: [
-            { code: 'PRBL01', name: 'Laporan Realisasi', type: 'Form (auto)', role: 'Semua role tim', team: 'Divisi (masing-masing)', demo: '/team/workflows/prbl/prbl-uuid-001/prbl01' },
-            { code: 'PRBL02A', name: 'Review Narasi', type: 'Approval (paralel)', role: 'Monev', team: 'Tim Monev', demo: '/admin/workflows/prbl/prbl-uuid-001/prbl02a' },
-            { code: 'PRBL02B', name: 'Review Anggaran', type: 'Approval (paralel)', role: 'Bendahara Umum', team: 'Tim Bendahara Umum', demo: '/admin/workflows/prbl/prbl-uuid-001/prbl02b' },
-            { code: 'PRBL03', name: 'Refund & Bukti Transfer', type: 'Form', role: 'Semua role tim', team: 'Divisi (masing-masing)', demo: '/team/workflows/prbl/prbl-uuid-001/prbl03' },
-            { code: 'PRBL04', name: 'Review Akhir', type: 'Approval', role: 'BU / Monev', team: 'Tim BU / Tim Monev', demo: '/admin/workflows/prbl/prbl-uuid-001/prbl04' },
-            { code: 'PRBL05', name: 'Kompilasi Final', type: 'Final', role: 'Sistem', team: '—', demo: '/team/workflows/prbl/prbl-uuid-001/prbl05' },
-        ],
-        pageLinks: [
-            { label: 'Index (Tim)', href: '/team/workflows/prbl' },
-            { label: 'Index (Admin)', href: '/admin/workflows/prbl' },
-            { label: 'Show (Tim)', href: '/team/workflows/prbl/prbl-uuid-001' },
-            { label: 'Show (Admin)', href: '/admin/workflows/prbl/prbl-uuid-001' },
-        ],
-    },
-];
+type OtherRole = {
+    id: number;
+    name: string;
+    teamName: string;
+    workspaceId: number;
+    tasks: TaskItem[];
+};
 
-export default function Dashboard() {
+type PersonalDashboardProps = {
+    activeRole: {
+        id: number;
+        name: string;
+        teamName: string;
+    } | null;
+    activeRoleTasks: TaskItem[];
+    otherRoles: OtherRole[];
+};
+
+export default function Dashboard({ activeRole, activeRoleTasks, otherRoles }: PersonalDashboardProps) {
+    const [activeOpen, setActiveOpen] = useState(true);
+    const [otherOpen, setOtherOpen] = useState(false);
+
+    if (!activeRole) {
+        return (
+            <AppLayout breadcrumbs={breadcrumbs}>
+                <Head title="Personal" />
+                <div className="space-y-6 p-6">
+                    <Heading title="Personal" description="Dashboard personal" />
+                    <div className="rounded-lg border bg-card p-8 text-center shadow-sm">
+                        <p className="text-sm text-muted-foreground">Anda belum memiliki role. Hubungi administrator.</p>
+                    </div>
+                </div>
+            </AppLayout>
+        );
+    }
+
+    const rolesWithTasks = otherRoles.filter((r) => r.tasks.length > 0).length;
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Personal" />
-            <div className="space-y-6 p-6">
+            <div className="space-y-4 p-6">
                 <Heading title="Personal" description="Dashboard personal" />
 
-                <SectionCard title="Daftar Workflow">
-                    <div className="space-y-6">
-                        {workflows.map((wf) => (
-                            <div key={wf.title}>
-                                <h3 className="text-sm font-semibold">{wf.title}</h3>
-                                <p className="mb-2 text-xs text-muted-foreground">{wf.description}</p>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="border-b bg-muted/50">
-                                                <th className="px-3 py-1.5 text-left text-xs font-medium">Kode</th>
-                                                <th className="px-3 py-1.5 text-left text-xs font-medium">Nama Step</th>
-                                                <th className="px-3 py-1.5 text-left text-xs font-medium">Tipe</th>
-                                                <th className="px-3 py-1.5 text-left text-xs font-medium">Aktor</th>
-                                                <th className="px-3 py-1.5 text-left text-xs font-medium">Tim</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {wf.steps.map((step) => (
-                                                <tr key={step.code} className="border-b last:border-0">
-                                                    <td className="px-3 py-1.5 font-mono text-xs">
-                                                        {'demo' in step && step.demo ? (
-                                                            <Link href={step.demo} className="text-primary underline underline-offset-2 hover:text-primary/80">
-                                                                {step.code}
-                                                            </Link>
-                                                        ) : (
-                                                            step.code
-                                                        )}
-                                                    </td>
-                                                    <td className="px-3 py-1.5">{step.name}</td>
-                                                    <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{step.type}</td>
-                                                    <td className="px-3 py-1.5">{step.role}</td>
-                                                    <td className="px-3 py-1.5 text-muted-foreground">{step.team}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                {wf.pageLinks.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-1.5">
-                                        {wf.pageLinks.map((link) => (
-                                            <Link
-                                                key={link.href}
-                                                href={link.href}
-                                                className="rounded border px-2 py-0.5 text-xs hover:bg-muted/50"
-                                            >
-                                                {link.label}
-                                            </Link>
-                                        ))}
-                                    </div>
+                {/* Section 1: Active Role Tasks */}
+                <Collapsible open={activeOpen} onOpenChange={setActiveOpen}>
+                    <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border bg-card px-4 py-3 text-left shadow-sm hover:bg-muted/50">
+                        <div className="flex items-center gap-2">
+                            {activeOpen ? (
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span className="text-sm font-medium">
+                                Tugas Anda &mdash; {activeRole.name} &middot; {activeRole.teamName}
+                            </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                            {activeRoleTasks.length} tugas
+                        </span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <div className="mt-1 text-xs text-muted-foreground px-4 pb-1">Role aktif saat ini</div>
+                        <div className="mt-1 space-y-2 pl-2">
+                            {activeRoleTasks.length === 0 ? (
+                                <p className="py-3 text-center text-sm text-muted-foreground">
+                                    Tidak ada tugas untuk role ini.
+                                </p>
+                            ) : (
+                                activeRoleTasks.map((task, i) => (
+                                    <TaskCard key={`active-${task.stepCode}-${task.url}-${i}`} task={task} />
+                                ))
+                            )}
+                        </div>
+                    </CollapsibleContent>
+                </Collapsible>
+
+                {/* Section 2: Other Roles (hidden if user has only 1 role) */}
+                {otherRoles.length > 0 && (
+                    <Collapsible open={otherOpen} onOpenChange={setOtherOpen}>
+                        <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border bg-card px-4 py-3 text-left shadow-sm hover:bg-muted/50">
+                            <div className="flex items-center gap-2">
+                                {otherOpen ? (
+                                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                 )}
+                                <span className="text-sm font-medium">Role Lain Anda</span>
                             </div>
-                        ))}
-                    </div>
-                </SectionCard>
+                            <span className="text-xs text-muted-foreground">
+                                {rolesWithTasks > 0
+                                    ? `${rolesWithTasks} role dengan tugas`
+                                    : `${otherRoles.length} role`}
+                            </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <div className="mt-2 space-y-3 pl-2">
+                                {otherRoles.map((role) => (
+                                    <RoleTaskSection
+                                        key={role.id}
+                                        title={`${role.name} \u00b7 ${role.teamName}`}
+                                        badge={`(${role.tasks.length})`}
+                                        tasks={role.tasks}
+                                        switchRole={{
+                                            roleId: role.id,
+                                            workspaceId: role.workspaceId,
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        </CollapsibleContent>
+                    </Collapsible>
+                )}
             </div>
         </AppLayout>
     );

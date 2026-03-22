@@ -1,14 +1,15 @@
 import { Head, router } from '@inertiajs/react';
+import { Lock } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import BudgetReferenceCard from '@/components/workflow/budget-reference-card';
+import type { BudgetCounterData } from '@/components/workflow/budget-reference-card';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
-import BudgetReferenceCard from '@/components/workflow/budget-reference-card';
-import type { BudgetCounterData } from '@/components/workflow/budget-reference-card';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
@@ -27,6 +28,8 @@ type AnggaranItem = {
     revisi_terakhir: number | null;
     status_item: string;
     source: string | null;
+    is_locked?: boolean;
+    lock_reason?: string | null;
 };
 
 type KuisionerItem = {
@@ -359,9 +362,22 @@ export default function Pk04({
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {kegiatan.anggaran.map((a, i) => (
-                                                <tr key={a.id} className="border-b last:border-0">
-                                                    <td className="px-3 py-2 text-center">{i + 1}</td>
+                                            {kegiatan.anggaran.map((a, i) => {
+                                                const lockLabel = a.lock_reason === 'sudah_dilaporkan' ? 'Item sudah dilaporkan di PRBL'
+                                                    : a.lock_reason === 'sudah_dicairkan' ? 'Item sudah dicairkan'
+                                                    : a.lock_reason === 'hangus' ? 'Item hangus'
+                                                    : a.lock_reason === 'ditarik_maju' ? 'Item ditarik maju'
+                                                    : 'Item terkunci';
+                                                return (
+                                                <tr key={a.id} className={`border-b last:border-0 ${a.is_locked ? 'bg-muted/40' : ''}`}>
+                                                    <td className="px-3 py-2 text-center">
+                                                        {a.is_locked && (
+                                                            <span title={lockLabel}>
+                                                                <Lock className="mr-1 inline h-3.5 w-3.5 text-amber-500" />
+                                                            </span>
+                                                        )}
+                                                        {i + 1}
+                                                    </td>
                                                     <td className="px-3 py-2">{a.mata_anggaran}</td>
                                                     <td className="px-3 py-2 text-muted-foreground">{a.deskripsi_pk || '-'}</td>
                                                     <td className="px-3 py-2 text-right tabular-nums font-medium">{formatRupiah(a.nominal_anggaran)}</td>
@@ -376,7 +392,8 @@ export default function Pk04({
                                                             : <span className="text-muted-foreground">-</span>}
                                                     </td>
                                                 </tr>
-                                            ))}
+                                                );
+                                            })}
                                         </tbody>
                                         <tfoot>
                                             <tr className="border-t bg-muted/30 font-medium">

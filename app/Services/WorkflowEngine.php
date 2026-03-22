@@ -5,8 +5,10 @@ namespace App\Services;
 use App\Contracts\WorkflowDefinition;
 use App\Enums\StepType;
 use App\Enums\WorkflowType;
+use App\Workflows\PabdWorkflowDefinition;
 use App\Workflows\PkWorkflowDefinition;
 use App\Workflows\PpWorkflowDefinition;
+use App\Workflows\PrblWorkflowDefinition;
 use Illuminate\Database\Eloquent\Model;
 
 class WorkflowEngine
@@ -22,7 +24,8 @@ class WorkflowEngine
         return match ($type) {
             WorkflowType::PP => new PpWorkflowDefinition,
             WorkflowType::PK => new PkWorkflowDefinition,
-            default => throw new \InvalidArgumentException("No definition for workflow type: {$type->value}"),
+            WorkflowType::PABD => new PabdWorkflowDefinition,
+            WorkflowType::PRBL => new PrblWorkflowDefinition,
         };
     }
 
@@ -87,22 +90,22 @@ class WorkflowEngine
     public function getStepperData(WorkflowDefinition $definition, array $history, \Closure $urlResolver): array
     {
         $this->stepOrder = $definition->steps();
-        $rejections = $this->extractRejections($definition, $history);
+        $cyclebacks = $this->extractCyclebacks($definition, $history);
 
-        if (empty($rejections)) {
+        if (empty($cyclebacks)) {
             $cycles = [$this->buildCurrentCycle($definition, $history, $urlResolver, 1)];
         } else {
             $cycles = [];
             $cycleNumber = 1;
 
-            foreach ($rejections as $rejection) {
+            foreach ($cyclebacks as $cycleback) {
                 $cycles[] = $this->buildPreviousCycle(
                     $definition,
                     $history,
                     $urlResolver,
                     $cycleNumber,
-                    $rejection,
-                    $rejections,
+                    $cycleback,
+                    $cyclebacks,
                 );
                 $cycleNumber++;
             }
@@ -170,30 +173,32 @@ class WorkflowEngine
     }
 
     /**
-     * Build cycle data for a previous (rejected) cycle.
+     * Build cycle data for a previous (cycled-back) cycle.
+     *
+     * Handles rejection cycles, approve-with-cycleback, and reset cycles.
      *
      * @param  list<array<string, mixed>>  $history
      * @param  \Closure(string, ?int): ?string  $urlResolver
-     * @param  array{step: string, at: string, targetStep: string}  $rejection
-     * @param  list<array{step: string, at: string, targetStep: string}>  $allRejections
-     * @return array{number: int, status: string, steps: list<array{code: string, label: string, status: string, url: ?string}>}
+     * @param  array{step: string, at: string, targetStep: string, action: string}  $cycleback
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $allCyclebacks
+     * @return array{number: int, status: string, type: string, steps: list<array{code: string, label: string, status: string, url: ?string}>}
      */
     private function buildPreviousCycle(
         WorkflowDefinition $definition,
         array $history,
         \Closure $urlResolver,
         int $number,
-        array $rejection,
-        array $allRejections,
+        array $cycleback,
+        array $allCyclebacks,
     ): array {
         $allSteps = $definition->steps();
-        $rejectingStepIndex = array_search($rejection['step'], $allSteps);
-        $cycleSteps = array_slice($allSteps, 0, $rejectingStepIndex + 1);
+        $cyclingStepIndex = array_search($cycleback['step'], $allSteps);
+        $cycleSteps = array_slice($allSteps, 0, $cyclingStepIndex + 1);
 
         // Determine this cycle's time window
-        $previousRejection = $number > 1 ? $allRejections[$number - 2] : null;
-        $windowStart = $previousRejection ? $previousRejection['at'] : null;
-        $windowEnd = $rejection['at'];
+        $previousCycleback = $number > 1 ? $allCyclebacks[$number - 2] : null;
+        $windowStart = $previousCycleback ? $previousCycleback['at'] : null;
+        $windowEnd = $cycleback['at'];
 
         $steps = [];
 
@@ -202,8 +207,12 @@ class WorkflowEngine
                 continue;
             }
 
-            if ($code === $rejection['step']) {
-                $status = 'rejected';
+            if ($code === $cycleback['step']) {
+                $status = match ($cycleback['action']) {
+                    'rejected' => 'rejected',
+                    'reset' => 'reset',
+                    default => 'completed',
+                };
             } else {
                 // Check if this step voted 'rejected' in the window (e.g. parallel approval)
                 $lastAction = $this->getLastActionInWindow($code, $history, $windowStart, $windowEnd);
@@ -220,10 +229,16 @@ class WorkflowEngine
             ];
         }
 
+        $cycleStatus = match ($cycleback['action']) {
+            'rejected' => 'rejected',
+            'reset' => 'reset',
+            default => 'cycled',
+        };
+
         return [
             'number' => $number,
-            'status' => 'rejected',
-            'type' => 'rejection',
+            'status' => $cycleStatus,
+            'type' => $cycleback['action'] === 'rejected' ? 'rejection' : 'cycleback',
             'steps' => $steps,
         ];
     }
@@ -413,11 +428,11 @@ class WorkflowEngine
         $this->stepOrder = $definition->steps();
         $steps = $definition->steps();
         $result = [];
-        $rejections = $this->extractRejections($definition, $history);
+        $cyclebacks = $this->extractCyclebacks($definition, $history);
 
         foreach ($steps as $code) {
             $result[$code] = [
-                'status' => $this->computeStepStatus($definition, $code, $history, $rejections),
+                'status' => $this->computeStepStatus($definition, $code, $history, $cyclebacks),
                 'dataId' => $this->getLatestDataId($code, $history),
                 'cycle' => $this->getCycleCount($code, $history),
             ];
@@ -495,9 +510,9 @@ class WorkflowEngine
      * Compute status for a single step.
      *
      * @param  list<array<string, mixed>>  $history
-     * @param  list<array{step: string, at: string, targetStep: string}>  $rejections
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
      */
-    private function computeStepStatus(WorkflowDefinition $definition, string $code, array $history, array $rejections): string
+    private function computeStepStatus(WorkflowDefinition $definition, string $code, array $history, array $cyclebacks): string
     {
         $stepType = $definition->stepType($code);
 
@@ -505,7 +520,7 @@ class WorkflowEngine
         if ($stepType === StepType::Revision) {
             $prereqs = $definition->prerequisites($code);
 
-            if (! $this->arePrerequisitesMet($definition, $prereqs, $history, $rejections)) {
+            if (! $this->arePrerequisitesMet($definition, $prereqs, $history, $cyclebacks)) {
                 return 'pending';
             }
 
@@ -521,36 +536,42 @@ class WorkflowEngine
 
         // Final step: auto-completed by system
         if ($stepType === StepType::Final) {
-            if ($this->hasValidCompletingAction($code, $history, $rejections)) {
+            if ($this->hasValidCompletingAction($code, $history, $cyclebacks)) {
                 return 'completed';
             }
 
             $prereqs = $definition->prerequisites($code);
 
-            return $this->arePrerequisitesMet($definition, $prereqs, $history, $rejections) ? 'active' : 'pending';
+            return $this->arePrerequisitesMet($definition, $prereqs, $history, $cyclebacks) ? 'active' : 'pending';
         }
 
         // Has a valid completing action after last relevant rejection?
-        if ($this->hasValidCompletingAction($code, $history, $rejections)) {
+        if ($this->hasValidCompletingAction($code, $history, $cyclebacks)) {
             return 'completed';
         }
 
-        // For parallel approval steps without rejectionTarget, 'rejected' also completes the step.
-        // The join gate (not the engine) handles the rejection cascade for these steps.
-        if ($stepType === StepType::Approval && $definition->rejectionTarget($code) === null) {
-            if ($this->hasValidAction($code, 'rejected', $history, $rejections)) {
+        // For parallel approval steps without rejectionTarget or cycleTarget,
+        // 'rejected' also completes the step (the join gate handles the cascade).
+        // Steps with cycleTarget handle rejection via cycle-back, not as completion.
+        // Exclude steps whose rejection created a cycleback (e.g. PRBL04 dual rejection
+        // via entry-level cycleTarget) — those are real rejections, not parallel votes.
+        if ($stepType === StepType::Approval
+            && $definition->rejectionTarget($code) === null
+            && $definition->cycleTarget($code) === null
+            && ! $this->hasRejectionCycleback($code, $cyclebacks)) {
+            if ($this->hasValidAction($code, 'rejected', $history, $cyclebacks)) {
                 return 'completed';
             }
         }
 
         // Was this step skipped?
-        if ($this->hasValidAction($code, 'skipped', $history, $rejections)) {
+        if ($this->hasValidAction($code, 'skipped', $history, $cyclebacks)) {
             return 'skipped';
         }
 
         // Check prerequisites
         $prereqs = $definition->prerequisites($code);
-        $allPrereqsMet = $this->arePrerequisitesMet($definition, $prereqs, $history, $rejections);
+        $allPrereqsMet = $this->arePrerequisitesMet($definition, $prereqs, $history, $cyclebacks);
 
         if (! $allPrereqsMet) {
             return 'pending';
@@ -560,55 +581,68 @@ class WorkflowEngine
     }
 
     /**
-     * Extract all rejection events from history with their targets.
+     * Extract all cycle-back events from history with their targets.
+     *
+     * Handles three types of cycle-back:
+     * - rejected + rejectionTarget (existing PP/PK pattern)
+     * - rejected/approved + cycleTarget (PABD02B loop-back on any outcome)
+     * - reset + cycleTarget (PK04 staleness → PABD01 reset, target from entry or definition)
      *
      * @param  list<array<string, mixed>>  $history
-     * @return list<array{step: string, at: string, targetStep: string}>
+     * @return list<array{step: string, at: string, targetStep: string, action: string}>
      */
-    private function extractRejections(WorkflowDefinition $definition, array $history): array
+    private function extractCyclebacks(WorkflowDefinition $definition, array $history): array
     {
-        $rejections = [];
+        $cyclebacks = [];
 
         foreach ($history as $entry) {
-            if (($entry['action'] ?? '') === 'rejected') {
-                $step = $entry['step'] ?? '';
-                $target = $definition->rejectionTarget($step);
+            $action = $entry['action'] ?? '';
+            $step = $entry['step'] ?? '';
+            $target = null;
 
-                if ($target !== null) {
-                    $rejections[] = [
-                        'step' => $step,
-                        'at' => $entry['at'] ?? '',
-                        'targetStep' => $target,
-                    ];
-                }
+            if ($action === 'rejected') {
+                $target = $entry['cycleTarget'] ?? $definition->rejectionTarget($step) ?? $definition->cycleTarget($step);
+            } elseif ($action === 'approved') {
+                $target = $definition->cycleTarget($step);
+            } elseif ($action === 'reset') {
+                $target = $entry['cycleTarget'] ?? $definition->cycleTarget($step);
+            }
+
+            if ($target !== null) {
+                $cyclebacks[] = [
+                    'step' => $step,
+                    'at' => $entry['at'] ?? '',
+                    'targetStep' => $target,
+                    'action' => $action,
+                ];
             }
         }
 
-        return $rejections;
+        return $cyclebacks;
     }
 
     /**
-     * Check if a step has a completing action that is still valid (not invalidated by later rejection).
+     * Check if a step has a completing action that is still valid (not invalidated by later cycle-back).
      *
      * @param  list<array<string, mixed>>  $history
-     * @param  list<array{step: string, at: string, targetStep: string}>  $rejections
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
      */
-    private function hasValidCompletingAction(string $code, array $history, array $rejections): bool
+    private function hasValidCompletingAction(string $code, array $history, array $cyclebacks): bool
     {
-        return $this->hasValidAction($code, self::COMPLETING_ACTIONS, $history, $rejections);
+        return $this->hasValidAction($code, self::COMPLETING_ACTIONS, $history, $cyclebacks);
     }
 
     /**
-     * Check if step has a valid action (not invalidated by later rejection).
+     * Check if step has a valid action (not invalidated by later cycle-back).
      *
      * @param  string|list<string>  $actions
      * @param  list<array<string, mixed>>  $history
-     * @param  list<array{step: string, at: string, targetStep: string}>  $rejections
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
      */
-    private function hasValidAction(string $code, string|array $actions, array $history, array $rejections): bool
+    private function hasValidAction(string $code, string|array $actions, array $history, array $cyclebacks): bool
     {
         $actions = (array) $actions;
-        $lastRejectionTime = $this->getLastRejectionTimeAffecting($code, null, $rejections);
+        $lastCyclebackTime = $this->getLastCyclebackTimeAffecting($code, null, $cyclebacks);
 
         foreach (array_reverse($history) as $entry) {
             $entryStep = $entry['step'] ?? '';
@@ -617,7 +651,7 @@ class WorkflowEngine
             if ($entryStep === $code && in_array($entryAction, $actions, true)) {
                 $entryTime = $entry['at'] ?? '';
 
-                if ($lastRejectionTime === null || $entryTime > $lastRejectionTime) {
+                if ($lastCyclebackTime === null || $entryTime > $lastCyclebackTime) {
                     return true;
                 }
             }
@@ -627,20 +661,28 @@ class WorkflowEngine
     }
 
     /**
-     * Get the latest rejection time that invalidates a specific step.
-     * A rejection invalidates all steps from its target up to (but not including) the rejecting step.
+     * Get the latest cycle-back time that invalidates a specific step.
      *
-     * @param  list<array{step: string, at: string, targetStep: string}>  $rejections
+     * For rejection: range is [targetStep, cyclingStep) — cycling step excluded.
+     * For approve/reset: range is [targetStep, cyclingStep] — cycling step included,
+     * because the action that triggered the cycle-back should itself be invalidated.
+     *
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
      */
-    private function getLastRejectionTimeAffecting(string $code, ?WorkflowDefinition $definition, array $rejections): ?string
+    private function getLastCyclebackTimeAffecting(string $code, ?WorkflowDefinition $definition, array $cyclebacks): ?string
     {
         $latest = null;
 
-        foreach ($rejections as $rejection) {
-            if ($this->isStepInRejectionRange($code, $rejection['targetStep'], $rejection['step'])) {
-                if ($latest === null || $rejection['at'] > $latest) {
-                    $latest = $rejection['at'];
-                }
+        foreach ($cyclebacks as $cycleback) {
+            $inRange = $this->isStepInCyclebackRange($code, $cycleback['targetStep'], $cycleback['step']);
+
+            // For non-rejection cyclebacks, the cycling step itself is also invalidated
+            if (! $inRange && $cycleback['action'] !== 'rejected' && $code === $cycleback['step']) {
+                $inRange = true;
+            }
+
+            if ($inRange && ($latest === null || $cycleback['at'] > $latest)) {
+                $latest = $cycleback['at'];
             }
         }
 
@@ -648,20 +690,39 @@ class WorkflowEngine
     }
 
     /**
-     * Check if a step code falls within the range of steps invalidated by a rejection.
-     * Range: from targetStep (inclusive) to rejectingStep (exclusive).
+     * Check if a step has any cycleback originating from its rejected action.
+     *
+     * Used to distinguish parallel approval steps (rejection = vote, completing)
+     * from steps with entry-level cycleTarget (rejection = real cycle-back).
+     *
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
      */
-    private function isStepInRejectionRange(string $code, string $targetStep, string $rejectingStep): bool
+    private function hasRejectionCycleback(string $code, array $cyclebacks): bool
+    {
+        foreach ($cyclebacks as $cycleback) {
+            if ($cycleback['step'] === $code && $cycleback['action'] === 'rejected') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if a step code falls within the range of steps invalidated by a cycle-back.
+     * Range: from targetStep (inclusive) to cyclingStep (exclusive).
+     */
+    private function isStepInCyclebackRange(string $code, string $targetStep, string $cyclingStep): bool
     {
         $codeIndex = array_search($code, $this->stepOrder);
         $targetIndex = array_search($targetStep, $this->stepOrder);
-        $rejectingIndex = array_search($rejectingStep, $this->stepOrder);
+        $cyclingIndex = array_search($cyclingStep, $this->stepOrder);
 
-        if ($codeIndex === false || $targetIndex === false || $rejectingIndex === false) {
+        if ($codeIndex === false || $targetIndex === false || $cyclingIndex === false) {
             return false;
         }
 
-        return $codeIndex >= $targetIndex && $codeIndex < $rejectingIndex;
+        return $codeIndex >= $targetIndex && $codeIndex < $cyclingIndex;
     }
 
     /**
@@ -669,12 +730,12 @@ class WorkflowEngine
      *
      * @param  list<string>  $prereqs
      * @param  list<array<string, mixed>>  $history
-     * @param  list<array{step: string, at: string, targetStep: string}>  $rejections
+     * @param  list<array{step: string, at: string, targetStep: string, action: string}>  $cyclebacks
      */
-    private function arePrerequisitesMet(WorkflowDefinition $definition, array $prereqs, array $history, array $rejections): bool
+    private function arePrerequisitesMet(WorkflowDefinition $definition, array $prereqs, array $history, array $cyclebacks): bool
     {
         foreach ($prereqs as $prereq) {
-            $status = $this->computeStepStatus($definition, $prereq, $history, $rejections);
+            $status = $this->computeStepStatus($definition, $prereq, $history, $cyclebacks);
 
             if ($status !== 'completed' && $status !== 'skipped') {
                 return false;

@@ -2,6 +2,7 @@
 
 namespace App\Models\Pk;
 
+use App\Models\Prbl\Prbl05ItemRealisasi;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -29,9 +30,6 @@ class Pk04Anggaran extends Model
         'status_pencairan',
         'tanggal_pencairan',
         'pencairan_pabd_workflow_id',
-        'nominal_realisasi',
-        'status_realisasi',
-        'prbl_workflow_id',
     ];
 
     /** @return array<string, string> */
@@ -39,7 +37,6 @@ class Pk04Anggaran extends Model
     {
         return [
             'nominal_anggaran' => 'decimal:2',
-            'nominal_realisasi' => 'decimal:2',
             'tanggal_pencairan' => 'date',
         ];
     }
@@ -57,5 +54,16 @@ class Pk04Anggaran extends Model
     public function catatanPerubahan(): HasMany
     {
         return $this->hasMany(Pk04AnggaranCatatanPerubahan::class, 'pk04_anggaran_id');
+    }
+
+    /**
+     * Check if this anggaran has a Tier 3 realisasi lock (PRBL05 compiled).
+     *
+     * An anggaran is Tier 3 locked when a prbl05_item_realisasi row
+     * references it, meaning it has been included in a PRBL final report.
+     */
+    public function hasRealisasiLock(): bool
+    {
+        return Prbl05ItemRealisasi::where('pk04_anggaran_id', $this->id)->exists();
     }
 }

@@ -25,6 +25,10 @@ class Pp03SubmitRequest extends FormRequest
             'item_plafon_anggaran.*.nama_rekening' => ['required', 'string', 'max:255'],
             'item_plafon_anggaran.*.nomor_rekening' => ['required', 'string', 'max:50'],
             'item_plafon_anggaran.*.catatan' => ['nullable', 'string'],
+            'rekening_organisasi' => ['nullable', 'array'],
+            'rekening_organisasi.*.nama_bank' => ['required_with:rekening_organisasi', 'string', 'max:255'],
+            'rekening_organisasi.*.nama_rekening' => ['required_with:rekening_organisasi', 'string', 'max:255'],
+            'rekening_organisasi.*.nomor_rekening' => ['required_with:rekening_organisasi', 'string', 'max:50'],
             'expected_updated_at' => ['required', 'string'],
             'notes' => ['nullable', 'string'],
             'files' => ['nullable', 'array'],
@@ -48,6 +52,9 @@ class Pp03SubmitRequest extends FormRequest
             'item_plafon_anggaran.*.nama_bank.required' => 'Nama bank wajib diisi.',
             'item_plafon_anggaran.*.nama_rekening.required' => 'Nama rekening wajib diisi.',
             'item_plafon_anggaran.*.nomor_rekening.required' => 'Nomor rekening wajib diisi.',
+            'rekening_organisasi.*.nama_bank.required_with' => 'Nama bank rekening organisasi wajib diisi.',
+            'rekening_organisasi.*.nama_rekening.required_with' => 'Nama rekening organisasi wajib diisi.',
+            'rekening_organisasi.*.nomor_rekening.required_with' => 'Nomor rekening organisasi wajib diisi.',
         ];
     }
 }

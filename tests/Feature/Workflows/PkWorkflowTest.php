@@ -2815,3 +2815,449 @@ it('shows canRevise for completed PK with admin pk05.create permission', functio
             ->where('canTerminate', false)
         );
 });
+
+// ── Budget Counter: proposalReview & proposalDraft ──
+
+function createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, float $nominal = 1000000): PkWorkflow
+{
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    $pkWorkflow = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'proposal',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $team->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [],
+    ]);
+
+    $pk01 = Pk01Data::create(['pk_workflow_id' => $pkWorkflow->id, 'kode_kategori' => 'K01', 'nama_program' => 'Proposal Draft']);
+    $kegiatan = $pk01->kegiatan()->create(['nama_kegiatan' => 'Kegiatan Proposal', 'bulan' => 6]);
+    $kegiatan->anggaran()->create([
+        'kode_bidang' => 'B01', 'kode_sub_bidang' => 'SB01', 'kode_jenis' => 'J01',
+        'mata_anggaran' => 'Konsumsi', 'deskripsi_pk' => 'Anggaran proposal', 'nominal_anggaran' => $nominal,
+    ]);
+
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK01', action: 'created', userId: $user->id, sessionContext: $ctx, table: 'pk01_data', dataId: $pk01->id);
+
+    return $pkWorkflow->fresh();
+}
+
+function createProposalPkAtPk02($workspace, $team, $ppWorkflow, $user, $role, float $nominal = 2000000): PkWorkflow
+{
+    $pkWorkflow = createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, $nominal);
+    $pk01 = $pkWorkflow->latestPk01();
+
+    $engine = new WorkflowEngine;
+    $ctx = ['role' => $role->id, 'team' => $team->id, 'org' => $role->team->organization->id, 'workspace' => $workspace->id];
+
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK01', action: 'submitted', userId: $user->id, sessionContext: $ctx, table: 'pk01_data', dataId: $pk01->id);
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02A', action: 'created', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pkWorkflow, step: 'PK02B', action: 'created', userId: null, sessionContext: []);
+
+    return $pkWorkflow->fresh();
+}
+
+it('returns zero proposalReview and proposalDraft when no proposals exist', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalAccepted', 0)
+            ->where('budgetCounter.proposalReview', 0)
+            ->where('budgetCounter.proposalDraft', 0)
+        );
+});
+
+it('counts proposalDraft from proposal PKs at PK01 step', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a raker PK (the one we'll view)
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create two proposal PKs at PK01 (draft stage)
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 1500000);
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 500000);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalDraft', 2000000)
+            ->where('budgetCounter.proposalReview', 0)
+        );
+});
+
+it('counts proposalReview from proposal PKs at PK02A/PK02B step', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a raker PK (the one we'll view)
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create proposal PKs: one at PK02 (review), one at PK01 (draft)
+    createProposalPkAtPk02($workspace, $team, $ppWorkflow, $user, $role, 3000000);
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 750000);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalReview', 3000000)
+            ->where('budgetCounter.proposalDraft', 750000)
+            ->where('budgetCounter.proposalAccepted', 0)
+        );
+});
+
+it('keeps proposalAccepted correct alongside proposalReview and proposalDraft', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'team.workflows.pk.pk01.show',
+        'team.workflows.pk.pk01.draft',
+        'team.workflows.pk.pk01.submit',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+
+    // Create a raker PK (the one we'll view)
+    [$pkWorkflow, $pk01] = setupPkWorkflow($workspace, $team, $ppWorkflow, $user, $role);
+
+    // Create a completed proposal PK (at PK04) — manually create PK04 anggaran
+    $completedProposal = PkWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'tipe' => 'proposal',
+        'created_by_user_id' => $user->id,
+        'created_by_role_id' => $role->id,
+        'created_by_team_id' => $team->id,
+        'created_by_org_id' => $role->team->organization->id,
+        'history' => [
+            ['step' => 'PK04', 'action' => 'completed', 'by' => null, 'role' => null, 'team' => null, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->toIso8601String()],
+        ],
+    ]);
+
+    $pk04Pt = \App\Models\Pk\Pk04ProgramTahunan::create([
+        'pk_workflow_id' => $completedProposal->id,
+        'kode_kategori' => 'K01',
+        'nama_program' => 'Proposal Completed',
+        'deskripsi_program' => 'Deskripsi proposal selesai',
+        'tujuan_program' => 'Tujuan proposal selesai',
+        'nomer_program' => 1,
+        'revision' => 0,
+        'pk01_created_by_user_name' => 'Test User',
+        'pk01_created_by_role_name' => 'Test Role',
+        'pk01_created_by_team_name' => 'Test Team',
+        'pk01_created_by_organization_name' => 'Test Org',
+        'pk01_created_by_workspace_name' => 'Test WS',
+        'pk01_created_at' => now(),
+    ]);
+    $pk04Keg = $pk04Pt->kegiatan()->create(['nama_kegiatan' => 'Kegiatan Selesai', 'bulan' => 4, 'nomer_kegiatan' => 1]);
+    $pk04Keg->anggaran()->create([
+        'kode_bidang' => 'B01', 'kode_sub_bidang' => 'SB01', 'kode_jenis' => 'J01',
+        'mata_anggaran' => 'Konsumsi', 'deskripsi_pk' => 'Anggaran proposal selesai',
+        'nominal_anggaran' => 5000000, 'nomer_anggaran' => 1, 'status_item' => 'active',
+    ]);
+
+    // Create in-progress proposal PKs
+    createProposalPkAtPk02($workspace, $team, $ppWorkflow, $user, $role, 2000000);
+    createProposalPkAtPk01($workspace, $team, $ppWorkflow, $user, $role, 1000000);
+
+    $this->get(route('team.workflows.pk.pk01.show', ['pkWorkflow' => $pkWorkflow, 'pk01Data' => $pk01]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('budgetCounter.proposalAccepted', 5000000)
+            ->where('budgetCounter.proposalReview', 2000000)
+            ->where('budgetCounter.proposalDraft', 1000000)
+        );
+});
+
+// ════════════════════════════════════════════════════════════
+// PK05: Tier 3 Realisasi Lock (PRBL05 compiled items frozen)
+// ════════════════════════════════════════════════════════════
+
+it('treats anggaran with prbl05_item_realisasi as Tier 3 locked in PK05', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $anggaran = $pk04->kegiatan->first()->anggaran->first();
+
+    // Create dummy PABD + PRBL workflows for the FK
+    $pabdWorkflow = \App\Models\Pabd\PabdWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_anggaran' => 3,
+        'tahun_anggaran' => now()->year,
+        'history' => [],
+    ]);
+    $prblWorkflow = \App\Models\Prbl\PrblWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pabd_workflow_id' => $pabdWorkflow->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_laporan' => 3,
+        'tahun_laporan' => now()->year,
+        'history' => [],
+    ]);
+
+    // Simulate PRBL05 compile having snapshotted this anggaran
+    $prbl05 = \App\Models\Prbl\Prbl05LaporanBulanan::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'prbl01_created_by_user_name' => 'Test',
+        'prbl01_created_by_role_name' => 'Test',
+        'prbl01_created_by_team_name' => 'Test',
+        'prbl01_created_by_organization_name' => 'Test',
+        'prbl01_created_by_workspace_name' => 'Test',
+        'prbl01_created_at' => now(),
+        'prbl02a_approved_by_user_name' => 'Test',
+        'prbl02a_approved_by_role_name' => 'Test',
+        'prbl02a_approved_by_team_name' => 'Test',
+        'prbl02a_approved_by_organization_name' => 'Test',
+        'prbl02a_approved_by_workspace_name' => 'Test',
+        'prbl02a_approved_at' => now(),
+        'prbl02b_approved_by_user_name' => 'Test',
+        'prbl02b_approved_by_role_name' => 'Test',
+        'prbl02b_approved_by_team_name' => 'Test',
+        'prbl02b_approved_by_organization_name' => 'Test',
+        'prbl02b_approved_by_workspace_name' => 'Test',
+        'prbl02b_approved_at' => now(),
+        'prbl03_created_by_user_name' => 'Test',
+        'prbl03_created_by_role_name' => 'Test',
+        'prbl03_created_by_team_name' => 'Test',
+        'prbl03_created_by_organization_name' => 'Test',
+        'prbl03_created_by_workspace_name' => 'Test',
+        'prbl03_created_at' => now(),
+        'prbl04_approved_by_user_name' => 'Test',
+        'prbl04_approved_by_role_name' => 'Test',
+        'prbl04_approved_by_team_name' => 'Test',
+        'prbl04_approved_by_organization_name' => 'Test',
+        'prbl04_approved_by_workspace_name' => 'Test',
+        'prbl04_approved_at' => now(),
+        'total_anggaran_dicairkan' => 5000000,
+        'total_realisasi' => 4500000,
+        'total_refund' => 500000,
+        'total_item' => 1,
+    ]);
+
+    \App\Models\Prbl\Prbl05ItemRealisasi::create([
+        'prbl05_laporan_bulanan_id' => $prbl05->id,
+        'pk04_anggaran_id' => $anggaran->id,
+        'nominal_anggaran' => $anggaran->nominal_anggaran,
+        'nominal_realisasi' => 4500000,
+        'selisih' => (float) $anggaran->nominal_anggaran - 4500000,
+    ]);
+
+    // hasRealisasiLock() should return true
+    expect($anggaran->hasRealisasiLock())->toBeTrue();
+
+    // PK05 show should report this anggaran as locked with 'sudah_dilaporkan'
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05Data = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    $this->get(route('admin.workflows.pk.pk05.show', [$pkWorkflow, $pk05Data]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('stepData.draft_data.kegiatan.0.anggaran.0.is_locked', true)
+            ->where('stepData.draft_data.kegiatan.0.anggaran.0.lock_reason', 'sudah_dilaporkan')
+        );
+});
+
+it('shows Tier 3 realisasi lock indicators on PK04 show page', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk04.show',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $anggaran = $pk04->kegiatan->first()->anggaran->first();
+
+    // Create dummy PABD + PRBL + PRBL05 with item referencing this anggaran
+    $pabdWorkflow = \App\Models\Pabd\PabdWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_anggaran' => 3,
+        'tahun_anggaran' => now()->year,
+        'history' => [],
+    ]);
+    $prblWorkflow = \App\Models\Prbl\PrblWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pabd_workflow_id' => $pabdWorkflow->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_laporan' => 3,
+        'tahun_laporan' => now()->year,
+        'history' => [],
+    ]);
+    $prbl05 = \App\Models\Prbl\Prbl05LaporanBulanan::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'prbl01_created_by_user_name' => 'Test',
+        'prbl01_created_by_role_name' => 'Test',
+        'prbl01_created_by_team_name' => 'Test',
+        'prbl01_created_by_organization_name' => 'Test',
+        'prbl01_created_by_workspace_name' => 'Test',
+        'prbl01_created_at' => now(),
+        'prbl02a_approved_by_user_name' => 'Test',
+        'prbl02a_approved_by_role_name' => 'Test',
+        'prbl02a_approved_by_team_name' => 'Test',
+        'prbl02a_approved_by_organization_name' => 'Test',
+        'prbl02a_approved_by_workspace_name' => 'Test',
+        'prbl02a_approved_at' => now(),
+        'prbl02b_approved_by_user_name' => 'Test',
+        'prbl02b_approved_by_role_name' => 'Test',
+        'prbl02b_approved_by_team_name' => 'Test',
+        'prbl02b_approved_by_organization_name' => 'Test',
+        'prbl02b_approved_by_workspace_name' => 'Test',
+        'prbl02b_approved_at' => now(),
+        'prbl03_created_by_user_name' => 'Test',
+        'prbl03_created_by_role_name' => 'Test',
+        'prbl03_created_by_team_name' => 'Test',
+        'prbl03_created_by_organization_name' => 'Test',
+        'prbl03_created_by_workspace_name' => 'Test',
+        'prbl03_created_at' => now(),
+        'prbl04_approved_by_user_name' => 'Test',
+        'prbl04_approved_by_role_name' => 'Test',
+        'prbl04_approved_by_team_name' => 'Test',
+        'prbl04_approved_by_organization_name' => 'Test',
+        'prbl04_approved_by_workspace_name' => 'Test',
+        'prbl04_approved_at' => now(),
+        'total_anggaran_dicairkan' => 5000000,
+        'total_realisasi' => 4500000,
+        'total_refund' => 500000,
+        'total_item' => 1,
+    ]);
+    \App\Models\Prbl\Prbl05ItemRealisasi::create([
+        'prbl05_laporan_bulanan_id' => $prbl05->id,
+        'pk04_anggaran_id' => $anggaran->id,
+        'nominal_anggaran' => $anggaran->nominal_anggaran,
+        'nominal_realisasi' => 4500000,
+        'selisih' => (float) $anggaran->nominal_anggaran - 4500000,
+    ]);
+
+    // PK04 show should report this anggaran as locked with 'sudah_dilaporkan'
+    $this->get(route('admin.workflows.pk.pk04.show', $pkWorkflow))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('pk04Data.kegiatan.0.anggaran.0.is_locked', true)
+            ->where('pk04Data.kegiatan.0.anggaran.0.lock_reason', 'sudah_dilaporkan')
+        );
+});
+
+it('blocks nominal changes on Tier 3 locked anggaran during PK05 recompile', function () {
+    [$user, $role, $workspace, $team] = setupPkUser(
+        'admin.workflows.pk.pk05.show',
+        'admin.workflows.pk.pk05.create',
+        'admin.workflows.pk.pk05.draft',
+        'admin.workflows.pk.pk05.submit',
+        'admin.workflows.pk.pk04.show',
+        'admin.workflows.pk.pk03.approve',
+    );
+    activatePkSession($this, $user, $role, $workspace);
+    [$ppWorkflow] = setupCompletedPp($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPkAtPk04($workspace, $team, $ppWorkflow, $user, $role);
+
+    $anggaran = $pk04->kegiatan->first()->anggaran->first();
+    $originalNominal = (float) $anggaran->nominal_anggaran;
+
+    // Create dummy PABD + PRBL workflows for the FK
+    $pabdWorkflow2 = \App\Models\Pabd\PabdWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_anggaran' => 3,
+        'tahun_anggaran' => now()->year,
+        'history' => [],
+    ]);
+    $prblWorkflow = \App\Models\Prbl\PrblWorkflow::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pabd_workflow_id' => $pabdWorkflow2->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_laporan' => 3,
+        'tahun_laporan' => now()->year,
+        'history' => [],
+    ]);
+
+    // Simulate PRBL05 compile
+    $prbl05 = \App\Models\Prbl\Prbl05LaporanBulanan::create([
+        'prbl_workflow_id' => $prblWorkflow->id,
+        'prbl01_created_by_user_name' => 'Test', 'prbl01_created_by_role_name' => 'Test',
+        'prbl01_created_by_team_name' => 'Test', 'prbl01_created_by_organization_name' => 'Test',
+        'prbl01_created_by_workspace_name' => 'Test', 'prbl01_created_at' => now(),
+        'prbl02a_approved_by_user_name' => 'Test', 'prbl02a_approved_by_role_name' => 'Test',
+        'prbl02a_approved_by_team_name' => 'Test', 'prbl02a_approved_by_organization_name' => 'Test',
+        'prbl02a_approved_by_workspace_name' => 'Test', 'prbl02a_approved_at' => now(),
+        'prbl02b_approved_by_user_name' => 'Test', 'prbl02b_approved_by_role_name' => 'Test',
+        'prbl02b_approved_by_team_name' => 'Test', 'prbl02b_approved_by_organization_name' => 'Test',
+        'prbl02b_approved_by_workspace_name' => 'Test', 'prbl02b_approved_at' => now(),
+        'prbl03_created_by_user_name' => 'Test', 'prbl03_created_by_role_name' => 'Test',
+        'prbl03_created_by_team_name' => 'Test', 'prbl03_created_by_organization_name' => 'Test',
+        'prbl03_created_by_workspace_name' => 'Test', 'prbl03_created_at' => now(),
+        'prbl04_approved_by_user_name' => 'Test', 'prbl04_approved_by_role_name' => 'Test',
+        'prbl04_approved_by_team_name' => 'Test', 'prbl04_approved_by_organization_name' => 'Test',
+        'prbl04_approved_by_workspace_name' => 'Test', 'prbl04_approved_at' => now(),
+        'total_anggaran_dicairkan' => 5000000, 'total_realisasi' => 4500000,
+        'total_refund' => 500000, 'total_item' => 1,
+    ]);
+
+    \App\Models\Prbl\Prbl05ItemRealisasi::create([
+        'prbl05_laporan_bulanan_id' => $prbl05->id,
+        'pk04_anggaran_id' => $anggaran->id,
+        'nominal_anggaran' => $originalNominal,
+        'nominal_realisasi' => 4500000,
+        'selisih' => $originalNominal - 4500000,
+    ]);
+
+    // Create PK05 draft
+    $this->post(route('admin.workflows.pk.pk05.create', $pkWorkflow));
+    $pk05Data = \App\Models\Pk\Pk05Data::where('pk_workflow_id', $pkWorkflow->id)->first();
+
+    // Attempt to change nominal on locked anggaran
+    $submitData = validPk05DraftData($pk04, $pk05Data->updated_at->toIso8601String(), ['nominal_anggaran' => 9999999]);
+    $this->post(route('admin.workflows.pk.pk05.submit', [$pkWorkflow, $pk05Data]), $submitData)
+        ->assertRedirect();
+
+    // Nominal should NOT have changed — Tier 3 lock prevents edits
+    $anggaran->refresh();
+    expect((float) $anggaran->nominal_anggaran)->toBe($originalNominal);
+});

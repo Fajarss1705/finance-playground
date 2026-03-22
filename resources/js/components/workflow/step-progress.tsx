@@ -14,6 +14,8 @@ export type StepperStep = {
     roles?: string[];
     stepType?: 'form' | 'approval' | 'final' | 'revision';
     parallelGroup?: string | null;
+    branchGroup?: string | null;
+    branchTarget?: string | null;
 };
 
 export type StepperCycle = {
@@ -55,7 +57,9 @@ function stepShortLabel(code: string): string {
 }
 
 function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: number; activeRoleName?: string | null }) {
-    const roles = step.roles ?? [];
+    const rawRoles = step.roles ?? [];
+    // Normalize roles: can be strings or {name, users} objects
+    const roles: string[] = rawRoles.map((r: string | { name: string }) => typeof r === 'string' ? r : r.name);
     const hasAccess = activeRoleName ? roles.includes(activeRoleName) : false;
     const isYourTurn = step.status === 'active' && hasAccess;
     const isFinal = step.stepType === 'final';
@@ -262,18 +266,23 @@ function Bracket({ color, side, count, rowHeight, gap }: {
     );
 }
 
+type Segment =
+    | { type: 'step'; step: StepperStep }
+    | { type: 'parallel'; steps: StepperStep[] }
+    | { type: 'branch'; steps: StepperStep[] };
+
 /**
- * Groups steps into segments: sequential steps and parallel groups.
- * Returns an array of { type: 'step', step } | { type: 'parallel', steps[] }
+ * Groups steps into segments: sequential steps, parallel groups, and branch groups.
+ * - parallelGroup: fork/join (both arms run simultaneously, e.g. PK02A+PK02B)
+ * - branchGroup: sub-loop off previous step (e.g. PABD02A+02B loops back to PABD01)
  */
-function groupSteps(steps: StepperStep[]) {
-    const segments: ({ type: 'step'; step: StepperStep } | { type: 'parallel'; steps: StepperStep[] })[] = [];
+function groupSteps(steps: StepperStep[]): Segment[] {
+    const segments: Segment[] = [];
     let i = 0;
 
     while (i < steps.length) {
         const step = steps[i];
         if (step.parallelGroup) {
-            // Collect all consecutive steps with the same parallelGroup
             const group: StepperStep[] = [];
             const groupId = step.parallelGroup;
             while (i < steps.length && steps[i].parallelGroup === groupId) {
@@ -281,6 +290,14 @@ function groupSteps(steps: StepperStep[]) {
                 i++;
             }
             segments.push({ type: 'parallel', steps: group });
+        } else if (step.branchGroup) {
+            const group: StepperStep[] = [];
+            const groupId = step.branchGroup;
+            while (i < steps.length && steps[i].branchGroup === groupId) {
+                group.push(steps[i]);
+                i++;
+            }
+            segments.push({ type: 'branch', steps: group });
         } else {
             segments.push({ type: 'step', step });
             i++;
@@ -290,88 +307,121 @@ function groupSteps(steps: StepperStep[]) {
     return segments;
 }
 
+/**
+ * SVG down-right elbow connector for branch groups.
+ * Draws: vertical down from parent dot, then curves right into the branch.
+ */
+function BranchElbow({ color }: { color: string }) {
+    const stroke = bgToStroke(color);
+    return (
+        <svg width="24" height="48" className="shrink-0 -mt-12" style={{ marginBottom: '-16px' }}>
+            <path
+                d="M 4 0 V 16 Q 4 26 14 26 H 24"
+                fill="none" stroke={stroke} strokeWidth={2} strokeLinecap="round"
+            />
+        </svg>
+    );
+}
+
 function StepRow({ steps, activeRoleName }: { steps: StepperStep[]; activeRoleName?: string | null }) {
     const segments = groupSteps(steps);
     let globalIndex = 0;
 
+    // Separate main-line segments from branch segments
+    const mainSegments = segments.filter(s => s.type !== 'branch');
+    const branchSegments = segments.filter(s => s.type === 'branch');
+
     return (
-        <div className="flex items-center gap-0 overflow-x-auto pb-6 pl-8 pt-1">
-            {segments.map((segment, segIdx) => {
-                if (segment.type === 'step') {
-                    const idx = globalIndex++;
-                    const lineColor = resolveLineColor(segment.step);
+        <div className="space-y-0 overflow-x-auto pb-6 pl-8 pt-1">
+            {/* Main line */}
+            <div className="flex items-center gap-0">
+                {mainSegments.map((segment, segIdx) => {
+                    if (segment.type === 'step') {
+                        const idx = globalIndex++;
+                        const lineColor = resolveLineColor(segment.step);
+
+                        return (
+                            <div key={`${segment.step.code}-${segIdx}`} className="flex items-center">
+                                <StepDot step={segment.step} index={idx} activeRoleName={activeRoleName} />
+                                {segIdx < mainSegments.length - 1 && (
+                                    <HLine className={cn('-mt-4.5', lineColor)} />
+                                )}
+                            </div>
+                        );
+                    }
+
+                    // Parallel group — fork/join rendering
+                    const parallelSteps = segment.steps;
+                    const startIdx = globalIndex;
+                    globalIndex += parallelSteps.length;
+
+                    const prevSegment = segIdx > 0 ? mainSegments[segIdx - 1] : null;
+                    const forkLineColor = prevSegment
+                        ? prevSegment.type === 'step'
+                            ? resolveLineColor(prevSegment.step)
+                            : resolveLineColor(prevSegment.steps[prevSegment.steps.length - 1])
+                        : 'bg-muted';
+
+                    const allCompleted = parallelSteps.every(s => s.status === 'completed');
+                    const anyRejected = parallelSteps.some(s => s.status === 'rejected');
+                    const joinLineColor = allCompleted ? 'bg-green-500' : anyRejected ? 'bg-red-500' : 'bg-muted';
+
+                    const hasNext = segIdx < mainSegments.length - 1;
+                    const rowHeight = 52;
+                    const rowGap = 28;
 
                     return (
-                        <div key={`${segment.step.code}-${segIdx}`} className="flex items-center">
-                            <StepDot step={segment.step} index={idx} activeRoleName={activeRoleName} />
-                            {segIdx < segments.length - 1 && (
-                                <HLine className={cn('-mt-4.5', lineColor)} />
-                            )}
+                        <div key={`parallel-${segIdx}`} className="flex items-start">
+                            <Bracket color={forkLineColor} side="fork" count={parallelSteps.length} rowHeight={rowHeight} gap={rowGap} />
+                            <div className="flex flex-col gap-7">
+                                {parallelSteps.map((pStep, pIdx) => (
+                                    <div key={pStep.code} className="flex items-center">
+                                        <StepDot step={pStep} index={startIdx + pIdx} activeRoleName={activeRoleName} />
+                                    </div>
+                                ))}
+                            </div>
+                            <Bracket color={joinLineColor} side="join" count={parallelSteps.length} rowHeight={rowHeight} gap={rowGap} />
+                            {hasNext && (() => {
+                                const labelOffset = 10;
+                                const topDotY = rowHeight / 2 - labelOffset;
+                                const bottomDotY = (parallelSteps.length - 1) * (rowHeight + rowGap) + rowHeight / 2 - labelOffset;
+                                const midY = (topDotY + bottomDotY) / 2;
+                                return <HLine className={joinLineColor} style={{ marginTop: midY - 1 }} />;
+                            })()}
                         </div>
                     );
-                }
+                })}
+            </div>
 
-                // Parallel group — fork/join rendering
-                const parallelSteps = segment.steps;
-                const startIdx = globalIndex;
-                globalIndex += parallelSteps.length;
-
-                // Determine fork line color (from the step before this group)
-                const prevSegment = segIdx > 0 ? segments[segIdx - 1] : null;
-                const forkLineColor = prevSegment
-                    ? prevSegment.type === 'step'
-                        ? resolveLineColor(prevSegment.step)
-                        : resolveLineColor(prevSegment.steps[prevSegment.steps.length - 1])
+            {/* Branch sub-loops (rendered below main line) */}
+            {branchSegments.map((segment) => {
+                if (segment.type !== 'branch') return null;
+                const branchSteps = segment.steps;
+                const allSkipped = branchSteps.every(s => s.status === 'skipped');
+                const anyActive = branchSteps.some(s => s.status === 'active');
+                const allCompleted = branchSteps.every(s => s.status === 'completed');
+                const branchColor = allSkipped ? 'bg-gray-300 dark:bg-gray-700'
+                    : allCompleted ? 'bg-green-500'
+                    : anyActive ? 'bg-blue-500'
                     : 'bg-muted';
-
-                // Join line color — best status of parallel steps
-                const allCompleted = parallelSteps.every(s => s.status === 'completed');
-                const anyRejected = parallelSteps.some(s => s.status === 'rejected');
-                const joinLineColor = allCompleted ? 'bg-green-500' : anyRejected ? 'bg-red-500' : 'bg-muted';
-
-                const hasNext = segIdx < segments.length - 1;
-
-                // Row measurements for SVG bracket alignment
-                const rowHeight = 52; // h-8 dot + gap-1 + label ≈ 52px
-                const rowGap = 28; // gap-7 — enough space for turn labels
+                const startIdx = globalIndex;
+                globalIndex += branchSteps.length;
 
                 return (
-                    <div key={`parallel-${segIdx}`} className="flex items-start">
-                        {/* Fork bracket ┤ */}
-                        <Bracket
-                            color={forkLineColor}
-                            side="fork"
-                            count={parallelSteps.length}
-                            rowHeight={rowHeight}
-                            gap={rowGap}
-                        />
+                    <div key={`branch-${branchSteps[0].code}`} className="flex items-center gap-0 pl-2 mt-4">
+                        {/* Down-right elbow from parent step */}
+                        <BranchElbow color={branchColor} />
 
-                        {/* Parallel step dots */}
-                        <div className="flex flex-col gap-7">
-                            {parallelSteps.map((pStep, pIdx) => (
-                                <div key={pStep.code} className="flex items-center">
-                                    <StepDot step={pStep} index={startIdx + pIdx} activeRoleName={activeRoleName} />
-                                </div>
-                            ))}
-                        </div>
+                        {/* Branch step dots with lines between them */}
+                        {branchSteps.map((bStep, bIdx) => (
+                            <div key={bStep.code} className="flex items-center">
+                                <StepDot step={bStep} index={startIdx + bIdx} activeRoleName={activeRoleName} />
+                                {bIdx < branchSteps.length - 1 && (
+                                    <HLine className={cn('-mt-4.5', resolveLineColor(bStep))} />
+                                )}
+                            </div>
+                        ))}
 
-                        {/* Join bracket ├ */}
-                        <Bracket
-                            color={joinLineColor}
-                            side="join"
-                            count={parallelSteps.length}
-                            rowHeight={rowHeight}
-                            gap={rowGap}
-                        />
-
-                        {/* Line to next step — positioned at midpoint between dot centers */}
-                        {hasNext && (() => {
-                            const labelOffset = 10;
-                            const topDotY = rowHeight / 2 - labelOffset;
-                            const bottomDotY = (parallelSteps.length - 1) * (rowHeight + rowGap) + rowHeight / 2 - labelOffset;
-                            const midY = (topDotY + bottomDotY) / 2;
-                            return <HLine className={joinLineColor} style={{ marginTop: midY - 1 }} />;
-                        })()}
                     </div>
                 );
             })}

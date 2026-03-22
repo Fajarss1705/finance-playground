@@ -11,6 +11,7 @@ use App\Models\Pp\Pp06KodeJenisProgram;
 use App\Models\Pp\Pp06KodeKategoriPelayanan;
 use App\Models\Pp\Pp06KodeSubBidangPelayanan;
 use App\Models\Pp\Pp06PeriodeTahunan;
+use App\Models\Pp\Pp06RekeningOrganisasi;
 use App\Models\Pp\PpWorkflow;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -66,6 +67,16 @@ class PpCompileService
                     'nama_rekening' => $item->nama_rekening,
                     'nomor_rekening' => $item->nomor_rekening,
                     'catatan' => $item->catatan,
+                ]);
+            }
+
+            // Copy rekening organisasi from PP03
+            foreach ($pp03->rekeningOrganisasi as $item) {
+                Pp06RekeningOrganisasi::create([
+                    'pp06_periode_tahunan_id' => $pp06->id,
+                    'nama_bank' => $item->nama_bank,
+                    'nama_rekening' => $item->nama_rekening,
+                    'nomor_rekening' => $item->nomor_rekening,
                 ]);
             }
 
@@ -148,6 +159,15 @@ class PpCompileService
                 ]);
             }
 
+            foreach ($draftData['rekening_organisasi'] ?? [] as $item) {
+                Pp06RekeningOrganisasi::create([
+                    'pp06_periode_tahunan_id' => $pp06->id,
+                    'nama_bank' => $item['nama_bank'],
+                    'nama_rekening' => $item['nama_rekening'],
+                    'nomor_rekening' => $item['nomor_rekening'],
+                ]);
+            }
+
             $this->generateVerificationCode($pp06);
 
             return $pp06;
@@ -168,6 +188,7 @@ class PpCompileService
             'kodeBidangPelayanan', 'kodeSubBidangPelayanan',
             'kodeKategoriPelayanan', 'kodeJenisProgram',
             'itemKuisioner', 'itemPlafonAnggaran', 'itemDokumenSop',
+            'rekeningOrganisasi',
         ]);
 
         $mapKode = fn ($item) => [
@@ -207,6 +228,12 @@ class PpCompileService
             'item_dokumen_sop' => $pp06->itemDokumenSop
                 ->sortBy('file_id')->map(fn ($item) => [
                     'file_id' => $item->file_id,
+                ])->values()->all(),
+            'rekening_organisasi' => $pp06->rekeningOrganisasi
+                ->sortBy('id')->map(fn ($item) => [
+                    'nama_bank' => $item->nama_bank ?? '',
+                    'nama_rekening' => $item->nama_rekening ?? '',
+                    'nomor_rekening' => $item->nomor_rekening ?? '',
                 ])->values()->all(),
         ];
     }
@@ -416,6 +443,9 @@ class PpCompileService
 
         // 5. Dokumen SOP
         $this->diffDokumen($previousPp06, $draftData, $changes);
+
+        // 6. Rekening Organisasi
+        $this->diffRekeningOrganisasi($previousPp06, $draftData, $changes);
 
         return $changes;
     }
@@ -704,6 +734,67 @@ class PpCompileService
                 $changes[] = [
                     'type' => 'dokumen_removed',
                     'description' => "Dokumen SOP dihapus: \"{$name}\"",
+                ];
+            }
+        }
+    }
+
+    /**
+     * @param  list<array{type: string, description: string}>  $changes
+     */
+    private function diffRekeningOrganisasi(Pp06PeriodeTahunan $old, array $new, array &$changes): void
+    {
+        $old->loadMissing('rekeningOrganisasi');
+
+        $oldItems = $old->rekeningOrganisasi->map(fn ($item) => [
+            'nama_bank' => $item->nama_bank,
+            'nama_rekening' => $item->nama_rekening,
+            'nomor_rekening' => $item->nomor_rekening,
+        ])->values()->all();
+
+        $newItems = $new['rekening_organisasi'] ?? [];
+
+        // Match by nomor_rekening as key
+        $oldByNomor = collect($oldItems)->keyBy('nomor_rekening');
+        $newByNomor = collect($newItems)->keyBy('nomor_rekening');
+
+        foreach ($newByNomor as $nomor => $item) {
+            if (! $oldByNomor->has($nomor)) {
+                $changes[] = [
+                    'type' => 'rekening_organisasi_added',
+                    'description' => "Rekening organisasi ditambahkan: {$item['nama_bank']} - {$item['nomor_rekening']}",
+                ];
+            }
+        }
+
+        foreach ($oldByNomor as $nomor => $item) {
+            if (! $newByNomor->has($nomor)) {
+                $changes[] = [
+                    'type' => 'rekening_organisasi_removed',
+                    'description' => "Rekening organisasi dihapus: {$item['nama_bank']} - {$item['nomor_rekening']}",
+                ];
+            }
+        }
+
+        foreach ($newByNomor as $nomor => $newItem) {
+            if (! $oldByNomor->has($nomor)) {
+                continue;
+            }
+
+            $oldItem = $oldByNomor[$nomor];
+            $fieldChanges = [];
+
+            if (($oldItem['nama_bank'] ?? '') !== ($newItem['nama_bank'] ?? '')) {
+                $fieldChanges[] = "nama bank ({$oldItem['nama_bank']} → {$newItem['nama_bank']})";
+            }
+            if (($oldItem['nama_rekening'] ?? '') !== ($newItem['nama_rekening'] ?? '')) {
+                $fieldChanges[] = "nama rekening ({$oldItem['nama_rekening']} → {$newItem['nama_rekening']})";
+            }
+
+            if (! empty($fieldChanges)) {
+                $changes[] = [
+                    'type' => 'rekening_organisasi_changed',
+                    'description' => "Rekening organisasi \"{$nomor}\": ".implode(', ', $fieldChanges).' diubah',
                 ];
             }
         }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Notification;
+use App\Models\Pabd\PabdWorkflow;
 use App\Models\Permission;
 use App\Models\Pp\PpWorkflow;
 use App\Models\Role;
@@ -8,6 +9,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\WorkflowNotifier;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     Mail::fake();
@@ -211,4 +213,287 @@ it('builds correct notification template for pp05.approved', function () {
     expect($first->subject)->toContain('disetujui');
     expect($first->body)->toContain('Hendra Wijaya (Koordinator MONEV)');
     expect($first->body)->toContain('PP06');
+});
+
+// ========================================
+// PABD Notification Tests
+// ========================================
+
+function createPabdWorkspaceWithUsers(): array
+{
+    // Team user (has team-scoped PABD permissions)
+    $teamUser = User::factory()->withRole()->create(['name' => 'Tim Bapel User']);
+    $teamRole = $teamUser->roles->first();
+    $workspace = $teamRole->team->organization->workspaces->first();
+    $organization = $teamRole->team->organization;
+    $team = $teamRole->team;
+
+    $teamPermissions = [
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd05.show',
+    ];
+
+    foreach ($teamPermissions as $name) {
+        $permission = Permission::firstOrCreate(['name' => $name]);
+        $teamRole->permissions()->syncWithoutDetaching($permission);
+    }
+
+    // BU user (admin-scoped — has pabd02b.approve, pabd03.approve, pabd04.submit)
+    $buTeam = Team::factory()->for($organization)->create(['name' => 'Tim BU']);
+    $buRole = Role::factory()->for($buTeam)->create(['name' => 'Bendahara Umum']);
+    $buUser = User::factory()->withRole($buRole, $workspace)->create(['name' => 'BU User PABD']);
+
+    $buPermissions = [
+        'admin.workflows.pabd.pabd02b.approve',
+        'admin.workflows.pabd.pabd03.approve',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.pabd05.show',
+    ];
+
+    foreach ($buPermissions as $name) {
+        $permission = Permission::firstOrCreate(['name' => $name]);
+        $buRole->permissions()->syncWithoutDetaching($permission);
+    }
+
+    $ppWorkflow = PpWorkflow::create([
+        'workspace_id' => $workspace->id,
+        'history' => [],
+    ]);
+
+    $pabdWorkflow = PabdWorkflow::create([
+        'uuid' => (string) Str::uuid(),
+        'workspace_id' => $workspace->id,
+        'team_id' => $team->id,
+        'pp_workflow_id' => $ppWorkflow->id,
+        'bulan_anggaran' => 3,
+        'tahun_anggaran' => 2027,
+        'history' => [],
+    ]);
+
+    return [
+        'workspace' => $workspace,
+        'teamUser' => $teamUser,
+        'teamRole' => $teamRole,
+        'buUser' => $buUser,
+        'buRole' => $buRole,
+        'pabdWorkflow' => $pabdWorkflow,
+    ];
+}
+
+it('sends notifications to PABD01 submitters on pabd.auto_created', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd.auto_created', [
+        'actor_name' => 'Sistem',
+    ]);
+
+    // Team user has team.workflows.pabd.pabd01.submit → should receive
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification->subject)->toContain('dibuat');
+    expect($notification->subject)->toContain('PABD');
+    expect($notification->body)->toContain('Sistem');
+    expect($notification->body)->toContain('PABD01');
+
+    // BU user does NOT have pabd01.submit → should NOT receive
+    expect(Notification::where('user_id', $data['buUser']->id)->count())->toBe(0);
+});
+
+it('sends notifications to PABD02A drafters on pabd01.submitted_change', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd01.submitted_change', [
+        'actor_name' => 'Tim Bapel User',
+        'actor_role' => 'Bapel',
+    ], actorUserId: $data['teamUser']->id);
+
+    // Team user has pabd02a.draft but IS the actor → excluded
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(0);
+
+    // BU user does NOT have pabd02a.draft → should NOT receive
+    expect(Notification::where('user_id', $data['buUser']->id)->count())->toBe(0);
+});
+
+it('sends notifications to PABD03 approvers on pabd01.submitted_skip', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd01.submitted_skip', [
+        'actor_name' => 'Tim Bapel User',
+        'actor_role' => 'Bapel',
+    ], actorUserId: $data['teamUser']->id);
+
+    // BU user has admin.workflows.pabd.pabd03.approve → should receive
+    expect(Notification::where('user_id', $data['buUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['buUser']->id)->first();
+    expect($notification->subject)->toContain('disubmit');
+    expect($notification->body)->toContain('PABD03');
+});
+
+it('sends notifications to PABD02B approvers on pabd02a.submitted', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd02a.submitted', [
+        'actor_name' => 'Tim Bapel User',
+        'actor_role' => 'Bapel',
+    ], actorUserId: $data['teamUser']->id);
+
+    // BU user has admin.workflows.pabd.pabd02b.approve → should receive
+    expect(Notification::where('user_id', $data['buUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['buUser']->id)->first();
+    expect($notification->subject)->toContain('disubmit');
+    expect($notification->body)->toContain('PABD02A');
+});
+
+it('sends notifications to PABD01 submitters on pabd02b.approved (cycle back)', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd02b.approved', [
+        'actor_name' => 'BU User PABD',
+        'actor_role' => 'Bendahara Umum',
+    ], actorUserId: $data['buUser']->id);
+
+    // Team user has team.workflows.pabd.pabd01.submit → should receive
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification->subject)->toContain('disetujui');
+    expect($notification->body)->toContain('PABD02B');
+    expect($notification->body)->toContain('PK04');
+});
+
+it('sends notifications to PABD01 submitters on pabd02b.rejected (cycle back)', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd02b.rejected', [
+        'actor_name' => 'BU User PABD',
+        'actor_role' => 'Bendahara Umum',
+    ], actorUserId: $data['buUser']->id);
+
+    // Team user has team.workflows.pabd.pabd01.submit → should receive
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification->subject)->toContain('ditolak');
+    expect($notification->body)->toContain('PABD02B');
+});
+
+it('sends notifications to PABD04 submitters on pabd03.approved', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd03.approved', [
+        'actor_name' => 'BU User PABD',
+        'actor_role' => 'Bendahara Umum',
+    ], actorUserId: $data['buUser']->id);
+
+    // BU user has admin.workflows.pabd.pabd04.submit but IS the actor → excluded
+    expect(Notification::where('user_id', $data['buUser']->id)->count())->toBe(0);
+});
+
+it('sends notifications to PABD01 submitters on pabd03.rejected', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd03.rejected', [
+        'actor_name' => 'BU User PABD',
+        'actor_role' => 'Bendahara Umum',
+    ], actorUserId: $data['buUser']->id);
+
+    // Team user has team.workflows.pabd.pabd01.submit → should receive
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification->subject)->toContain('ditolak');
+    expect($notification->body)->toContain('PABD03');
+});
+
+it('sends notifications to PABD05 viewers on pabd04.submitted', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd04.submitted', [
+        'actor_name' => 'BU User PABD',
+        'actor_role' => 'Bendahara Umum',
+    ], actorUserId: $data['buUser']->id);
+
+    // Team user has team.workflows.pabd.pabd05.show → should receive
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification->subject)->toContain('dikompilasi');
+    expect($notification->body)->toContain('PABD05');
+});
+
+it('sends notifications to PABD01 submitters on pk04_staleness_reset', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd.pk04_staleness_reset', [
+        'actor_name' => 'Sistem',
+    ]);
+
+    // Team user has team.workflows.pabd.pabd01.submit → should receive
+    expect(Notification::where('user_id', $data['teamUser']->id)->count())->toBe(1);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification->subject)->toContain('direset');
+    expect($notification->body)->toContain('PK04');
+});
+
+it('excludes actor from PABD notifications', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    // Team user submits PABD01 (ada_perubahan) — team user also has pabd02a.draft
+    $notifier->notify($data['pabdWorkflow'], 'pabd01.submitted_change', [
+        'actor_name' => 'Tim Bapel User',
+        'actor_role' => 'Bapel',
+    ], actorUserId: $data['teamUser']->id);
+
+    // Team user IS the actor → excluded (they're the only one with pabd02a.draft)
+    expect(Notification::count())->toBe(0);
+});
+
+it('resolves scope-aware links for PABD notifications', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    // Provide admin_link and team_link — recipients should get the correct one based on role scope
+    $notifier->notify($data['pabdWorkflow'], 'pabd02b.approved', [
+        'actor_name' => 'BU User PABD',
+        'actor_role' => 'Bendahara Umum',
+        'admin_link' => '/admin/workflows/pabd/1',
+        'team_link' => '/team/workflows/pabd/1',
+    ], actorUserId: $data['buUser']->id);
+
+    // Team user has team.* permission → should get team_link
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification)->not->toBeNull();
+    expect($notification->link)->toBe('/team/workflows/pabd/1');
+});
+
+it('builds correct PABD label with team name and month', function () {
+    $data = createPabdWorkspaceWithUsers();
+    $notifier = app(WorkflowNotifier::class);
+
+    $notifier->notify($data['pabdWorkflow'], 'pabd.auto_created', [
+        'actor_name' => 'Sistem',
+    ]);
+
+    $notification = Notification::where('user_id', $data['teamUser']->id)->first();
+    expect($notification)->not->toBeNull();
+    // Label format: "PABD-{teamName}-Maret/2027"
+    expect($notification->subject)->toContain('PABD-');
+    expect($notification->subject)->toContain('Maret');
+    expect($notification->subject)->toContain('2027');
 });

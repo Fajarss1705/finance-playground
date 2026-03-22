@@ -546,6 +546,104 @@ it('drafts PP03 with notes and records them in history', function () {
     expect($pp03->itemPlafonAnggaran)->toHaveCount(1);
 });
 
+// --- PP03 Rekening Organisasi ---
+
+it('drafts PP03 with rekening organisasi and saves them', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp03.draft', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => 73000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Divisi Pendidikan Demo', 'nomor_rekening' => '1234567890', 'catatan' => null,
+        ]],
+        'rekening_organisasi' => [[
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Finance Playground Pusat', 'nomor_rekening' => '9876543210',
+        ]],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    $pp03->refresh();
+    expect($pp03->rekeningOrganisasi)->toHaveCount(1)
+        ->and($pp03->rekeningOrganisasi->first()->nama_bank)->toBe('BCA')
+        ->and($pp03->rekeningOrganisasi->first()->nama_rekening)->toBe('Finance Playground Pusat')
+        ->and($pp03->rekeningOrganisasi->first()->nomor_rekening)->toBe('9876543210');
+});
+
+it('submits PP03 with rekening organisasi and creates PP04', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => 73000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Divisi Pendidikan Demo', 'nomor_rekening' => '1234567890', 'catatan' => null,
+        ]],
+        'rekening_organisasi' => [
+            ['nama_bank' => 'BCA', 'nama_rekening' => 'Finance Playground Pusat', 'nomor_rekening' => '9876543210'],
+            ['nama_bank' => 'Mandiri', 'nama_rekening' => 'Finance Playground Cadangan', 'nomor_rekening' => '1112223334'],
+        ],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    $pp03->refresh();
+    expect($pp03->rekeningOrganisasi)->toHaveCount(2);
+
+    // Verify PP04 was created
+    $workflow->refresh();
+    $pp04Entries = collect($workflow->history)->where('step', 'PP04')->where('action', 'created');
+    expect($pp04Entries)->toHaveCount(1);
+});
+
+it('passes PP03 rekening organisasi prop to frontend', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03] = setupPp03Workflow($user, $role, $workspace);
+
+    $pp03->rekeningOrganisasi()->create([
+        'nama_bank' => 'BNI', 'nama_rekening' => 'Demo Test', 'nomor_rekening' => '5556667778',
+    ]);
+
+    $this->get(route('admin.workflows.pp.pp03.show', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('admin/workflows/pp/pp03')
+            ->has('stepData.rekening_organisasi', 1)
+        );
+});
+
+it('replaces rekening organisasi on re-draft', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.draft');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    // First draft: 2 rekening
+    $pp03->rekeningOrganisasi()->create(['nama_bank' => 'BCA', 'nama_rekening' => 'Rek 1', 'nomor_rekening' => '111']);
+    $pp03->rekeningOrganisasi()->create(['nama_bank' => 'BNI', 'nama_rekening' => 'Rek 2', 'nomor_rekening' => '222']);
+
+    // Re-draft with 1 rekening (should replace)
+    $this->post(route('admin.workflows.pp.pp03.draft', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => 50000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
+        ]],
+        'rekening_organisasi' => [
+            ['nama_bank' => 'Mandiri', 'nama_rekening' => 'Demo New', 'nomor_rekening' => '333'],
+        ],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    $pp03->refresh();
+    expect($pp03->rekeningOrganisasi)->toHaveCount(1)
+        ->and($pp03->rekeningOrganisasi->first()->nama_bank)->toBe('Mandiri');
+});
+
 // --- PP04 Validation ---
 
 function setupPp04Workflow($user, $role, $workspace): array
