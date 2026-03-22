@@ -74,14 +74,14 @@ const teamNavItems: NavItem[] = [
         emphasis: true,
     },
     {
-        title: 'Anggaran Bulanan',
+        title: '(PABD) Anggaran Bulanan',
         href: '/team/workflows/pabd',
         icon: CalendarDays,
         permission: 'team.workflows.pabd.index',
         emphasis: true,
     },
     {
-        title: 'Laporan Bulanan',
+        title: '(PRBL) Laporan Bulanan',
         href: '/team/workflows/prbl',
         icon: ClipboardList,
         permission: 'team.workflows.prbl.index',
@@ -153,14 +153,14 @@ const adminNavItems: NavItem[] = [
         emphasis: true,
     },
     {
-        title: 'Semua Anggaran Bulanan',
+        title: '(PABD) Semua Anggaran Bulanan',
         href: '/admin/workflows/pabd',
         icon: CalendarDays,
         permission: 'admin.workflows.pabd.index',
         emphasis: true,
     },
     {
-        title: 'Semua Laporan Bulanan',
+        title: '(PRBL) Semua Laporan Bulanan',
         href: '/admin/workflows/prbl',
         icon: ClipboardList,
         permission: 'admin.workflows.prbl.index',

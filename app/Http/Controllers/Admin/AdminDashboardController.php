@@ -78,7 +78,7 @@ class AdminDashboardController extends Controller
         // Step 2: PP workflows (active, for work queue)
         $ppWorkflows = PpWorkflow::query()
             ->where('workspace_id', $workspaceId)
-            ->get(['id', 'uuid', 'history']);
+            ->get(['id', 'history']);
 
         // Step 3: PK workflows for all teams
         $pkWorkflows = PkWorkflow::query()

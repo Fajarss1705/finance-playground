@@ -236,14 +236,9 @@ class PabdWorkflowController extends Controller
             return null;
         });
 
-        // Inject step roles for tooltips
+        // Inject step roles + branch group for stepper rendering
         $stepRoleMap = $this->resolveStepRolesForShow($pabdWorkflow->team_id);
-        foreach ($stepperCycles as &$cycle) {
-            foreach ($cycle['steps'] as &$step) {
-                $step['roles'] = $stepRoleMap[$step['code']] ?? [];
-            }
-        }
-        unset($cycle, $step);
+        $this->injectStepperMeta($stepperCycles, $stepRoleMap);
 
         // PP context
         $ppWorkflow = $pabdWorkflow->ppWorkflow;
@@ -407,6 +402,8 @@ class PabdWorkflowController extends Controller
 
             return null;
         });
+        $stepRoleMap = $this->resolveStepRolesForShow($pabdWorkflow->team_id);
+        $this->injectStepperMeta($stepperCycles, $stepRoleMap);
 
         return Inertia::render('workflows/pabd/pabd01', [
             'workflow' => [
@@ -703,6 +700,8 @@ class PabdWorkflowController extends Controller
 
             return null;
         });
+        $stepRoleMap = $this->resolveStepRolesForShow($pabdWorkflow->team_id);
+        $this->injectStepperMeta($stepperCycles, $stepRoleMap);
 
         return Inertia::render('workflows/pabd/pabd02a', [
             'workflow' => [
@@ -3512,6 +3511,44 @@ class PabdWorkflowController extends Controller
         }
 
         return [null, null];
+    }
+
+    /**
+     * Inject roles and branch group metadata into stepper cycles.
+     *
+     * PABD02A/02B form a conditional sub-loop off PABD01 (always cycles back to PABD01).
+     *
+     * @param  array<int, array{steps: array<int, array<string, mixed>>}>  $stepperCycles
+     * @param  array<string, list<array{name: string, users: list<string>}>>  $stepRoleMap
+     */
+    private function injectStepperMeta(array &$stepperCycles, array $stepRoleMap): void
+    {
+        $branchSteps = ['PABD02A', 'PABD02B'];
+
+        foreach ($stepperCycles as &$cycle) {
+            // Check if PABD03+ has progressed — if so, branch steps that are still
+            // "active" (never used) should be marked as "skipped" instead.
+            $mainPathProgressed = false;
+            foreach ($cycle['steps'] as $step) {
+                if (in_array($step['code'], ['PABD03', 'PABD04', 'PABD05'])
+                    && in_array($step['status'], ['completed', 'active'])) {
+                    $mainPathProgressed = true;
+                    break;
+                }
+            }
+
+            foreach ($cycle['steps'] as &$step) {
+                $step['roles'] = $stepRoleMap[$step['code']] ?? [];
+                $step['branchGroup'] = in_array($step['code'], $branchSteps) ? 'pabd02' : null;
+                $step['branchTarget'] = in_array($step['code'], $branchSteps) ? 'PABD01' : null;
+
+                // Override branch steps to "skipped" when main path already progressed past them
+                if ($mainPathProgressed && in_array($step['code'], $branchSteps) && in_array($step['status'], ['active', 'pending'])) {
+                    $step['status'] = 'skipped';
+                }
+            }
+        }
+        unset($cycle, $step);
     }
 
     /**
