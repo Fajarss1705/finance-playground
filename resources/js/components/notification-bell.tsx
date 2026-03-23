@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { router, usePage } from '@inertiajs/react';
+import { router, usePage, usePoll } from '@inertiajs/react';
 import { Bell } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
@@ -9,6 +9,8 @@ import type { Auth, NotificationGroup, NotificationItem } from '@/types';
 export function NotificationBell() {
     const { auth } = usePage<{ auth: Auth }>().props;
     const unreadCount = auth.unreadNotificationsCount ?? 0;
+
+    usePoll(10000, { only: ['auth'] });
 
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -44,10 +46,13 @@ export function NotificationBell() {
     return (
         <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger asChild>
-                <button className="relative rounded-md p-2 hover:bg-accent transition-colors" aria-label="Notifikasi">
-                    <Bell className="size-5" />
+                <button className="relative flex size-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-all hover:bg-blue-700 hover:shadow-xl active:scale-95 dark:bg-blue-500 dark:hover:bg-blue-600" aria-label="Notifikasi">
                     {unreadCount > 0 && (
-                        <span className="absolute -top-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
+                        <span className="absolute inset-0 animate-ping rounded-full bg-blue-400 opacity-30" />
+                    )}
+                    <Bell className="relative size-5" />
+                    {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-gray-900">
                             {unreadCount > 99 ? '99+' : unreadCount}
                         </span>
                     )}
