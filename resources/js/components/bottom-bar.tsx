@@ -8,6 +8,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
 import {
     Tooltip,
     TooltipContent,
@@ -33,15 +34,15 @@ export function BottomBar() {
     };
 
     return (
-        <div className="sticky bottom-0 z-10 flex h-14 shrink-0 items-center border-t border-sidebar-border/50 bg-background/95 px-4 backdrop-blur-sm transition-[height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-11 supports-backdrop-filter:bg-background/80">
+        <div className="fixed bottom-0 right-0 left-(--sidebar-width) z-10 flex h-18 items-center border-t border-blue-300/30 bg-blue-50/70 px-4 shadow-[0_-2px_12px_rgba(59,130,246,0.08)] backdrop-blur-xl transition-[left,height] duration-200 ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:left-[calc(var(--sidebar-width-icon)+(--spacing(4)))] max-md:left-0 dark:border-blue-500/20 dark:bg-blue-950/50 dark:shadow-[0_-2px_12px_rgba(59,130,246,0.12)]">
             <TooltipProvider delayDuration={300}>
                 <Tooltip>
                     <DropdownMenu>
                         <TooltipTrigger asChild>
                             <DropdownMenuTrigger asChild>
                                 <button className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent">
-                                    <Shield className="size-4 shrink-0 text-muted-foreground" />
-                                    <span className="truncate font-medium">{activeRole.name}</span>
+                                    <Shield className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                                    <Badge className="bg-blue-600 text-white dark:bg-blue-500">{activeRole.name}</Badge>
                                     <span className="text-muted-foreground">&middot;</span>
                                     <span className="truncate text-muted-foreground">{activeRole.team.name}</span>
                                     <span className="text-muted-foreground">&middot;</span>
