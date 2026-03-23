@@ -28,6 +28,9 @@ class CreateNewUser implements CreatesNewUsers
             'name' => $input['name'],
             'email' => $input['email'],
             'password' => $input['password'],
+            'phone_number' => $input['phone_number'],
+            'jabatan' => $input['jabatan'],
+            // TODO: avatar upload (optional, max 5MB, compressed on save)
         ]);
     }
 }

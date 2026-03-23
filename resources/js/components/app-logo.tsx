@@ -1,16 +1,18 @@
-import AppLogoIcon from './app-logo-icon';
-
 export default function AppLogo() {
     return (
         <>
-            <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-                <AppLogoIcon className="size-5 fill-current text-white dark:text-black" />
-            </div>
-            <div className="ml-1 grid flex-1 text-left text-sm">
-                <span className="mb-0.5 truncate leading-tight font-semibold">
-                    Laravel Starter Kit
-                </span>
-            </div>
+            {/* Expanded: full logo */}
+            <img
+                src="/images/app-logo.png"
+                alt="Finance Playground"
+                className="h-12 w-full object-cover object-[center_45%] brightness-0 group-data-[collapsible=icon]:hidden dark:invert"
+            />
+            {/* Collapsed: square favicon */}
+            <img
+                src="/favicon.svg"
+                alt="Demo"
+                className="hidden size-8 group-data-[collapsible=icon]:block"
+            />
         </>
     );
 }

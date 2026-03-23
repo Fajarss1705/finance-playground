@@ -38,7 +38,7 @@ export default function Profile({
                     <Heading
                         variant="small"
                         title="Informasi profil"
-                        description="Perbarui nama dan alamat email Anda"
+                        description="Perbarui informasi profil Anda"
                     />
 
                     <Form
@@ -51,7 +51,12 @@ export default function Profile({
                         {({ processing, recentlySuccessful, errors }) => (
                             <>
                                 <div className="grid gap-2">
-                                    <Label htmlFor="name">Nama</Label>
+                                    <Label htmlFor="name">
+                                        Nama{' '}
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
+                                    </Label>
 
                                     <Input
                                         id="name"
@@ -70,7 +75,12 @@ export default function Profile({
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label htmlFor="email">Alamat email</Label>
+                                    <Label htmlFor="email">
+                                        Alamat email{' '}
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
+                                    </Label>
 
                                     <Input
                                         id="email"
@@ -88,6 +98,60 @@ export default function Profile({
                                         message={errors.email}
                                     />
                                 </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="phone_number">
+                                        Nomor telepon{' '}
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
+                                    </Label>
+
+                                    <Input
+                                        id="phone_number"
+                                        type="tel"
+                                        className="mt-1 block w-full"
+                                        defaultValue={
+                                            auth.user.phone_number ?? ''
+                                        }
+                                        name="phone_number"
+                                        required
+                                        autoComplete="tel"
+                                        placeholder="08123456789"
+                                    />
+
+                                    <InputError
+                                        className="mt-2"
+                                        message={errors.phone_number}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="jabatan">
+                                        Jabatan{' '}
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
+                                    </Label>
+
+                                    <Input
+                                        id="jabatan"
+                                        className="mt-1 block w-full"
+                                        defaultValue={
+                                            auth.user.jabatan ?? ''
+                                        }
+                                        name="jabatan"
+                                        required
+                                        placeholder="Contoh: Dewan, Ketua Divisi Kepemudaan"
+                                    />
+
+                                    <InputError
+                                        className="mt-2"
+                                        message={errors.jabatan}
+                                    />
+                                </div>
+
+                                {/* TODO: avatar upload (optional, max 5MB, compressed on save) */}
 
                                 {mustVerifyEmail &&
                                     auth.user.email_verified_at === null && (
