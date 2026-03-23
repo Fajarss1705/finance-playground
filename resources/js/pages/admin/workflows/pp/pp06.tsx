@@ -286,7 +286,7 @@ export default function Pp06({ workflow, pp06, allRevisions, changelogByRevision
                         <ul className="space-y-1 text-sm">
                             {pp06.item_dokumen_sop.map((dok, i) => (
                                 <li key={i} className="flex items-center gap-2">
-                                    <a href={`/files/${dok.file.id}/download`} className="text-primary hover:underline">
+                                    <a href={`/files/${dok.file.uuid}/download`} className="text-primary hover:underline">
                                         {dok.file.original_filename}
                                     </a>
                                 </li>
