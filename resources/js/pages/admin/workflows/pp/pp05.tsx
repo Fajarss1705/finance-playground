@@ -5,6 +5,7 @@ import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -112,12 +113,12 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                 {reviewData.pp01 && (
                     <SectionCard title="PP01 — Rencana Periode">
                         <SubmittedBy info={submitters.PP01} />
-                        <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
+                        <div className="mt-4 space-y-1.5 text-sm">
                             <div><span className="text-muted-foreground">Tahun:</span> {reviewData.pp01.tahun}</div>
                             <div><span className="text-muted-foreground">Mulai Pra-Raker:</span> {formatTanggal(reviewData.pp01.tanggal_mulai_pra_raker)}</div>
                             <div><span className="text-muted-foreground">Penetapan Program:</span> {formatTanggal(reviewData.pp01.tanggal_penetapan_program)}</div>
                         </div>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="mt-5 grid gap-3 sm:grid-cols-2">
                             <KodeList title="Bidang Pelayanan" items={reviewData.pp01.kode_bidang_pelayanan} />
                             <KodeList title="Sub Bidang" items={reviewData.pp01.kode_sub_bidang_pelayanan} />
                             <KodeList title="Kategori" items={reviewData.pp01.kode_kategori_pelayanan} />
@@ -130,14 +131,14 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                 {reviewData.pp02 && (
                     <SectionCard title="PP02 — Pertanyaan Kuisioner">
                         <SubmittedBy info={submitters.PP02} />
-                        <div className="mt-2 overflow-x-auto">
-                            <table className="min-w-200 w-full text-sm">
+                        <div className="-mx-4 mt-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+                            <table className="min-w-150 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
                                         <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
                                         <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
-                                        <th className="px-3 py-2 text-left font-medium w-28">Tipe</th>
-                                        <th className="px-3 py-2 text-left font-medium w-24">Satuan</th>
+                                        <th className="px-3 py-2 text-left font-medium w-36">Tipe</th>
+                                        <th className="px-3 py-2 text-left font-medium w-28">Satuan</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -159,8 +160,8 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                 {reviewData.pp03 && (
                     <SectionCard title="PP03 — Plafon Anggaran">
                         <SubmittedBy info={submitters.PP03} />
-                        <div className="mt-2 overflow-x-auto">
-                            <table className="min-w-200 w-full text-sm">
+                        <div className="-mx-4 mt-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+                            <table className="min-w-175 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
                                         <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
@@ -340,6 +341,17 @@ function KodeList({ title, items }: { title: string; items: KodeItem[] }) {
                 {items.map((item, i) => (
                     <div key={i} className="text-xs">
                         <span className="font-mono text-muted-foreground">{item.kode}</span> — {item.nama}
+                        {item.catatan && (
+                            <>
+                                {' · '}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <span className="inline-block max-w-40 cursor-help truncate align-bottom text-muted-foreground">{item.catatan}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{item.catatan}</TooltipContent>
+                                </Tooltip>
+                            </>
+                        )}
                     </div>
                 ))}
             </div>
