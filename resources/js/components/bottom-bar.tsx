@@ -34,7 +34,7 @@ export function BottomBar() {
     };
 
     return (
-        <div className="fixed bottom-0 right-0 left-(--sidebar-width) z-10 flex h-18 items-center border-t border-blue-300/30 bg-blue-50/70 px-4 shadow-[0_-2px_12px_rgba(59,130,246,0.08)] backdrop-blur-xl transition-[left,height] duration-200 ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-14 group-has-data-[collapsible=icon]/sidebar-wrapper:left-[calc(var(--sidebar-width-icon)+(--spacing(4)))] max-md:left-0 dark:border-blue-500/20 dark:bg-blue-950/50 dark:shadow-[0_-2px_12px_rgba(59,130,246,0.12)]">
+        <div className="fixed bottom-0 right-0 left-(--sidebar-width) z-10 flex h-18 items-center border-t border-blue-300/30 bg-blue-50/70 px-4 shadow-[0_-4px_24px_rgba(59,130,246,0.15)] backdrop-blur-xl transition-[left,height] duration-200 ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-14 group-has-data-[collapsible=icon]/sidebar-wrapper:left-[calc(var(--sidebar-width-icon)+(--spacing(4)))] max-md:left-0 dark:border-blue-500/20 dark:bg-blue-950/50 dark:shadow-[0_-4px_24px_rgba(59,130,246,0.25)]">
             <TooltipProvider delayDuration={300}>
                 <Tooltip>
                     <DropdownMenu>

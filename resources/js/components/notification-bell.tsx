@@ -46,15 +46,18 @@ export function NotificationBell() {
     return (
         <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger asChild>
-                <button className="relative flex size-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-all hover:bg-blue-700 hover:shadow-xl active:scale-95 dark:bg-blue-500 dark:hover:bg-blue-600" aria-label="Notifikasi">
+                <button className="relative flex size-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_4px_20px_rgba(59,130,246,0.4)] transition-all hover:bg-blue-700 hover:shadow-[0_6px_28px_rgba(59,130,246,0.5)] active:scale-95 dark:bg-blue-500 dark:hover:bg-blue-600" aria-label="Notifikasi">
                     {unreadCount > 0 && (
                         <span className="absolute inset-0 animate-ping rounded-full bg-blue-400 opacity-30" />
                     )}
                     <Bell className="relative size-5" />
                     {unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-gray-900">
-                            {unreadCount > 99 ? '99+' : unreadCount}
-                        </span>
+                        <>
+                            <span className="absolute -top-1 -right-1 size-5 animate-ping rounded-full bg-red-500 opacity-50" />
+                            <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-gray-900">
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                            </span>
+                        </>
                     )}
                 </button>
             </PopoverTrigger>
