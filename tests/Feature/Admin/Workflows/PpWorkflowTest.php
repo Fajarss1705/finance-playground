@@ -1647,6 +1647,58 @@ it('validates PP07 submit rejects empty draft data', function () {
     expect($pp07->submitted_at)->toBeNull();
 });
 
+it('revokes public visibility from stale SOP files on PP07 submit', function () {
+    [$user, $role, $workspace] = setupPpUser(
+        'admin.workflows.pp.create',
+        'admin.workflows.pp.pp01.submit',
+        'admin.workflows.pp.pp02.submit',
+        'admin.workflows.pp.pp03.submit',
+        'admin.workflows.pp.pp04.submit',
+        'admin.workflows.pp.pp05.approve',
+        'admin.workflows.pp.pp06.show',
+        'admin.workflows.pp.pp07.create',
+        'admin.workflows.pp.pp07.show',
+        'admin.workflows.pp.pp07.submit',
+    );
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow] = runFullPpFlowToCompletion($this, $user, $role, $workspace);
+
+    // Attach two SOP files to PP06 rev 0
+    $pp06Rev0 = $workflow->latestPp06();
+    $fileKept = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'is_workspace_public' => true,
+    ]);
+    $fileRemoved = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'is_workspace_public' => true,
+    ]);
+    $pp06Rev0->itemDokumenSop()->createMany([
+        ['file_id' => $fileKept->id],
+        ['file_id' => $fileRemoved->id],
+    ]);
+
+    // Create PP07 and submit keeping only fileKept
+    $this->post(route('admin.workflows.pp.pp07.create', ['ppWorkflow' => $workflow]));
+    $pp07 = Pp07Data::where('pp_workflow_id', $workflow->id)->first();
+
+    $draftData = $pp07->draft_data;
+    $draftData['item_dokumen_sop'] = [['file_id' => $fileKept->id]];
+
+    $this->post(route('admin.workflows.pp.pp07.submit', ['ppWorkflow' => $workflow, 'pp07Data' => $pp07]), [
+        'draft_data' => $draftData,
+        'keep_file_ids' => [$fileKept->id],
+        'expected_updated_at' => $pp07->fresh()->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    // Kept file should remain public
+    expect($fileKept->fresh()->is_workspace_public)->toBeTrue();
+
+    // Removed file should no longer be public
+    expect($fileRemoved->fresh()->is_workspace_public)->toBeFalse();
+});
+
 // --- Index: canCreate permission ---
 
 it('shows canCreate true when user has create permission', function () {
