@@ -150,20 +150,20 @@ it('returns 403 for team without permission', function () {
         ->assertForbidden();
 });
 
-// --- Download ---
+// --- Download (step-based permission) ---
 
-it('downloads a file', function () {
+it('downloads a file when user has the step show permission', function () {
     Storage::fake('local');
 
-    [$user, $role, $workspace] = setupFileTestUser('files.download');
+    [$user, $role, $workspace] = setupFileTestUser('admin.workflows.pp.pp04.show');
     activateFileSession($this, $user, $role, $workspace);
 
     $uploadedFile = UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
     Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'test.pdf');
 
     $file = File::factory()->create([
-        'user_id' => $user->id,
         'workspace_id' => $workspace->id,
+        'source_route' => 'pp.pp04.dokumen',
         'disk' => 'local',
         'path' => 'files/test/test.pdf',
         'original_filename' => 'test.pdf',
@@ -173,22 +173,118 @@ it('downloads a file', function () {
         ->assertOk();
 });
 
-it('returns 403 for download without permission', function () {
-    [$user, $role, $workspace] = setupFileTestUser('personal.index');
+it('returns 403 for download when user lacks the step show permission', function () {
+    Storage::fake('local');
+
+    // User has pp01.show but file is from pp04
+    [$user, $role, $workspace] = setupFileTestUser('admin.workflows.pp.pp01.show');
     activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'test.pdf');
 
     $file = File::factory()->create([
         'workspace_id' => $workspace->id,
+        'source_route' => 'pp.pp04.dokumen',
+        'disk' => 'local',
+        'path' => 'files/test/test.pdf',
+        'original_filename' => 'test.pdf',
     ]);
 
     $this->get(route('files.download', $file))
         ->assertForbidden();
 });
 
+it('bypasses step permission check for workspace public files', function () {
+    Storage::fake('local');
+
+    // User has NO workflow permissions — only personal.index
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'test.pdf');
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'source_route' => 'pp.pp04.dokumen',
+        'is_workspace_public' => true,
+        'disk' => 'local',
+        'path' => 'files/test/test.pdf',
+        'original_filename' => 'test.pdf',
+    ]);
+
+    $this->get(route('files.download', $file))
+        ->assertOk();
+});
+
+it('allows download via team show permission for dual-scope workflows', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('team.workflows.pk.pk01.show');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'test.pdf');
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'source_route' => 'pk.pk01.draft',
+        'disk' => 'local',
+        'path' => 'files/test/test.pdf',
+        'original_filename' => 'test.pdf',
+    ]);
+
+    $this->get(route('files.download', $file))
+        ->assertOk();
+});
+
+it('allows download for files with compile export source route', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('admin.workflows.pp.pp06.show');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->create('export.pdf', 100, 'application/pdf');
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'export.pdf');
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'source_route' => 'pp06.export.pdf',
+        'disk' => 'local',
+        'path' => 'files/test/export.pdf',
+        'original_filename' => 'export.pdf',
+    ]);
+
+    $this->get(route('files.download', $file))
+        ->assertOk();
+});
+
+it('allows download for files without source route (no restriction)', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('personal.index');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'test.pdf');
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'source_route' => null,
+        'disk' => 'local',
+        'path' => 'files/test/test.pdf',
+        'original_filename' => 'test.pdf',
+    ]);
+
+    $this->get(route('files.download', $file))
+        ->assertOk();
+});
+
 it('returns 403 for download from different workspace', function () {
     Storage::fake('local');
 
-    [$user, $role, $workspace] = setupFileTestUser('files.download');
+    [$user, $role, $workspace] = setupFileTestUser('admin.workflows.pp.pp04.show');
     activateFileSession($this, $user, $role, $workspace);
 
     $otherUser = User::factory()->withRole()->create();
@@ -196,6 +292,7 @@ it('returns 403 for download from different workspace', function () {
 
     $file = File::factory()->create([
         'workspace_id' => $otherWorkspace->id,
+        'source_route' => 'pp.pp04.dokumen',
         'disk' => 'local',
         'path' => 'files/test/other.pdf',
     ]);

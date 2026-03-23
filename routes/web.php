@@ -35,6 +35,11 @@ Route::middleware(['auth'])->group(function () {
         ->name('notifications.redirect');
 });
 
+// Shared file download — workspace ownership checked in controller, no per-route permission needed
+Route::middleware(['auth', 'verified', 'role.selected'])->group(function () {
+    Route::get('files/{file}/download', [FileController::class, 'download'])->name('files.download');
+});
+
 Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->group(function () {
     // Personal scope
     Route::prefix('personal')->name('personal.')->group(function () {
@@ -44,9 +49,6 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
         Route::get('notifications', [NotificationController::class, 'personal'])->name('notifications');
         Route::patch('notifications/mark-all-read', [NotificationController::class, 'markAllRead'])->name('notifications.mark-all-read');
     });
-
-    // Shared file routes
-    Route::get('files/{file}/download', [FileController::class, 'download'])->name('files.download');
 
     // Team scope
     Route::prefix('team')->name('team.')->group(function () {

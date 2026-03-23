@@ -30,12 +30,18 @@ class Pp06PdfExportService
         $workflow = $pp06->ppWorkflow;
         $totalPlafon = $pp06->itemPlafonAnggaran->sum('plafon_anggaran');
         $chronology = $this->buildChronology($workflow, $pp06);
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
         $pdf = Pdf::loadView('exports.pp06-pdf', [
             'pp06' => $pp06,
             'workflow' => $workflow,
             'totalPlafon' => $totalPlafon,
             'chronology' => $chronology,
+            'logoBase64' => $logoBase64,
+            'label' => "PP-{$pp06->tahun}",
+            'judul' => "Periode Tahunan {$pp06->tahun}",
+            'revision' => $pp06->revision,
+            'dikompilasi' => $pp06->created_at->format('d F Y, H:i').' WIB',
         ]);
         $pdf->setPaper('a4', 'portrait');
 

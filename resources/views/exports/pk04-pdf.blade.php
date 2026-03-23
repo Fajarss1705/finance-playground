@@ -8,9 +8,15 @@
         h1 { font-size: 16px; margin: 0 0 4px; }
         h2 { font-size: 12px; margin: 18px 0 6px; padding-bottom: 3px; border-bottom: 1px solid #ccc; }
         h3 { font-size: 10px; margin: 12px 0 4px; color: #333; }
-        .header { text-align: center; margin-bottom: 16px; border-bottom: 2px solid #333; padding-bottom: 10px; }
-        .header .org { font-size: 14px; font-weight: bold; }
-        .header .subtitle { font-size: 10px; color: #666; margin-top: 2px; }
+        .brand-header { text-align: center; margin-bottom: 10px; }
+        .brand-logo { width: 160px; height: auto; }
+        .brand-name { font-size: 14px; font-weight: bold; margin-top: 4px; }
+        .brand-tagline { font-size: 10px; color: #666; }
+        .doc-info { width: auto; margin: 0 auto 16px; border: none; }
+        .doc-info td { border: none; padding: 1px 6px; font-size: 9px; }
+        .doc-info-label { font-weight: bold; white-space: nowrap; }
+        .doc-info-sep { width: 10px; }
+        .revision-badge { background: #333; color: #fff; padding: 1px 8px; font-size: 9px; font-weight: bold; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
         th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
         th { background: #f5f5f5; font-weight: bold; font-size: 9px; text-transform: uppercase; }
@@ -54,11 +60,7 @@
     {{-- PART 1: DATA PROGRAM TAHUNAN                  --}}
     {{-- ============================================= --}}
 
-    <div class="header">
-        <div class="org">{{ $pk04->pk01_created_by_organization_name ?? 'Finance Playground' }}</div>
-        <h1>Program Tahunan {{ $tahun }}</h1>
-        <div class="subtitle">{{ $teamName }} &bull; Revisi {{ $pk04->revision }} &bull; Dikompilasi {{ $pk04->created_at->format('d F Y, H:i') }} WIB</div>
-    </div>
+    @include('exports._pdf-header')
 
     <h2>Informasi Program</h2>
     <table>

@@ -6,6 +6,7 @@ import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
@@ -58,10 +59,12 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
     const isReadonly = mode === 'readonly' || (!canDraft && !canSubmit);
     const isPermissionLocked = mode !== 'readonly' && !canDraft && !canSubmit;
 
-    const [items, setItems] = useState<KuisionerItem[]>(
-        stepData.item_kuisioner.length > 0
-            ? stepData.item_kuisioner
-            : [{ kode: 'Q01', pertanyaan: 'Pertanyaan 1', tipe: 'Kualitatif', satuan: '' }],
+    const initialItems = stepData.item_kuisioner.length > 0
+        ? stepData.item_kuisioner
+        : [{ kode: 'Q01', pertanyaan: 'Pertanyaan 1', tipe: 'Kualitatif', satuan: '' }];
+    const [items, setItems] = useState<KuisionerItem[]>(initialItems);
+    const [customTipeRows, setCustomTipeRows] = useState<Set<number>>(
+        () => new Set(initialItems.map((item, i) => isCustomTipe(item.tipe) ? i : -1).filter((i) => i >= 0)),
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -79,6 +82,14 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
 
     function removeRow(index: number) {
         setItems(items.filter((_, i) => i !== index));
+        setCustomTipeRows((prev) => {
+            const next = new Set<number>();
+            for (const idx of prev) {
+                if (idx < index) next.add(idx);
+                else if (idx > index) next.add(idx - 1);
+            }
+            return next;
+        });
     }
 
     function updateRow(index: number, field: keyof KuisionerItem, value: string) {
@@ -96,8 +107,10 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
     function handleTipeChange(index: number, value: string) {
         if (value === 'Lainnya') {
             updateRow(index, 'tipe', '');
+            setCustomTipeRows((prev) => new Set(prev).add(index));
         } else {
             updateRow(index, 'tipe', value);
+            setCustomTipeRows((prev) => { const next = new Set(prev); next.delete(index); return next; });
         }
     }
 
@@ -182,8 +195,8 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                     <th className="px-3 py-2 text-left font-medium w-20">Kode <span className="text-destructive">*</span></th>
                                     {!isReadonly && <th className="px-3 py-2 w-12" />}
                                     <th className="px-3 py-2 text-left font-medium">Pertanyaan <span className="text-destructive">*</span></th>
-                                    <th className="px-3 py-2 text-left font-medium w-36">Tipe</th>
-                                    <th className="px-3 py-2 text-left font-medium w-28">Satuan</th>
+                                    <th className="px-3 py-2 text-left font-medium w-48">Tipe</th>
+                                    <th className="px-3 py-2 text-left font-medium w-40">Satuan</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -201,20 +214,20 @@ export default function Pp02({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             </td>
                                         )}
                                         <td className="px-3 py-1.5">
-                                            <Input value={item.pertanyaan} onChange={(e) => updateRow(i, 'pertanyaan', e.target.value)} disabled={isReadonly} className="h-8" />
+                                            <Textarea value={item.pertanyaan} onChange={(e) => updateRow(i, 'pertanyaan', e.target.value)} disabled={isReadonly} className="min-h-8 resize-y" rows={1} />
                                             {errors[`item_kuisioner.${i}.pertanyaan`] && <p className="text-xs text-destructive">{errors[`item_kuisioner.${i}.pertanyaan`]}</p>}
                                         </td>
                                         <td className="px-3 py-1.5">
-                                            {isCustomTipe(item.tipe) ? (
+                                            {isCustomTipe(item.tipe) || customTipeRows.has(i) ? (
                                                 <div className="flex gap-1">
-                                                    <Input value={item.tipe} onChange={(e) => updateRow(i, 'tipe', e.target.value)} disabled={isReadonly} className="h-8" placeholder="Tipe custom" />
+                                                    <Input value={item.tipe} onChange={(e) => updateRow(i, 'tipe', e.target.value)} disabled={isReadonly} className="h-8" placeholder="Tipe custom" autoFocus={customTipeRows.has(i) && item.tipe === ''} />
                                                     {!isReadonly && (
-                                                        <Button variant="ghost" size="sm" onClick={() => updateRow(i, 'tipe', 'Kualitatif')} className="h-8 px-1.5 text-xs">X</Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => { updateRow(i, 'tipe', 'Kualitatif'); setCustomTipeRows((prev) => { const next = new Set(prev); next.delete(i); return next; }); }} className="h-8 px-1.5 text-xs">X</Button>
                                                     )}
                                                 </div>
                                             ) : (
                                                 <select
-                                                    value={item.tipe || 'Lainnya'}
+                                                    value={item.tipe}
                                                     onChange={(e) => handleTipeChange(i, e.target.value)}
                                                     disabled={isReadonly}
                                                     className="h-8 w-full rounded-md border bg-background px-2 text-sm"

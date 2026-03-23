@@ -1851,6 +1851,15 @@ class PpWorkflowController extends Controller
             File::whereIn('id', $allDokumenFileIds)->update(['is_workspace_public' => true]);
         }
 
+        // Revoke public visibility from previous PP06's SOP files that are no longer in this revision
+        if ($previousPp06) {
+            $previousFileIds = $previousPp06->itemDokumenSop()->pluck('file_id')->all();
+            $staleFileIds = array_diff($previousFileIds, $allDokumenFileIds);
+            if (! empty($staleFileIds)) {
+                File::whereIn('id', $staleFileIds)->update(['is_workspace_public' => false]);
+            }
+        }
+
         // Comment attachment files (separate from dokumen files)
         $commentFileIds = $this->commentService->storeFiles(
             $request->file('files', []),
