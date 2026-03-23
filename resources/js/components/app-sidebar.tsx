@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, BookOpen, Building2, CalendarDays, ClipboardList, FileText, Folder, FolderOpen, Layers, LayoutGrid, NotebookPen, Settings, Shield, ShieldCheck, UserCog, Users } from 'lucide-react';
+import { Bell, Building2, CalendarDays, ClipboardList, FileText, Folder, FolderOpen, Layers, LayoutGrid, NotebookPen, Settings, Shield, ShieldCheck, UserCog, Users } from 'lucide-react';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -32,24 +32,6 @@ const personalNavItems: NavItem[] = [
         title: 'Dashboard Personal',
         href: personalIndex(),
         icon: LayoutGrid,
-    },
-    {
-        title: 'File Saya',
-        href: personalFiles(),
-        icon: FileText,
-        permission: 'personal.files',
-    },
-    {
-        title: 'Notifikasi Saya',
-        href: personalNotifications(),
-        icon: Bell,
-        permission: 'personal.notifications',
-    },
-    {
-        title: 'Verifikasi Dokumen',
-        href: personalVerify(),
-        icon: ShieldCheck,
-        permission: 'personal.verify',
     },
 ];
 
@@ -170,14 +152,23 @@ const adminNavItems: NavItem[] = [
 
 const footerNavItems: NavItem[] = [
     {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: Folder,
+        title: 'File Saya',
+        href: personalFiles(),
+        icon: FileText,
+        permission: 'personal.files',
     },
     {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits#react',
-        icon: BookOpen,
+        title: 'Notifikasi Saya',
+        href: personalNotifications(),
+        icon: Bell,
+        permission: 'personal.notifications',
+    },
+    {
+        title: 'Verifikasi Dokumen',
+        href: personalVerify(),
+        icon: ShieldCheck,
+        iconClassName: 'text-neutral-500 dark:text-neutral-400',
+        permission: 'personal.verify',
     },
 ];
 
@@ -206,7 +197,7 @@ export function AppSidebar() {
             </SidebarContent>
 
             <SidebarFooter>
-                <NavFooter items={footerNavItems} className="mt-auto" />
+                <NavFooter items={footerNavItems} iconClassName="text-blue-600 dark:text-blue-400" className="mt-auto" />
                 <NavUser />
             </SidebarFooter>
         </Sidebar>

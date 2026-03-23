@@ -40,6 +40,7 @@ class ManualTestingSeeder extends Seeder
         $this->createTeamsAndRoles();
         $this->syncAllPermissions();
         $this->createUsers();
+        $this->assignBasePermissions();
         $this->assignPpPermissions();
         $this->assignPkPermissions();
         $this->assignPabdPermissions();
@@ -188,6 +189,25 @@ class ManualTestingSeeder extends Seeder
     // =========================================================================
     // PP Permission Assignments (source: FeatureTestPpIntegration20260313Seeder)
     // =========================================================================
+
+    private function assignBasePermissions(): void
+    {
+        $basePerms = [
+            'personal.index', 'personal.files', 'personal.verify',
+            'personal.notifications', 'personal.notifications.mark-all-read',
+        ];
+
+        // Admin roles need base permissions too (personal dashboard, etc.)
+        $adminRoleKeys = [
+            'monev_koordinator_monev', 'monev_evaluator_narasi', 'monev_evaluator_anggaran',
+            'bu_bendahara_umum_1', 'bu_bendahara_umum_2', 'bu_asisten_bendahara_umum',
+            'kg_staff_kantor_organisasi',
+        ];
+
+        foreach ($adminRoleKeys as $roleKey) {
+            $this->syncPermissions($this->roles[$roleKey], $basePerms);
+        }
+    }
 
     private function assignPpPermissions(): void
     {

@@ -1,3 +1,4 @@
+import { Link, usePage } from '@inertiajs/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import {
     SidebarGroup,
@@ -7,15 +8,28 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { toUrl } from '@/lib/utils';
-import type { NavItem } from '@/types';
+import type { Auth, NavItem } from '@/types';
 
 export function NavFooter({
     items,
+    iconClassName,
     className,
     ...props
 }: ComponentPropsWithoutRef<typeof SidebarGroup> & {
     items: NavItem[];
+    iconClassName?: string;
 }) {
+    const { auth } = usePage<{ auth: Auth }>().props;
+    const permissions = auth.permissions ?? [];
+
+    const visibleItems = items.filter(
+        (item) => !item.permission || permissions.includes(item.permission),
+    );
+
+    if (visibleItems.length === 0) {
+        return null;
+    }
+
     return (
         <SidebarGroup
             {...props}
@@ -23,22 +37,18 @@ export function NavFooter({
         >
             <SidebarGroupContent>
                 <SidebarMenu>
-                    {items.map((item) => (
+                    {visibleItems.map((item) => (
                         <SidebarMenuItem key={item.title}>
                             <SidebarMenuButton
                                 asChild
                                 className="text-neutral-600 hover:text-neutral-800 dark:text-neutral-300 dark:hover:text-neutral-100"
                             >
-                                <a
-                                    href={toUrl(item.href)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
+                                <Link href={toUrl(item.href)} prefetch>
                                     {item.icon && (
-                                        <item.icon className="h-5 w-5" />
+                                        <item.icon className={item.iconClassName ?? iconClassName} />
                                     )}
                                     <span>{item.title}</span>
-                                </a>
+                                </Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                     ))}
