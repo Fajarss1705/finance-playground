@@ -30,6 +30,8 @@ class Pabd05PdfExportService
         $chronology = $this->buildChronology($workflow);
         $groupedItems = $this->buildGroupedItems($pabd05);
 
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+
         $pdf = Pdf::loadView('exports.pabd05-pdf', [
             'pabd05' => $pabd05,
             'workflow' => $workflow,
@@ -39,6 +41,11 @@ class Pabd05PdfExportService
             'ppLabel' => $ppLabel,
             'chronology' => $chronology,
             'groupedItems' => $groupedItems,
+            'logoBase64' => $logoBase64,
+            'label' => "PABD-{$bulan} {$tahun}-{$teamName}",
+            'judul' => "Pengajuan Anggaran Bulanan {$bulan} {$tahun} — {$teamName}",
+            'revision' => 0,
+            'dikompilasi' => $pabd05->created_at->format('d F Y, H:i').' WIB',
         ]);
         $pdf->setPaper('a4', 'portrait');
 

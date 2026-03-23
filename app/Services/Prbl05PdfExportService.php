@@ -42,18 +42,26 @@ class Prbl05PdfExportService
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
         ];
 
+        $bulanLabel = $bulanLabels[$bulan] ?? '-';
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+
         $pdf = Pdf::loadView('exports.prbl05-pdf', [
             'prbl05' => $prbl05,
             'workflow' => $workflow,
             'teamName' => $teamName,
             'tahun' => $tahun,
             'bulan' => $bulan,
-            'bulanLabel' => $bulanLabels[$bulan] ?? '-',
+            'bulanLabel' => $bulanLabel,
             'bulanLabels' => $bulanLabels,
             'ppLabel' => $ppLabel,
             'chronology' => $chronology,
             'groupedKegiatan' => $groupedKegiatan,
             'groupedRealisasi' => $groupedRealisasi,
+            'logoBase64' => $logoBase64,
+            'label' => "PRBL-{$bulanLabel} {$tahun}-{$teamName}",
+            'judul' => "Laporan Bulanan {$bulanLabel} {$tahun} — {$teamName}",
+            'revision' => 0,
+            'dikompilasi' => $prbl05->created_at->format('d F Y, H:i').' WIB',
         ]);
         $pdf->setPaper('a4', 'portrait');
 

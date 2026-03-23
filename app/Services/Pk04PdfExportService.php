@@ -30,6 +30,8 @@ class Pk04PdfExportService
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
         ];
 
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+
         $pdf = Pdf::loadView('exports.pk04-pdf', [
             'pk04' => $pk04,
             'workflow' => $workflow,
@@ -38,6 +40,11 @@ class Pk04PdfExportService
             'bulanLabels' => $bulanLabels,
             'chronology' => $chronology,
             'kodeRefMap' => $kodeRefMap,
+            'logoBase64' => $logoBase64,
+            'label' => "PK-{$tahun}-{$teamName}",
+            'judul' => "Program Tahunan {$tahun} — {$teamName}",
+            'revision' => $pk04->revision,
+            'dikompilasi' => $pk04->created_at->format('d F Y, H:i').' WIB',
         ]);
         $pdf->setPaper('a4', 'landscape');
 
