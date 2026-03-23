@@ -11,7 +11,7 @@ export default function VerifyEmail({ status }: { status?: string }) {
     return (
         <AuthLayout
             title="Verifikasi email"
-            description="Silakan verifikasi alamat email Anda dengan mengklik tautan yang baru saja kami kirimkan."
+            description="Silakan buka email Anda dan klik tautan verifikasi yang baru saja kami kirimkan. Email bisa terlambat, tunggu hingga 5 menit. Jika belum menerima email, klik tombol di bawah untuk mengirim ulang."
         >
             <Head title="Verifikasi email" />
 
