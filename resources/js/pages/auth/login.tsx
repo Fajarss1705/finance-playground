@@ -38,7 +38,12 @@ export default function Login({
                     <>
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Alamat email</Label>
+                                <Label htmlFor="email">
+                                    Alamat email{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
+                                </Label>
                                 <Input
                                     id="email"
                                     type="email"
@@ -54,7 +59,12 @@ export default function Login({
 
                             <div className="grid gap-2">
                                 <div className="flex items-center">
-                                    <Label htmlFor="password">Kata sandi</Label>
+                                    <Label htmlFor="password">
+                                        Kata sandi{' '}
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
+                                    </Label>
                                     {canResetPassword && (
                                         <TextLink
                                             href={request()}

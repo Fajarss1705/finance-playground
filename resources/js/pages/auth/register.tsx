@@ -26,7 +26,12 @@ export default function Register() {
                     <>
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="name">Nama</Label>
+                                <Label htmlFor="name">
+                                    Nama{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
+                                </Label>
                                 <Input
                                     id="name"
                                     type="text"
@@ -44,7 +49,12 @@ export default function Register() {
                             </div>
 
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Alamat email</Label>
+                                <Label htmlFor="email">
+                                    Alamat email{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
+                                </Label>
                                 <Input
                                     id="email"
                                     type="email"
@@ -58,12 +68,60 @@ export default function Register() {
                             </div>
 
                             <div className="grid gap-2">
-                                <Label htmlFor="password">Kata sandi</Label>
+                                <Label htmlFor="phone_number">
+                                    Nomor telepon{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
+                                </Label>
+                                <Input
+                                    id="phone_number"
+                                    type="tel"
+                                    required
+                                    tabIndex={3}
+                                    autoComplete="tel"
+                                    name="phone_number"
+                                    placeholder="08123456789"
+                                />
+                                <InputError
+                                    message={errors.phone_number}
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="jabatan">
+                                    Jabatan{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
+                                </Label>
+                                <Input
+                                    id="jabatan"
+                                    type="text"
+                                    required
+                                    tabIndex={4}
+                                    name="jabatan"
+                                    placeholder="Contoh: Dewan, Ketua Divisi Kepemudaan"
+                                />
+                                <InputError
+                                    message={errors.jabatan}
+                                />
+                            </div>
+
+                            {/* TODO: avatar upload (optional, max 5MB, compressed on save) */}
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="password">
+                                    Kata sandi{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
+                                </Label>
                                 <Input
                                     id="password"
                                     type="password"
                                     required
-                                    tabIndex={3}
+                                    tabIndex={5}
                                     autoComplete="new-password"
                                     name="password"
                                     placeholder="Kata sandi"
@@ -73,13 +131,16 @@ export default function Register() {
 
                             <div className="grid gap-2">
                                 <Label htmlFor="password_confirmation">
-                                    Konfirmasi kata sandi
+                                    Konfirmasi kata sandi{' '}
+                                    <span className="text-destructive">
+                                        *
+                                    </span>
                                 </Label>
                                 <Input
                                     id="password_confirmation"
                                     type="password"
                                     required
-                                    tabIndex={4}
+                                    tabIndex={6}
                                     autoComplete="new-password"
                                     name="password_confirmation"
                                     placeholder="Konfirmasi kata sandi"
@@ -92,7 +153,7 @@ export default function Register() {
                             <Button
                                 type="submit"
                                 className="mt-2 w-full"
-                                tabIndex={5}
+                                tabIndex={7}
                                 data-test="register-user-button"
                             >
                                 {processing && <Spinner />}
@@ -102,7 +163,7 @@ export default function Register() {
 
                         <div className="text-center text-sm text-muted-foreground">
                             Sudah punya akun?{' '}
-                            <TextLink href={login()} tabIndex={6}>
+                            <TextLink href={login()} tabIndex={8}>
                                 Masuk
                             </TextLink>
                         </div>
