@@ -7,6 +7,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toUrl } from '@/lib/utils';
 import type { Auth, NavItem } from '@/types';
 
@@ -39,17 +40,25 @@ export function NavFooter({
                 <SidebarMenu>
                     {visibleItems.map((item) => (
                         <SidebarMenuItem key={item.title}>
-                            <SidebarMenuButton
-                                asChild
-                                className="text-neutral-600 hover:text-neutral-800 dark:text-neutral-300 dark:hover:text-neutral-100"
-                            >
-                                <Link href={toUrl(item.href)} prefetch>
-                                    {item.icon && (
-                                        <item.icon className={item.iconClassName ?? iconClassName} />
-                                    )}
-                                    <span>{item.title}</span>
-                                </Link>
-                            </SidebarMenuButton>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <SidebarMenuButton
+                                        asChild
+                                        className="text-neutral-600 hover:text-neutral-800 dark:text-neutral-300 dark:hover:text-neutral-100"
+                                        tooltip={{ children: item.title }}
+                                    >
+                                        <Link href={toUrl(item.href)} prefetch>
+                                            {item.icon && (
+                                                <item.icon className={item.iconClassName ?? iconClassName} />
+                                            )}
+                                            <span>{item.title}</span>
+                                        </Link>
+                                    </SidebarMenuButton>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" align="center">
+                                    {item.title}
+                                </TooltipContent>
+                            </Tooltip>
                         </SidebarMenuItem>
                     ))}
                 </SidebarMenu>
