@@ -9,7 +9,7 @@
         h2 { font-size: 12px; margin: 18px 0 6px; padding-bottom: 3px; border-bottom: 1px solid #ccc; }
         h3 { font-size: 10px; margin: 12px 0 4px; color: #333; }
         .brand-header { text-align: center; margin-bottom: 10px; }
-        .brand-logo { width: 48px; height: 48px; }
+        .brand-logo { width: 160px; height: auto; }
         .brand-name { font-size: 14px; font-weight: bold; margin-top: 4px; }
         .brand-tagline { font-size: 10px; color: #666; }
         .doc-info { width: auto; margin: 0 auto 16px; border: none; }

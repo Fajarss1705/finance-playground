@@ -30,7 +30,7 @@ class Pp06PdfExportService
         $workflow = $pp06->ppWorkflow;
         $totalPlafon = $pp06->itemPlafonAnggaran->sum('plafon_anggaran');
         $chronology = $this->buildChronology($workflow, $pp06);
-        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
         $pdf = Pdf::loadView('exports.pp06-pdf', [
             'pp06' => $pp06,

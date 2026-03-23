@@ -30,7 +30,7 @@ class Pk04PdfExportService
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
         ];
 
-        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
         $pdf = Pdf::loadView('exports.pk04-pdf', [
             'pk04' => $pk04,

@@ -43,7 +43,7 @@ class Prbl05PdfExportService
         ];
 
         $bulanLabel = $bulanLabels[$bulan] ?? '-';
-        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
         $pdf = Pdf::loadView('exports.prbl05-pdf', [
             'prbl05' => $prbl05,

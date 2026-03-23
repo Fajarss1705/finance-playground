@@ -30,7 +30,7 @@ class Pabd05PdfExportService
         $chronology = $this->buildChronology($workflow);
         $groupedItems = $this->buildGroupedItems($pabd05);
 
-        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo.png')));
+        $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
         $pdf = Pdf::loadView('exports.pabd05-pdf', [
             'pabd05' => $pabd05,
