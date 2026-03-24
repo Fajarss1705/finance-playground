@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { router, usePage, usePoll } from '@inertiajs/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { router, usePage } from '@inertiajs/react';
 import { Bell } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
@@ -8,9 +8,33 @@ import type { Auth, NotificationGroup, NotificationItem } from '@/types';
 
 export function NotificationBell() {
     const { auth } = usePage<{ auth: Auth }>().props;
-    const unreadCount = auth.unreadNotificationsCount ?? 0;
+    const [unreadCount, setUnreadCount] = useState(auth.unreadNotificationsCount ?? 0);
 
-    usePoll(10000, { only: ['auth'] });
+    // Poll unread count via plain fetch — avoids Inertia visits that clear form errors
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    useEffect(() => {
+        setUnreadCount(auth.unreadNotificationsCount ?? 0);
+    }, [auth.unreadNotificationsCount]);
+
+    useEffect(() => {
+        intervalRef.current = setInterval(async () => {
+            try {
+                const res = await fetch(fetchNotifications.url(), {
+                    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const count = (data.currentRole?.unreadCount ?? 0) + (data.allRoles?.unreadCount ?? 0);
+                    setUnreadCount(count);
+                }
+            } catch {
+                // silently ignore network errors
+            }
+        }, 15000);
+        return () => {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+        };
+    }, []);
 
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -26,6 +50,7 @@ export function NotificationBell() {
             const data = await response.json();
             setCurrentRole(data.currentRole);
             setAllRoles(data.allRoles);
+            setUnreadCount((data.currentRole?.unreadCount ?? 0) + (data.allRoles?.unreadCount ?? 0));
         } finally {
             setLoading(false);
         }

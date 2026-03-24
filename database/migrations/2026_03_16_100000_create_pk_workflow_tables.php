@@ -114,7 +114,7 @@ return new class extends Migration
             $table->string('kode_sub_bidang', 10);
             $table->string('kode_jenis', 10);
             $table->string('mata_anggaran', 255);
-            $table->text('deskripsi_pk');
+            $table->text('deskripsi_pk')->nullable();
             $table->decimal('nominal_anggaran', 20, 2);
             $table->integer('nomer_anggaran');
             $table->integer('revisi_terakhir')->default(0);
