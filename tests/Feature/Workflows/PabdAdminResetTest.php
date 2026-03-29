@@ -368,10 +368,11 @@ it('denies admin reset without permission', function () {
 
 // ── canAdminReset prop on index ──
 
-it('passes canAdminReset prop to admin index page', function () {
+it('passes canAdminReset and canAdminCreate props to admin index page', function () {
     [$user, $role, $workspace, $team] = setupAdminResetUser(
         'admin.workflows.pabd.index',
         'admin.workflows.pabd.admin_reset',
+        'admin.workflows.pabd.admin_create',
     );
     activateAdminResetSession($this, $user, $role, $workspace);
 
@@ -381,14 +382,15 @@ it('passes canAdminReset prop to admin index page', function () {
     $response->assertInertia(fn ($page) => $page
         ->component('workflows/pabd/index')
         ->where('canAdminReset', true)
+        ->where('canAdminCreate', true)
         ->where('scope', 'admin')
     );
 });
 
-it('does not pass canAdminReset when user lacks permission', function () {
+it('does not pass canAdminReset/canAdminCreate when user lacks permissions', function () {
     [$user, $role, $workspace, $team] = setupAdminResetUser(
         'admin.workflows.pabd.index',
-        // Missing: admin.workflows.pabd.admin_reset
+        // Missing: admin_reset and admin_create
     );
     activateAdminResetSession($this, $user, $role, $workspace);
 
@@ -398,6 +400,7 @@ it('does not pass canAdminReset when user lacks permission', function () {
     $response->assertInertia(fn ($page) => $page
         ->component('workflows/pabd/index')
         ->where('canAdminReset', false)
+        ->where('canAdminCreate', false)
     );
 });
 
@@ -416,6 +419,7 @@ it('admin creates new PABD for team+month that has no PABD', function () {
 
     // No PABD exists yet — admin creates one
     $response = $this->post(route('admin.workflows.pabd.admin_create'), [
+        'pp_workflow_id' => $ppWorkflow->id,
         'team_id' => $team->id,
         'bulan' => 3,
     ]);
@@ -463,6 +467,7 @@ it('admin cannot create PABD that already exists', function () {
 
     // Try to create duplicate PABD for same team+month
     $response = $this->post(route('admin.workflows.pabd.admin_create'), [
+        'pp_workflow_id' => $ppWorkflow->id,
         'team_id' => $team->id,
         'bulan' => 3,
     ]);
@@ -484,6 +489,7 @@ it('admin cannot create PABD for month without active anggaran', function () {
     setupPk04ForReset($workspace, $team, $ppWorkflow, 3, $user, $role);
 
     $response = $this->post(route('admin.workflows.pabd.admin_create'), [
+        'pp_workflow_id' => $ppWorkflow->id,
         'team_id' => $team->id,
         'bulan' => 6,
     ]);

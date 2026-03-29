@@ -17,6 +17,7 @@ class PabdAdminCreateRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'pp_workflow_id' => ['required', 'integer', 'exists:pp_workflows,id'],
             'team_id' => ['required', 'integer', 'exists:teams,id'],
             'bulan' => ['required', 'integer', 'min:1', 'max:12'],
             'notes' => ['nullable', 'string'],

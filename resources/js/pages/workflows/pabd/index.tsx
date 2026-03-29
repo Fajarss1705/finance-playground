@@ -49,6 +49,12 @@ type CreatableTeamMonth = {
     months: number[];
 };
 
+type CreatablePpOption = {
+    pp_workflow_id: number;
+    pp_label: string;
+    teams: CreatableTeamMonth[];
+};
+
 type Props = {
     workflows: {
         data: PabdWorkflowRow[];
@@ -61,7 +67,8 @@ type Props = {
     availablePpPeriods: { value: string; label: string }[];
     availableTeams?: { value: string; label: string }[];
     canAdminReset?: boolean;
-    creatableTeamMonths?: CreatableTeamMonth[];
+    canAdminCreate?: boolean;
+    creatablePpOptions?: CreatablePpOption[];
     scope: 'team' | 'admin';
 };
 
@@ -88,7 +95,8 @@ export default function PabdIndex({
     availablePpPeriods,
     availableTeams,
     canAdminReset,
-    creatableTeamMonths,
+    canAdminCreate,
+    creatablePpOptions,
     scope,
 }: Props) {
     const scopeLabel = scope === 'team' ? 'Tim' : 'Manajemen';
@@ -98,11 +106,14 @@ export default function PabdIndex({
 
     // Create modal state
     const [createOpen, setCreateOpen] = useState(false);
+    const [createPpId, setCreatePpId] = useState<string>('');
     const [createTeamId, setCreateTeamId] = useState<string>('');
     const [createBulan, setCreateBulan] = useState<string>('');
     const [creating, setCreating] = useState(false);
 
-    const selectedTeamMonths = creatableTeamMonths?.find((t) => String(t.team_id) === createTeamId)?.months ?? [];
+    const selectedPp = creatablePpOptions?.find((p) => String(p.pp_workflow_id) === createPpId);
+    const selectedTeams = selectedPp?.teams ?? [];
+    const selectedTeamMonths = selectedTeams.find((t) => String(t.team_id) === createTeamId)?.months ?? [];
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: scopeLabel, href: scopeBase },
@@ -129,15 +140,17 @@ export default function PabdIndex({
     }
 
     function handleAdminCreate() {
-        if (!createTeamId || !createBulan) return;
+        if (!createPpId || !createTeamId || !createBulan) return;
         setCreating(true);
         router.post('/admin/workflows/pabd/admin-create', {
+            pp_workflow_id: createPpId,
             team_id: createTeamId,
             bulan: createBulan,
         }, {
             preserveScroll: true,
             onSuccess: () => {
                 setCreateOpen(false);
+                setCreatePpId('');
                 setCreateTeamId('');
                 setCreateBulan('');
             },
@@ -147,7 +160,7 @@ export default function PabdIndex({
 
     const showResetCol = isAdmin && canAdminReset;
     const colCount = (isAdmin ? 8 : 7) + (showResetCol ? 1 : 0);
-    const hasCreatableTeams = creatableTeamMonths && creatableTeamMonths.length > 0;
+    const hasCreatableOptions = creatablePpOptions && creatablePpOptions.length > 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -158,8 +171,8 @@ export default function PabdIndex({
                         title="Anggaran Bulanan"
                         description={isAdmin ? 'Semua pengajuan anggaran bulanan' : 'Daftar pengajuan anggaran bulanan tim Anda'}
                     />
-                    {isAdmin && canAdminReset && hasCreatableTeams && (
-                        <Dialog open={createOpen} onOpenChange={(v) => { setCreateOpen(v); if (!v) { setCreateTeamId(''); setCreateBulan(''); } }}>
+                    {isAdmin && canAdminCreate && hasCreatableOptions && (
+                        <Dialog open={createOpen} onOpenChange={(v) => { setCreateOpen(v); if (!v) { setCreatePpId(''); setCreateTeamId(''); setCreateBulan(''); } }}>
                             <DialogTrigger asChild>
                                 <Button size="sm" className="gap-1.5 shrink-0">
                                     <Plus className="h-4 w-4" />
@@ -169,18 +182,32 @@ export default function PabdIndex({
                             <DialogContent>
                                 <DialogTitle>Buat PABD Baru</DialogTitle>
                                 <DialogDescription>
-                                    Pilih tim dan bulan untuk membuat PABD baru. Hanya bulan yang memiliki anggaran aktif dan belum memiliki PABD yang tersedia.
+                                    Pilih PP, tim, dan bulan untuk membuat PABD baru. Hanya bulan yang memiliki anggaran aktif dan belum memiliki PABD yang tersedia.
                                 </DialogDescription>
                                 <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <Label>Periode PP *</Label>
+                                        <select
+                                            value={createPpId}
+                                            onChange={(e) => { setCreatePpId(e.target.value); setCreateTeamId(''); setCreateBulan(''); }}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                                        >
+                                            <option value="">Pilih PP...</option>
+                                            {creatablePpOptions?.map((p) => (
+                                                <option key={p.pp_workflow_id} value={p.pp_workflow_id}>{p.pp_label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <div className="space-y-1.5">
                                         <Label>Tim *</Label>
                                         <select
                                             value={createTeamId}
                                             onChange={(e) => { setCreateTeamId(e.target.value); setCreateBulan(''); }}
-                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                                            disabled={!createPpId}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-50"
                                         >
-                                            <option value="">Pilih tim...</option>
-                                            {creatableTeamMonths?.map((t) => (
+                                            <option value="">{createPpId ? 'Pilih tim...' : 'Pilih PP dahulu'}</option>
+                                            {selectedTeams.map((t) => (
                                                 <option key={t.team_id} value={t.team_id}>{t.team_name}</option>
                                             ))}
                                         </select>
@@ -210,7 +237,7 @@ export default function PabdIndex({
                                         <Button variant="secondary">Batal</Button>
                                     </DialogClose>
                                     <Button
-                                        disabled={!createTeamId || !createBulan || creating}
+                                        disabled={!createPpId || !createTeamId || !createBulan || creating}
                                         onClick={handleAdminCreate}
                                     >
                                         {creating ? 'Membuat...' : 'Buat PABD'}

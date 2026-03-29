@@ -170,14 +170,14 @@ class PabdWorkflowController extends Controller
 
         if ($scope === 'admin') {
             $props['availableTeams'] = $availableTeams;
-            $canAdminReset = in_array(
-                'admin.workflows.pabd.admin_reset',
-                $this->session->getActivePermissions(),
-            );
+            $activePerms = $this->session->getActivePermissions();
+            $canAdminReset = in_array('admin.workflows.pabd.admin_reset', $activePerms);
+            $canAdminCreate = in_array('admin.workflows.pabd.admin_create', $activePerms);
             $props['canAdminReset'] = $canAdminReset;
+            $props['canAdminCreate'] = $canAdminCreate;
 
-            if ($canAdminReset) {
-                $props['creatableTeamMonths'] = $this->computeCreatableTeamMonths($workspaceId);
+            if ($canAdminCreate) {
+                $props['creatablePpOptions'] = $this->computeCreatablePpOptions($workspaceId);
             }
         }
 
@@ -404,14 +404,16 @@ class PabdWorkflowController extends Controller
 
     public function adminCreate(PabdAdminCreateRequest $request): RedirectResponse
     {
-        $this->checkPermission('admin.workflows.pabd.admin_reset');
+        $this->checkPermission('admin.workflows.pabd.admin_create');
 
         $workspaceId = $this->session->getActiveWorkspaceId();
+        $ppWorkflowId = (int) $request->validated('pp_workflow_id');
         $teamId = (int) $request->validated('team_id');
         $bulan = (int) $request->validated('bulan');
 
-        // Find the PP workflow for this workspace that has a completed PP06
+        // Validate the PP workflow belongs to this workspace and has completed PP06
         $ppWorkflow = PpWorkflow::query()
+            ->where('id', $ppWorkflowId)
             ->where('workspace_id', $workspaceId)
             ->whereHas('pp06PeriodeTahunan')
             ->first();
@@ -3212,27 +3214,50 @@ class PabdWorkflowController extends Controller
      *
      * @return list<array{team_id: int, team_name: string, months: list<int>}>
      */
-    private function computeCreatableTeamMonths(int $workspaceId): array
+    /**
+     * Return all PP workflows with completed PP06, each with their eligible teams/months.
+     *
+     * @return array<int, array{pp_workflow_id: int, pp_label: string, teams: array}>
+     */
+    private function computeCreatablePpOptions(int $workspaceId): array
     {
-        // Find PP workflow for this workspace
-        $ppWorkflow = PpWorkflow::query()
+        $ppWorkflows = PpWorkflow::query()
             ->where('workspace_id', $workspaceId)
             ->whereHas('pp06PeriodeTahunan')
-            ->first();
+            ->get();
 
-        if (! $ppWorkflow) {
-            return [];
+        $result = [];
+
+        foreach ($ppWorkflows as $ppWorkflow) {
+            $tahun = $ppWorkflow->latestPp06()?->tahun;
+            if (! $tahun) {
+                continue;
+            }
+
+            $teams = $this->computeCreatableTeamMonths($workspaceId, $ppWorkflow->id, $tahun);
+            if (! empty($teams)) {
+                $result[] = [
+                    'pp_workflow_id' => $ppWorkflow->id,
+                    'pp_label' => "PP-{$tahun}",
+                    'teams' => $teams,
+                ];
+            }
         }
 
-        $tahun = $ppWorkflow->latestPp06()?->tahun;
-        if (! $tahun) {
-            return [];
-        }
+        return $result;
+    }
 
+    /**
+     * For a given PP workflow, compute which teams have eligible months for PABD creation.
+     *
+     * @return array<int, array{team_id: int, team_name: string, months: int[]}>
+     */
+    private function computeCreatableTeamMonths(int $workspaceId, int $ppWorkflowId, int $tahun): array
+    {
         // Find all teams that have PK workflows with PK04 finals
         $pkWorkflows = PkWorkflow::query()
             ->where('workspace_id', $workspaceId)
-            ->where('pp_workflow_id', $ppWorkflow->id)
+            ->where('pp_workflow_id', $ppWorkflowId)
             ->whereNull('deleted_at')
             ->get();
 
@@ -3272,7 +3297,7 @@ class PabdWorkflowController extends Controller
             $existingPabdMonths = PabdWorkflow::query()
                 ->where('workspace_id', $workspaceId)
                 ->where('team_id', $teamId)
-                ->where('pp_workflow_id', $ppWorkflow->id)
+                ->where('pp_workflow_id', $ppWorkflowId)
                 ->where('tahun_anggaran', $tahun)
                 ->pluck('bulan_anggaran')
                 ->toArray();
@@ -3282,7 +3307,7 @@ class PabdWorkflowController extends Controller
             $prbls = PrblWorkflow::query()
                 ->where('workspace_id', $workspaceId)
                 ->where('team_id', $teamId)
-                ->where('pp_workflow_id', $ppWorkflow->id)
+                ->where('pp_workflow_id', $ppWorkflowId)
                 ->where('tahun_laporan', $tahun)
                 ->get();
 
