@@ -1,8 +1,21 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { FileText } from 'lucide-react';
+import { FileText, Plus, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import Heading from '@/components/heading';
 import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
@@ -30,6 +43,12 @@ type Filters = {
     team?: string | null;
 };
 
+type CreatableTeamMonth = {
+    team_id: number;
+    team_name: string;
+    months: number[];
+};
+
 type Props = {
     workflows: {
         data: PabdWorkflowRow[];
@@ -41,6 +60,8 @@ type Props = {
     filters: Filters;
     availablePpPeriods: { value: string; label: string }[];
     availableTeams?: { value: string; label: string }[];
+    canAdminReset?: boolean;
+    creatableTeamMonths?: CreatableTeamMonth[];
     scope: 'team' | 'admin';
 };
 
@@ -50,20 +71,15 @@ const statusOptions = [
     { value: 'completed', label: 'Selesai' },
 ];
 
+const bulanLabels: Record<number, string> = {
+    1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April',
+    5: 'Mei', 6: 'Juni', 7: 'Juli', 8: 'Agustus',
+    9: 'September', 10: 'Oktober', 11: 'November', 12: 'Desember',
+};
+
 const bulanOptions = [
     { value: '', label: 'Semua' },
-    { value: '1', label: 'Januari' },
-    { value: '2', label: 'Februari' },
-    { value: '3', label: 'Maret' },
-    { value: '4', label: 'April' },
-    { value: '5', label: 'Mei' },
-    { value: '6', label: 'Juni' },
-    { value: '7', label: 'Juli' },
-    { value: '8', label: 'Agustus' },
-    { value: '9', label: 'September' },
-    { value: '10', label: 'Oktober' },
-    { value: '11', label: 'November' },
-    { value: '12', label: 'Desember' },
+    ...Object.entries(bulanLabels).map(([v, l]) => ({ value: v, label: l })),
 ];
 
 export default function PabdIndex({
@@ -71,11 +87,22 @@ export default function PabdIndex({
     filters,
     availablePpPeriods,
     availableTeams,
+    canAdminReset,
+    creatableTeamMonths,
     scope,
 }: Props) {
     const scopeLabel = scope === 'team' ? 'Tim' : 'Manajemen';
     const scopeBase = scope === 'team' ? '/team' : '/admin';
     const isAdmin = scope === 'admin';
+    const [resettingId, setResettingId] = useState<number | null>(null);
+
+    // Create modal state
+    const [createOpen, setCreateOpen] = useState(false);
+    const [createTeamId, setCreateTeamId] = useState<string>('');
+    const [createBulan, setCreateBulan] = useState<string>('');
+    const [creating, setCreating] = useState(false);
+
+    const selectedTeamMonths = creatableTeamMonths?.find((t) => String(t.team_id) === createTeamId)?.months ?? [];
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: scopeLabel, href: scopeBase },
@@ -93,16 +120,106 @@ export default function PabdIndex({
         router.visit(`${scopeBase}/workflows/pabd?${params.toString()}`, { preserveState: true });
     }
 
-    const colCount = isAdmin ? 8 : 7;
+    function handleAdminReset(wfId: number, { notes }: { notes: string; files: File[] }) {
+        setResettingId(wfId);
+        router.post(`/admin/workflows/pabd/${wfId}/admin-reset`, { notes }, {
+            preserveScroll: true,
+            onFinish: () => setResettingId(null),
+        });
+    }
+
+    function handleAdminCreate() {
+        if (!createTeamId || !createBulan) return;
+        setCreating(true);
+        router.post('/admin/workflows/pabd/admin-create', {
+            team_id: createTeamId,
+            bulan: createBulan,
+        }, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setCreateOpen(false);
+                setCreateTeamId('');
+                setCreateBulan('');
+            },
+            onFinish: () => setCreating(false),
+        });
+    }
+
+    const showResetCol = isAdmin && canAdminReset;
+    const colCount = (isAdmin ? 8 : 7) + (showResetCol ? 1 : 0);
+    const hasCreatableTeams = creatableTeamMonths && creatableTeamMonths.length > 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Anggaran Bulanan" />
             <div className="space-y-6 p-6">
-                <Heading
-                    title="Anggaran Bulanan"
-                    description={isAdmin ? 'Semua pengajuan anggaran bulanan' : 'Daftar pengajuan anggaran bulanan tim Anda'}
-                />
+                <div className="flex items-start justify-between gap-4">
+                    <Heading
+                        title="Anggaran Bulanan"
+                        description={isAdmin ? 'Semua pengajuan anggaran bulanan' : 'Daftar pengajuan anggaran bulanan tim Anda'}
+                    />
+                    {isAdmin && canAdminReset && hasCreatableTeams && (
+                        <Dialog open={createOpen} onOpenChange={(v) => { setCreateOpen(v); if (!v) { setCreateTeamId(''); setCreateBulan(''); } }}>
+                            <DialogTrigger asChild>
+                                <Button size="sm" className="gap-1.5 shrink-0">
+                                    <Plus className="h-4 w-4" />
+                                    Buat PABD
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogTitle>Buat PABD Baru</DialogTitle>
+                                <DialogDescription>
+                                    Pilih tim dan bulan untuk membuat PABD baru. Hanya bulan yang memiliki anggaran aktif dan belum memiliki PABD yang tersedia.
+                                </DialogDescription>
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <Label>Tim *</Label>
+                                        <select
+                                            value={createTeamId}
+                                            onChange={(e) => { setCreateTeamId(e.target.value); setCreateBulan(''); }}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                                        >
+                                            <option value="">Pilih tim...</option>
+                                            {creatableTeamMonths?.map((t) => (
+                                                <option key={t.team_id} value={t.team_id}>{t.team_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Bulan *</Label>
+                                        <select
+                                            value={createBulan}
+                                            onChange={(e) => setCreateBulan(e.target.value)}
+                                            disabled={!createTeamId}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-50"
+                                        >
+                                            <option value="">{createTeamId ? 'Pilih bulan...' : 'Pilih tim dahulu'}</option>
+                                            {selectedTeamMonths.map((m) => (
+                                                <option key={m} value={m}>{bulanLabels[m]}</option>
+                                            ))}
+                                        </select>
+                                        {createTeamId && selectedTeamMonths.length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Tidak ada bulan yang tersedia. Pastikan PRBL bulan sebelumnya sudah selesai.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                                <DialogFooter className="gap-2">
+                                    <DialogClose asChild>
+                                        <Button variant="secondary">Batal</Button>
+                                    </DialogClose>
+                                    <Button
+                                        disabled={!createTeamId || !createBulan || creating}
+                                        onClick={handleAdminCreate}
+                                    >
+                                        {creating ? 'Membuat...' : 'Buat PABD'}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+                </div>
 
                 {/* Filter Bar */}
                 <div className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3">
@@ -173,6 +290,7 @@ export default function PabdIndex({
                                 <th className="px-4 py-3 text-right font-medium">Total Angg.</th>
                                 <th className="px-4 py-3 text-left font-medium">Terakhir</th>
                                 <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Tanggal</th>
+                                {showResetCol && <th className="px-4 py-3 text-center font-medium">Aksi</th>}
                             </tr>
                         </thead>
                         <tbody>
@@ -231,6 +349,31 @@ export default function PabdIndex({
                                             )}
                                         </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{wf.tanggal}</td>
+                                        {showResetCol && (
+                                            <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                                {wf.status === 'active' && (
+                                                    <ActionConfirmDialog
+                                                        trigger={
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 gap-1.5 text-destructive hover:text-destructive"
+                                                                disabled={resettingId === wf.id}
+                                                            >
+                                                                <RotateCcw className="h-3.5 w-3.5" />
+                                                                Reset
+                                                            </Button>
+                                                        }
+                                                        title="Reset PABD ke PABD01?"
+                                                        description={`PABD ${wf.bulan_label} ${wf.tahun_anggaran}${wf.team_name ? ` (${wf.team_name})` : ''} akan direset ke checklist pencairan awal. Progress saat ini (${wf.step_aktif ?? 'PABD01'}) akan diinvalidasi.`}
+                                                        confirmLabel="Reset"
+                                                        variant="destructive"
+                                                        processing={resettingId === wf.id}
+                                                        onConfirm={(data) => handleAdminReset(wf.id, data)}
+                                                    />
+                                                )}
+                                            </td>
+                                        )}
                                     </tr>
                                 ))
                             )}

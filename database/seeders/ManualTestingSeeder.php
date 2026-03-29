@@ -328,13 +328,15 @@ class ManualTestingSeeder extends Seeder
 
     private function assignPabdPermissions(): void
     {
-        // Monev: view-only (12 perms)
+        // Monev: view-only + admin_reset (13 perms)
         $monevPabd = [
             'admin.workflows.pabd.index', 'admin.workflows.pabd.show',
             'admin.workflows.pabd.pabd01.show', 'admin.workflows.pabd.pabd02a.show', 'admin.workflows.pabd.pabd02b.show',
             'admin.workflows.pabd.pabd03.show', 'admin.workflows.pabd.pabd04.show', 'admin.workflows.pabd.pabd05.show',
             'admin.workflows.pabd.pabd05.export.pdf', 'admin.workflows.pabd.pabd05.export.excel', 'admin.workflows.pabd.pabd05.export.zip',
             'admin.workflows.pabd.comment',
+            'admin.workflows.pabd.admin_reset',
+            'admin.workflows.pabd.admin_create',
         ];
         $this->syncPermissions($this->roles['monev_koordinator_monev'], $monevPabd);
         $this->syncPermissions($this->roles['monev_evaluator_narasi'], $monevPabd);

@@ -15,6 +15,8 @@ use App\Http\Requests\Workflows\Pabd03ApproveRequest;
 use App\Http\Requests\Workflows\Pabd03RejectRequest;
 use App\Http\Requests\Workflows\Pabd04DraftRequest;
 use App\Http\Requests\Workflows\Pabd04SubmitRequest;
+use App\Http\Requests\Workflows\PabdAdminCreateRequest;
+use App\Http\Requests\Workflows\PabdAdminResetRequest;
 use App\Http\Requests\Workflows\PabdCommentRequest;
 use App\Models\File;
 use App\Models\Pabd\Pabd01Data;
@@ -34,6 +36,7 @@ use App\Models\Pk\PkWorkflow;
 use App\Models\Pp\Pp01Data;
 use App\Models\Pp\Pp06PeriodeTahunan;
 use App\Models\Pp\PpWorkflow;
+use App\Models\Prbl\PrblWorkflow;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ActiveSessionService;
@@ -167,6 +170,15 @@ class PabdWorkflowController extends Controller
 
         if ($scope === 'admin') {
             $props['availableTeams'] = $availableTeams;
+            $canAdminReset = in_array(
+                'admin.workflows.pabd.admin_reset',
+                $this->session->getActivePermissions(),
+            );
+            $props['canAdminReset'] = $canAdminReset;
+
+            if ($canAdminReset) {
+                $props['creatableTeamMonths'] = $this->computeCreatableTeamMonths($workspaceId);
+            }
         }
 
         return Inertia::render('workflows/pabd/index', $props);
@@ -327,6 +339,174 @@ class PabdWorkflowController extends Controller
         );
 
         return back()->with('success', 'Komentar berhasil ditambahkan.');
+    }
+
+    // ──────────────────────────────────────
+    // Admin Reset
+    // ──────────────────────────────────────
+
+    public function adminReset(PabdAdminResetRequest $request, PabdWorkflow $pabdWorkflow): RedirectResponse
+    {
+        $this->checkPermission('admin.workflows.pabd.admin_reset');
+        $this->ensureWorkspaceOwnership($pabdWorkflow);
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PABD);
+        $history = $pabdWorkflow->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+
+        // Scenario 2: Already completed — do nothing
+        if ($workflowStatus === 'completed') {
+            return back()->with('error', 'PABD sudah selesai (PABD05). Tidak dapat direset.');
+        }
+
+        // Scenario 3: Active workflow — invalidate current step and reset to fresh PABD01
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+        $currentStep = $currentSteps[0] ?? 'PABD01';
+
+        DB::transaction(function () use ($pabdWorkflow, $currentStep, $request) {
+            // Record admin_reset on current step
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: $currentStep,
+                action: 'reset',
+                userId: $request->user()->id,
+                sessionContext: $this->getSessionContext(),
+                notes: $request->validated('notes'),
+                extra: [
+                    'reason' => 'admin_reset',
+                    'cycleTarget' => 'PABD01',
+                ],
+            );
+
+            // Create fresh PABD01 data from latest PK04
+            $freshPabd01 = $this->createFreshPabd01Data($pabdWorkflow);
+
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD01',
+                action: 'created',
+                userId: $request->user()->id,
+                sessionContext: $this->getSessionContext(),
+                table: 'pabd01_data',
+                dataId: $freshPabd01->id,
+                extra: ['reason' => 'admin_reset'],
+            );
+        });
+
+        $this->notifier->notify($pabdWorkflow, 'pabd.admin_reset', [
+            'action_verb' => 'direset oleh admin',
+            'step_label' => 'Checklist Pencairan (PABD01)',
+            'next_instruction' => 'PABD telah direset oleh admin. Silakan review ulang checklist pencairan.',
+        ]);
+
+        return back()->with('success', 'PABD berhasil direset ke PABD01.');
+    }
+
+    public function adminCreate(PabdAdminCreateRequest $request): RedirectResponse
+    {
+        $this->checkPermission('admin.workflows.pabd.admin_reset');
+
+        $workspaceId = $this->session->getActiveWorkspaceId();
+        $teamId = (int) $request->validated('team_id');
+        $bulan = (int) $request->validated('bulan');
+
+        // Find the PP workflow for this workspace that has a completed PP06
+        $ppWorkflow = PpWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereHas('pp06PeriodeTahunan')
+            ->first();
+
+        if (! $ppWorkflow) {
+            return back()->with('error', 'Tidak ditemukan PP workflow dengan PP06 yang sudah selesai.');
+        }
+
+        $tahun = $ppWorkflow->latestPp06()?->tahun;
+        if (! $tahun) {
+            return back()->with('error', 'PP workflow tidak memiliki tahun.');
+        }
+
+        // Check no existing PABD for this team + month + PP
+        $exists = PabdWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('team_id', $teamId)
+            ->where('pp_workflow_id', $ppWorkflow->id)
+            ->where('bulan_anggaran', $bulan)
+            ->where('tahun_anggaran', $tahun)
+            ->exists();
+
+        if ($exists) {
+            return back()->with('error', 'PABD untuk tim dan bulan ini sudah ada.');
+        }
+
+        // Find PK04 finals for this team
+        $pkWorkflows = PkWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('team_id', $teamId)
+            ->where('pp_workflow_id', $ppWorkflow->id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        $pk04Finals = Pk04ProgramTahunan::query()
+            ->whereIn('pk_workflow_id', $pkWorkflows->pluck('id'))
+            ->get()
+            ->groupBy('pk_workflow_id')
+            ->map(fn ($group) => $group->sortByDesc('revision')->first());
+
+        if ($pk04Finals->isEmpty()) {
+            return back()->with('error', 'Tidak ditemukan PK04 final untuk tim ini.');
+        }
+
+        // Check for active anggaran in target month
+        $anggaranInMonth = Pk04Anggaran::query()
+            ->whereHas('pk04Kegiatan', function ($q) use ($pk04Finals, $bulan) {
+                $q->whereIn('pk04_program_tahunan_id', $pk04Finals->pluck('id'))
+                    ->where('bulan', $bulan);
+            })
+            ->where('nominal_anggaran', '>', 0)
+            ->where('status_item', 'active')
+            ->exists();
+
+        if (! $anggaranInMonth) {
+            return back()->with('error', 'Tidak ada anggaran aktif untuk bulan ini.');
+        }
+
+        // Create PABD workflow + PABD01 data
+        $pabdWorkflow = DB::transaction(function () use ($workspaceId, $teamId, $ppWorkflow, $bulan, $tahun, $request) {
+            $pabdWorkflow = PabdWorkflow::create([
+                'uuid' => (string) Str::uuid(),
+                'workspace_id' => $workspaceId,
+                'team_id' => $teamId,
+                'pp_workflow_id' => $ppWorkflow->id,
+                'bulan_anggaran' => $bulan,
+                'tahun_anggaran' => $tahun,
+                'created_by_user_id' => $request->user()->id,
+                'created_by_role_id' => $this->session->getActiveRoleId(),
+                'created_by_team_id' => $teamId,
+                'created_by_org_id' => null,
+                'history' => [],
+            ]);
+
+            $freshPabd01 = $this->createFreshPabd01Data($pabdWorkflow);
+
+            $this->engine->recordAction(
+                workflow: $pabdWorkflow,
+                step: 'PABD01',
+                action: 'created',
+                userId: $request->user()->id,
+                sessionContext: $this->getSessionContext(),
+                table: 'pabd01_data',
+                dataId: $freshPabd01->id,
+                extra: ['reason' => 'admin_create'],
+            );
+
+            return $pabdWorkflow;
+        });
+
+        $this->notifier->notify($pabdWorkflow, 'pabd.auto_created', [
+            'actor_name' => $request->user()->name ?? 'Admin',
+        ]);
+
+        return back()->with('success', 'PABD berhasil dibuat.');
     }
 
     // ──────────────────────────────────────
@@ -3020,6 +3200,134 @@ class PabdWorkflowController extends Controller
         }
 
         return $pabd01;
+    }
+
+    /**
+     * Compute which months each team can have a new PABD created for.
+     *
+     * Logic: for each team with PK04 finals, find months where:
+     * 1. Active anggaran exists (nominal > 0, status_item = active)
+     * 2. No PABD already exists for that month
+     * 3. The month follows the PRBL chain (after last completed PRBL, or first if no PABD exists)
+     *
+     * @return list<array{team_id: int, team_name: string, months: list<int>}>
+     */
+    private function computeCreatableTeamMonths(int $workspaceId): array
+    {
+        // Find PP workflow for this workspace
+        $ppWorkflow = PpWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereHas('pp06PeriodeTahunan')
+            ->first();
+
+        if (! $ppWorkflow) {
+            return [];
+        }
+
+        $tahun = $ppWorkflow->latestPp06()?->tahun;
+        if (! $tahun) {
+            return [];
+        }
+
+        // Find all teams that have PK workflows with PK04 finals
+        $pkWorkflows = PkWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('pp_workflow_id', $ppWorkflow->id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        $pkByTeam = $pkWorkflows->groupBy('team_id');
+        $result = [];
+
+        foreach ($pkByTeam as $teamId => $teamPkWorkflows) {
+            $pk04Finals = Pk04ProgramTahunan::query()
+                ->whereIn('pk_workflow_id', $teamPkWorkflows->pluck('id'))
+                ->get()
+                ->groupBy('pk_workflow_id')
+                ->map(fn ($group) => $group->sortByDesc('revision')->first());
+
+            if ($pk04Finals->isEmpty()) {
+                continue;
+            }
+
+            // Find all months with active anggaran
+            $monthsWithAnggaran = Pk04Anggaran::query()
+                ->whereHas('pk04Kegiatan', fn ($q) => $q
+                    ->whereIn('pk04_program_tahunan_id', $pk04Finals->pluck('id'))
+                )
+                ->where('nominal_anggaran', '>', 0)
+                ->where('status_item', 'active')
+                ->join('pk04_kegiatan', 'pk04_anggaran.pk04_kegiatan_id', '=', 'pk04_kegiatan.id')
+                ->distinct()
+                ->pluck('pk04_kegiatan.bulan')
+                ->sort()
+                ->values()
+                ->toArray();
+
+            if (empty($monthsWithAnggaran)) {
+                continue;
+            }
+
+            // Find months that already have a PABD
+            $existingPabdMonths = PabdWorkflow::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('team_id', $teamId)
+                ->where('pp_workflow_id', $ppWorkflow->id)
+                ->where('tahun_anggaran', $tahun)
+                ->pluck('bulan_anggaran')
+                ->toArray();
+
+            // Find the last completed PRBL month
+            $lastCompletedPrblMonth = 0;
+            $prbls = PrblWorkflow::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('team_id', $teamId)
+                ->where('pp_workflow_id', $ppWorkflow->id)
+                ->where('tahun_laporan', $tahun)
+                ->get();
+
+            foreach ($prbls as $prbl) {
+                if ($this->engine->getWorkflowStatus($prbl->history ?? []) === 'completed') {
+                    $lastCompletedPrblMonth = max($lastCompletedPrblMonth, $prbl->bulan_laporan);
+                }
+            }
+
+            // Also check if any PABD exists at all — if none, first month is eligible
+            $hasAnyPabd = ! empty($existingPabdMonths);
+
+            $eligible = [];
+            foreach ($monthsWithAnggaran as $month) {
+                // Already has PABD
+                if (in_array($month, $existingPabdMonths)) {
+                    continue;
+                }
+
+                // Chain check: must be after last completed PRBL month
+                if ($hasAnyPabd && $month <= $lastCompletedPrblMonth) {
+                    continue;
+                }
+
+                // If there's an existing PABD but no completed PRBL for it yet,
+                // only allow months after that PABD's month once its PRBL completes
+                if ($hasAnyPabd && $lastCompletedPrblMonth === 0) {
+                    // No PRBL completed yet — can't create next month
+                    continue;
+                }
+
+                $eligible[] = $month;
+            }
+
+            if (! empty($eligible)) {
+                $team = \App\Models\Team::find($teamId);
+                $result[] = [
+                    'team_id' => $teamId,
+                    'team_name' => $team?->name ?? 'Unknown',
+                    'months' => array_values($eligible),
+                ];
+            }
+        }
+
+        return $result;
     }
 
     /**

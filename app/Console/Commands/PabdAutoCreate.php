@@ -59,7 +59,7 @@ class PabdAutoCreate extends Command
                     continue;
                 }
 
-                $tahun = $ppWorkflow->latestPp01()?->tahun;
+                $tahun = $ppWorkflow->latestPp06()?->tahun;
                 if (! $tahun) {
                     continue;
                 }

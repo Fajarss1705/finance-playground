@@ -144,6 +144,8 @@ class PermissionSeeder extends Seeder
             'admin.workflows.pabd.pabd05.export.excel',
             'admin.workflows.pabd.pabd05.export.zip',
             'admin.workflows.pabd.comment',
+            'admin.workflows.pabd.admin_reset',
+            'admin.workflows.pabd.admin_create',
         ];
     }
 

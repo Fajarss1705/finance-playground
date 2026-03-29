@@ -139,6 +139,8 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/', [PabdWorkflowController::class, 'index'])->name('index');
             Route::get('/{pabdWorkflow}', [PabdWorkflowController::class, 'show'])->name('show');
             Route::post('/{pabdWorkflow}/comment', [PabdWorkflowController::class, 'comment'])->name('comment');
+            Route::post('/{pabdWorkflow}/admin-reset', [PabdWorkflowController::class, 'adminReset'])->name('admin_reset');
+            Route::post('/admin-create', [PabdWorkflowController::class, 'adminCreate'])->name('admin_create');
 
             // PABD01 (admin scope — read-only)
             Route::get('/{pabdWorkflow}/pabd01/{pabd01Data}', [PabdWorkflowController::class, 'pabd01Show'])->name('pabd01.show');
