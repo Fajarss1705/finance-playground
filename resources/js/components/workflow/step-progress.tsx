@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-type StepStatus = 'completed' | 'active' | 'pending' | 'skipped' | 'rejected';
+type StepStatus = 'completed' | 'active' | 'pending' | 'skipped' | 'rejected' | 'reset';
 
 export type StepperStep = {
     code: string;
@@ -20,7 +20,7 @@ export type StepperStep = {
 
 export type StepperCycle = {
     number: number;
-    status: 'rejected' | 'active' | 'completed';
+    status: 'rejected' | 'active' | 'completed' | 'reset';
     type?: 'initial' | 'rejection' | 'revision';
     revisionNumber?: number;
     steps: StepperStep[];
@@ -32,6 +32,7 @@ const statusColors: Record<StepStatus, string> = {
     pending: 'bg-muted text-muted-foreground',
     skipped: 'bg-gray-300 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
     rejected: 'bg-red-500 text-white',
+    reset: 'bg-slate-400 text-white',
 };
 
 const lineColors: Record<StepStatus, string> = {
@@ -40,12 +41,14 @@ const lineColors: Record<StepStatus, string> = {
     pending: 'bg-muted',
     skipped: 'bg-gray-300 dark:bg-gray-700',
     rejected: 'bg-red-500',
+    reset: 'bg-slate-400',
 };
 
 const cycleStatusLabels: Record<string, string> = {
     rejected: 'ditolak',
     active: 'aktif',
     completed: 'selesai',
+    reset: 'direset',
 };
 
 /** Extract short number from step code, e.g. "PK02A" → "2A", "PP01" → "1", "PK03" → "3" */
@@ -96,6 +99,10 @@ function StepDot({ step, index, activeRoleName }: { step: StepperStep; index: nu
             ) : step.status === 'rejected' ? (
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            ) : step.status === 'reset' ? (
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
             ) : (
                 stepShortLabel(step.code)
