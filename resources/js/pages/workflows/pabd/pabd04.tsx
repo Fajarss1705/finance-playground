@@ -90,6 +90,7 @@ type BuktiTransferFile = {
     mime_type: string | null;
     size: number | null;
     uuid: string | null;
+    download_url: string | null;
 };
 
 type Props = {
@@ -244,7 +245,13 @@ function BuktiTransferUpload({
             {visibleExisting.map((file) => (
                 <div key={file.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
                     <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 truncate">{file.original_filename || 'File'}</span>
+                    {file.download_url ? (
+                        <a href={file.download_url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400">
+                            {file.original_filename || 'File'}
+                        </a>
+                    ) : (
+                        <span className="flex-1 truncate">{file.original_filename || 'File'}</span>
+                    )}
                     {!readonly && (
                         <button
                             type="button"

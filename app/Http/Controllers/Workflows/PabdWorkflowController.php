@@ -2172,6 +2172,7 @@ class PabdWorkflowController extends Controller
                 'mime_type' => $item->file?->mime_type,
                 'size' => $item->file?->size,
                 'uuid' => $item->file?->uuid,
+                'download_url' => $item->file?->path ? route('files.download', $item->file) : null,
             ])
             ->values()
             ->all();
