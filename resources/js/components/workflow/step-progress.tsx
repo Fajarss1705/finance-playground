@@ -20,8 +20,8 @@ export type StepperStep = {
 
 export type StepperCycle = {
     number: number;
-    status: 'rejected' | 'active' | 'completed' | 'reset';
-    type?: 'initial' | 'rejection' | 'revision';
+    status: 'rejected' | 'active' | 'completed' | 'reset' | 'cycled';
+    type?: 'initial' | 'rejection' | 'revision' | 'cycleback';
     revisionNumber?: number;
     steps: StepperStep[];
 };
@@ -49,6 +49,7 @@ const cycleStatusLabels: Record<string, string> = {
     active: 'aktif',
     completed: 'selesai',
     reset: 'direset',
+    cycled: 'diulang',
 };
 
 /** Extract short number from step code, e.g. "PK02A" → "2A", "PP01" → "1", "PK03" → "3" */
