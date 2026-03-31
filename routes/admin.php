@@ -174,7 +174,9 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
         // PRBL Workflow (admin scope)
         Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
             Route::get('/', [PrblWorkflowController::class, 'index'])->name('index');
+            Route::post('/admin-create', [PrblWorkflowController::class, 'adminCreate'])->name('admin_create');
             Route::get('/{prblWorkflow}', [PrblWorkflowController::class, 'show'])->name('show');
+            Route::post('/{prblWorkflow}/admin-reset', [PrblWorkflowController::class, 'adminReset'])->name('admin_reset');
 
             // PRBL01 (admin scope — read-only)
             Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
