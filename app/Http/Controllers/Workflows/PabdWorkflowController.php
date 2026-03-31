@@ -515,7 +515,7 @@ class PabdWorkflowController extends Controller
     // PABD01 — Checklist Pencairan
     // ──────────────────────────────────────
 
-    public function pabd01Show(PabdWorkflow $pabdWorkflow, Pabd01Data $pabd01Data): Response|\Illuminate\Http\RedirectResponse
+    public function pabd01Show(PabdWorkflow $pabdWorkflow, Pabd01Data $pabd01Data): Response|\Illuminate\Http\RedirectResponse|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -684,7 +684,7 @@ class PabdWorkflowController extends Controller
             extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
         );
 
-        return to_route('team.workflows.pabd.pabd01.show', [$pabdWorkflow, $pabd01Data])
+        return to_route('team.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'Draft PABD01 berhasil disimpan.');
     }
 
@@ -798,7 +798,7 @@ class PabdWorkflowController extends Controller
     // PABD02A — Perubahan Anggaran
     // ──────────────────────────────────────
 
-    public function pabd02aShow(PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): Response|RedirectResponse
+    public function pabd02aShow(PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): Response|RedirectResponse|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -970,7 +970,7 @@ class PabdWorkflowController extends Controller
             extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
         );
 
-        return to_route('team.workflows.pabd.pabd02a.show', [$pabdWorkflow, $pabd02aData])
+        return to_route('team.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'Draft PABD02A berhasil disimpan.');
     }
 
@@ -1467,7 +1467,7 @@ class PabdWorkflowController extends Controller
     // PABD02B — Approval Perubahan
     // ──────────────────────────────────────
 
-    public function pabd02bShow(PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): Response
+    public function pabd02bShow(PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): Response|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -1657,7 +1657,8 @@ class PabdWorkflowController extends Controller
             extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
         );
 
-        return back()->with('success', 'Draft PABD02B berhasil disimpan.');
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Draft PABD02B berhasil disimpan.');
     }
 
     public function pabd02bApprove(Pabd02bApproveRequest $request, PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): RedirectResponse
@@ -1866,7 +1867,7 @@ class PabdWorkflowController extends Controller
     // PABD03 — Approval Transfer
     // ──────────────────────────────────────
 
-    public function pabd03Show(PabdWorkflow $pabdWorkflow): Response
+    public function pabd03Show(PabdWorkflow $pabdWorkflow): Response|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -2171,6 +2172,7 @@ class PabdWorkflowController extends Controller
                 'mime_type' => $item->file?->mime_type,
                 'size' => $item->file?->size,
                 'uuid' => $item->file?->uuid,
+                'download_url' => $item->file?->path ? route('files.download', $item->file) : null,
             ])
             ->values()
             ->all();
@@ -2289,7 +2291,8 @@ class PabdWorkflowController extends Controller
             );
         });
 
-        return back()->with('success', 'Draft bukti transfer berhasil disimpan.');
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Draft bukti transfer berhasil disimpan.');
     }
 
     public function pabd04Submit(Pabd04SubmitRequest $request, PabdWorkflow $pabdWorkflow, Pabd04Data $pabd04Data): RedirectResponse
@@ -3121,6 +3124,7 @@ class PabdWorkflowController extends Controller
             sessionContext: [],
             extra: [
                 'reason' => 'pk04_revised',
+                'cycleTarget' => 'PABD01',
                 'changed_pks' => $changedPkIds,
             ],
         );
@@ -3493,13 +3497,15 @@ class PabdWorkflowController extends Controller
         $pp06 = $pabdWorkflow->ppWorkflow?->latestPp06();
         if (! $pp06) {
             return [
-                'ppLabel' => null, 'teamName' => $teamName,
-                'plafon' => 0, 'accepted' => 0,
+                'ppLabel' => null, 'tahun' => null, 'teamName' => $teamName,
+                'plafon' => 0, 'accepted' => 0, 'review' => 0, 'pendingRaker' => 0, 'draft' => 0,
+                'proposalAccepted' => 0, 'proposalReview' => 0, 'proposalDraft' => 0,
             ];
         }
 
         $teamId = $pabdWorkflow->team_id;
         $pp01 = $pabdWorkflow->ppWorkflow?->latestPp01();
+        $tahun = $pp01?->tahun ? (int) $pp01->tahun : null;
 
         $plafon = (float) ($pp06->itemPlafonAnggaran()
             ->where('team_id', $teamId)
@@ -3516,6 +3522,48 @@ class PabdWorkflowController extends Controller
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
 
+        // In-progress raker PKs split by current step
+        $draft = 0.0;
+        $review = 0.0;
+        $pendingRaker = 0.0;
+        $pkDefinition = new \App\Workflows\PkWorkflowDefinition;
+
+        $activeRakerPkWorkflows = PkWorkflow::query()
+            ->where('team_id', $teamId)
+            ->where('workspace_id', $pabdWorkflow->workspace_id)
+            ->where('pp_workflow_id', $pabdWorkflow->pp_workflow_id)
+            ->where('tipe', 'raker')
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($activeRakerPkWorkflows as $wf) {
+            $status = $this->engine->getWorkflowStatus($wf->history ?? []);
+            if (in_array($status, ['completed', 'terminated', 'deleted'])) {
+                continue;
+            }
+            $latestPk01 = $wf->latestPk01();
+            if (! $latestPk01) {
+                continue;
+            }
+
+            $total = (float) $latestPk01->kegiatan()
+                ->with('anggaran')
+                ->get()
+                ->flatMap(fn ($k) => $k->anggaran)
+                ->sum('nominal_anggaran');
+
+            $currentSteps = $this->engine->getCurrentSteps($pkDefinition, $wf->history ?? []);
+
+            if (in_array('PK01', $currentSteps)) {
+                $draft += $total;
+            } elseif (in_array('PK03', $currentSteps)) {
+                $pendingRaker += $total;
+            } elseif (array_intersect(['PK02A', 'PK02B'], $currentSteps)) {
+                $review += $total;
+            }
+        }
+
+        // Proposal totals
         $proposalAccepted = (float) Pk04Anggaran::query()
             ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
                 ->where('team_id', $teamId)
@@ -3529,7 +3577,6 @@ class PabdWorkflowController extends Controller
 
         $proposalDraft = 0.0;
         $proposalReview = 0.0;
-        $pkDefinition = new \App\Workflows\PkWorkflowDefinition;
 
         $activeProposalPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
@@ -3566,9 +3613,13 @@ class PabdWorkflowController extends Controller
 
         return [
             'ppLabel' => "PP-{$pp01?->tahun} Revisi {$pp06->revision}",
+            'tahun' => $tahun,
             'teamName' => $teamName,
             'plafon' => $plafon,
             'accepted' => $accepted,
+            'review' => $review,
+            'pendingRaker' => $pendingRaker,
+            'draft' => $draft,
             'proposalAccepted' => $proposalAccepted,
             'proposalReview' => $proposalReview,
             'proposalDraft' => $proposalDraft,
