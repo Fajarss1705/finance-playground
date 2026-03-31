@@ -515,7 +515,7 @@ class PabdWorkflowController extends Controller
     // PABD01 — Checklist Pencairan
     // ──────────────────────────────────────
 
-    public function pabd01Show(PabdWorkflow $pabdWorkflow, Pabd01Data $pabd01Data): Response|\Illuminate\Http\RedirectResponse
+    public function pabd01Show(PabdWorkflow $pabdWorkflow, Pabd01Data $pabd01Data): Response|\Illuminate\Http\RedirectResponse|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -798,7 +798,7 @@ class PabdWorkflowController extends Controller
     // PABD02A — Perubahan Anggaran
     // ──────────────────────────────────────
 
-    public function pabd02aShow(PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): Response|RedirectResponse
+    public function pabd02aShow(PabdWorkflow $pabdWorkflow, Pabd02aData $pabd02aData): Response|RedirectResponse|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -1467,7 +1467,7 @@ class PabdWorkflowController extends Controller
     // PABD02B — Approval Perubahan
     // ──────────────────────────────────────
 
-    public function pabd02bShow(PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): Response
+    public function pabd02bShow(PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): Response|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -1867,7 +1867,7 @@ class PabdWorkflowController extends Controller
     // PABD03 — Approval Transfer
     // ──────────────────────────────────────
 
-    public function pabd03Show(PabdWorkflow $pabdWorkflow): Response
+    public function pabd03Show(PabdWorkflow $pabdWorkflow): Response|\Illuminate\Http\Response
     {
         $scope = $this->getScope();
         $this->ensureWorkspaceOwnership($pabdWorkflow);
@@ -3123,6 +3123,7 @@ class PabdWorkflowController extends Controller
             sessionContext: [],
             extra: [
                 'reason' => 'pk04_revised',
+                'cycleTarget' => 'PABD01',
                 'changed_pks' => $changedPkIds,
             ],
         );
