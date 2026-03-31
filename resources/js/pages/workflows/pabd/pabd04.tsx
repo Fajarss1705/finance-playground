@@ -327,14 +327,16 @@ export default function Pabd04({
     const visibleExistingCount = buktiTransferFiles.filter(f => !removeIds.includes(f.id)).length;
     const totalFileCount = visibleExistingCount + newFiles.length;
 
+    const basePath = `/${scope}/workflows/pabd/${workflow.id}`;
+
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: scope === 'admin' ? 'Admin' : 'Tim', href: scope === 'admin' ? route('admin.index') : route('team.index') },
-        { title: 'Pengajuan Anggaran', href: route(`${scope}.workflows.pabd.index`) },
-        { title: `PABD-${workflow.team_name}-${workflow.bulan_label}/${workflow.tahun_anggaran}`, href: route(`${scope}.workflows.pabd.show`, { pabdWorkflow: workflow.id }) },
+        { title: scope === 'admin' ? 'Admin' : 'Tim', href: `/${scope}` },
+        { title: 'Anggaran Bulanan', href: `/${scope}/workflows/pabd` },
+        { title: `PABD-${workflow.team_name}-${workflow.bulan_label}/${workflow.tahun_anggaran}`, href: basePath },
         { title: 'PABD04: Upload Bukti Transfer' },
     ];
 
-    const commentUrl = route(`${scope}.workflows.pabd.comment`, { pabdWorkflow: workflow.id });
+    const commentUrl = `${basePath}/comment`;
 
     function buildFormData(notes?: string, actionFiles?: File[]): FormData {
         const formData = new FormData();
@@ -368,11 +370,11 @@ export default function Pabd04({
         if (processing) return;
         setProcessing(true);
 
-        const routeName = `admin.workflows.pabd.pabd04.${action}`;
+        const url = `${basePath}/pabd04/${pabd04Data.id}/${action}`;
         const formData = buildFormData(notes, files);
 
         router.post(
-            route(routeName, { pabdWorkflow: workflow.id, pabd04Data: pabd04Data.id }),
+            url,
             formData,
             {
                 forceFormData: true,

@@ -205,20 +205,22 @@ export default function Pabd03({
     const isReadonly = mode === 'readonly';
     const stepStatus = stepStatuses['PABD03']?.status ?? 'active';
 
+    const basePath = `/${scope}/workflows/pabd/${workflow.id}`;
+
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: scope === 'admin' ? 'Admin' : 'Tim', href: scope === 'admin' ? route('admin.index') : route('team.index') },
-        { title: 'Pengajuan Anggaran', href: route(`${scope}.workflows.pabd.index`) },
-        { title: `PABD-${workflow.team_name}-${workflow.bulan_label}/${workflow.tahun_anggaran}`, href: route(`${scope}.workflows.pabd.show`, { pabdWorkflow: workflow.id }) },
+        { title: scope === 'admin' ? 'Admin' : 'Tim', href: `/${scope}` },
+        { title: 'Anggaran Bulanan', href: `/${scope}/workflows/pabd` },
+        { title: `PABD-${workflow.team_name}-${workflow.bulan_label}/${workflow.tahun_anggaran}`, href: basePath },
         { title: 'PABD03: Persetujuan Transfer' },
     ];
 
-    const commentUrl = route(`${scope}.workflows.pabd.comment`, { pabdWorkflow: workflow.id });
+    const commentUrl = `${basePath}/comment`;
 
     function handleAction(action: 'approve' | 'reject', notes?: string, files?: File[]) {
         if (processing) return;
         setProcessing(true);
 
-        const routeName = `admin.workflows.pabd.pabd03.${action}`;
+        const url = `${basePath}/pabd03/${action}`;
         const data: Record<string, unknown> = {
             expected_updated_at: workflow.updated_at,
             notes: notes || null,
@@ -228,7 +230,7 @@ export default function Pabd03({
             data.files = files;
         }
 
-        router.post(route(routeName, { pabdWorkflow: workflow.id }), data, {
+        router.post(url, data, {
             forceFormData: true,
             onFinish: () => setProcessing(false),
         });
