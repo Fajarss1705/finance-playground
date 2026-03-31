@@ -684,7 +684,7 @@ class PabdWorkflowController extends Controller
             extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
         );
 
-        return to_route('team.workflows.pabd.pabd01.show', [$pabdWorkflow, $pabd01Data])
+        return to_route('team.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'Draft PABD01 berhasil disimpan.');
     }
 
@@ -970,7 +970,7 @@ class PabdWorkflowController extends Controller
             extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
         );
 
-        return to_route('team.workflows.pabd.pabd02a.show', [$pabdWorkflow, $pabd02aData])
+        return to_route('team.workflows.pabd.show', $pabdWorkflow)
             ->with('success', 'Draft PABD02A berhasil disimpan.');
     }
 
@@ -1657,7 +1657,8 @@ class PabdWorkflowController extends Controller
             extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
         );
 
-        return back()->with('success', 'Draft PABD02B berhasil disimpan.');
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Draft PABD02B berhasil disimpan.');
     }
 
     public function pabd02bApprove(Pabd02bApproveRequest $request, PabdWorkflow $pabdWorkflow, Pabd02bData $pabd02bData): RedirectResponse
@@ -2289,7 +2290,8 @@ class PabdWorkflowController extends Controller
             );
         });
 
-        return back()->with('success', 'Draft bukti transfer berhasil disimpan.');
+        return to_route('admin.workflows.pabd.show', $pabdWorkflow)
+            ->with('success', 'Draft bukti transfer berhasil disimpan.');
     }
 
     public function pabd04Submit(Pabd04SubmitRequest $request, PabdWorkflow $pabdWorkflow, Pabd04Data $pabd04Data): RedirectResponse
