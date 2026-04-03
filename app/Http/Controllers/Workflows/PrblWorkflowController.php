@@ -2351,7 +2351,7 @@ class PrblWorkflowController extends Controller
                 'file_id' => $n->file_id,
                 'original_filename' => $n->file?->original_filename ?? '',
                 'mime_type' => $n->file?->mime_type ?? '',
-                'download_url' => $n->file ? route('files.serve', $n->file->uuid) : null,
+                'download_url' => $n->file ? route('files.download', $n->file) : null,
             ])->values()->all();
 
             // Kuisioner
