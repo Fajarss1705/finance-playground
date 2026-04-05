@@ -15,6 +15,10 @@ import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
+import { index as adminIndex } from '@/routes/admin';
+import { index as teamIndex } from '@/routes/team';
+import prbl from '@/routes/admin/workflows/prbl';
+import prblTeam from '@/routes/team/workflows/prbl';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -395,17 +399,19 @@ export default function Prbl03({
               ? 'Upload minimal 1 bukti transfer'
               : undefined;
 
+    const prblRoutes = scope === 'admin' ? prbl : prblTeam;
+
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: scope === 'admin' ? 'Admin' : 'Tim', href: scope === 'admin' ? route('admin.index') : route('team.index') },
-        { title: 'Laporan Bulanan', href: route(`${scope}.workflows.prbl.index`) },
+        { title: scope === 'admin' ? 'Admin' : 'Tim', href: scope === 'admin' ? adminIndex.url() : teamIndex.url() },
+        { title: 'Laporan Bulanan', href: prblRoutes.index.url() },
         {
             title: `PRBL-${workflowMeta.team_name}-${workflowMeta.bulan_label}/${workflowMeta.tahun_laporan}`,
-            href: route(`${scope}.workflows.prbl.show`, { prblWorkflow: workflow.id }),
+            href: prblRoutes.show.url(workflow.id),
         },
         { title: 'PRBL03: Refund & Bukti Transfer' },
     ];
 
-    const commentUrl = route(`${scope}.workflows.prbl.comment`, { prblWorkflow: workflow.id });
+    const commentUrl = prblRoutes.comment.url(workflow.id);
 
     function buildFormData(notes?: string, actionFiles?: File[]): FormData {
         const formData = new FormData();
@@ -430,10 +436,11 @@ export default function Prbl03({
         if (processing) return;
         setProcessing(true);
 
-        const routeName = `team.workflows.prbl.prbl03.${action}`;
         const formData = buildFormData(notes, files);
 
-        router.post(route(routeName, { prblWorkflow: workflow.id, prbl03Data: prbl03.id }), formData, {
+        const actionFn = action === 'draft' ? prblTeam.prbl03.draft : prblTeam.prbl03.submit;
+
+        router.post(actionFn.url({ prblWorkflow: workflow.id, prbl03Data: prbl03.id }), formData, {
             forceFormData: true,
             onFinish: () => setProcessing(false),
             onSuccess: () => {
