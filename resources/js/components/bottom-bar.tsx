@@ -1,5 +1,7 @@
 import { router, usePage } from '@inertiajs/react';
 import { Check, ChevronsUpDown, Shield } from 'lucide-react';
+import { store } from '@/actions/App/Http/Controllers/SwitcherController';
+import { Badge } from '@/components/ui/badge';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -8,7 +10,6 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
 import {
     Tooltip,
     TooltipContent,
@@ -16,7 +17,6 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { Auth } from '@/types';
-import { store } from '@/actions/App/Http/Controllers/SwitcherController';
 
 export function BottomBar() {
     const { auth } = usePage<{ auth: Auth }>().props;

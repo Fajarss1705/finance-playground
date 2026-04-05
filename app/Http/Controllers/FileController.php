@@ -48,7 +48,7 @@ class FileController extends Controller
         ]);
     }
 
-    public function download(File $file): StreamedResponse
+    public function download(File $file): StreamedResponse|\Symfony\Component\HttpFoundation\BinaryFileResponse
     {
         $session = app(ActiveSessionService::class);
 
@@ -70,6 +70,13 @@ class FileController extends Controller
 
                 abort_unless($hasAccess, 403);
             }
+        }
+
+        // Serve inline (Content-Disposition: inline) for image previews
+        if (request()->boolean('inline') && str_starts_with((string) $file->mime_type, 'image/')) {
+            return Storage::disk($file->disk)->response($file->path, $file->original_filename, [
+                'Content-Type' => $file->mime_type,
+            ]);
         }
 
         return Storage::disk($file->disk)->download($file->path, $file->original_filename);

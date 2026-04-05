@@ -1,6 +1,6 @@
 import { Head } from '@inertiajs/react';
-import { useState } from 'react';
 import { CheckCircle, AlertTriangle, XCircle, Search } from 'lucide-react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';

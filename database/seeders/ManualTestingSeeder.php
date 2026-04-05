@@ -391,7 +391,7 @@ class ManualTestingSeeder extends Seeder
 
     private function assignPrblPermissions(): void
     {
-        // Monev: PRBL02A approve/reject (14 perms)
+        // Monev: PRBL02A approve/reject + admin_reset/create (16 perms)
         $monevPrbl = [
             'admin.workflows.prbl.index', 'admin.workflows.prbl.show',
             'admin.workflows.prbl.prbl01.show',
@@ -400,6 +400,8 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.prbl.prbl05.show',
             'admin.workflows.prbl.prbl05.export.pdf', 'admin.workflows.prbl.prbl05.export.excel', 'admin.workflows.prbl.prbl05.export.zip',
             'admin.workflows.prbl.comment',
+            'admin.workflows.prbl.admin_reset',
+            'admin.workflows.prbl.admin_create',
         ];
         $this->syncPermissions($this->roles['monev_koordinator_monev'], $monevPrbl);
         $this->syncPermissions($this->roles['monev_evaluator_narasi'], $monevPrbl);

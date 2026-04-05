@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, usePage } from '@inertiajs/react';
 import { Bell } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import { index as fetchNotifications, go } from '@/routes/notifications';

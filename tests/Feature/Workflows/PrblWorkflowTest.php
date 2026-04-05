@@ -2708,3 +2708,63 @@ it('detects Tier 3 realisasi lock via prbl05_item_realisasi EXISTS', function ()
     expect(Prbl05ItemRealisasi::where('pk04_anggaran_id', $ang1->id)->exists())->toBeTrue();
     expect(Prbl05ItemRealisasi::where('pk04_anggaran_id', $ang2->id)->exists())->toBeTrue();
 });
+
+// ── Regression: CSRF meta tag + nota download_url ──
+
+it('app layout includes csrf-token meta tag', function () {
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl01.show',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.prbl.prbl01.show', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $prbl01->id,
+    ]));
+
+    $response->assertOk()
+        ->assertSee('meta name="csrf-token"', false);
+});
+
+it('prbl01 show returns nota with valid files.download url after upload', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl01.show',
+        'team.workflows.prbl.prbl01.draft',
+        'team.workflows.prbl.prbl01.nota.upload',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Upload a nota file
+    $file = UploadedFile::fake()->create('kwitansi.pdf', 200, 'application/pdf');
+    $this->postJson(route('team.workflows.prbl.prbl01.nota.upload', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $prbl01->id,
+    ]), [
+        'file' => $file,
+        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+    ])->assertSuccessful();
+
+    // Load the show page — nota download_url must use files.download (not the missing files.serve route)
+    $response = $this->get(route('team.workflows.prbl.prbl01.show', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $prbl01->id,
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('workflows/prbl/prbl01')
+            ->has('kegiatanItems.0.kegiatan.0.nota', 1)
+            ->where('kegiatanItems.0.kegiatan.0.nota.0.original_filename', 'kwitansi.pdf')
+            ->where('kegiatanItems.0.kegiatan.0.nota.0.download_url', fn ($url) => str_contains($url, '/files/') && str_contains($url, '/download'))
+        );
+});

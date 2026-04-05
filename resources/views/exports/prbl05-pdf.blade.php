@@ -53,6 +53,13 @@
         /* Narasi styles */
         .narasi-label { font-weight: bold; font-size: 9px; color: #333; }
         .narasi-text { font-size: 9px; color: #444; padding-left: 8px; border-left: 2px solid #ddd; margin: 2px 0 6px; white-space: pre-line; }
+
+        /* Image embed styles */
+        .photo-grid { margin-top: 6px; }
+        .photo-item { display: inline-block; vertical-align: top; margin: 4px 4px 4px 0; text-align: center; }
+        .photo-item img { max-width: 200px; max-height: 160px; border: 1px solid #ccc; display: block; }
+        .photo-item .photo-caption { font-size: 7px; color: #888; margin-top: 2px; max-width: 200px; word-break: break-all; }
+        .photo-filename { font-size: 8px; color: #555; }
     </style>
 </head>
 <body>
@@ -144,21 +151,39 @@
 
                 {{-- Foto Kegiatan --}}
                 @if(!empty($kegiatan['foto_kegiatan']))
-                    <div style="font-size:8px;color:#555;margin-top:4px;">
-                        <strong>Foto Kegiatan:</strong><br>
-                        @foreach($kegiatan['foto_kegiatan'] as $fname)
-                            &#128206; {{ $fname }}<br>
-                        @endforeach
+                    <div style="margin-top:6px;">
+                        <strong style="font-size:9px;">Foto Kegiatan:</strong>
+                        <div class="photo-grid">
+                            @foreach($kegiatan['foto_kegiatan'] as $foto)
+                                @if($foto['data_uri'])
+                                    <div class="photo-item">
+                                        <img src="{{ $foto['data_uri'] }}" alt="{{ $foto['filename'] }}">
+                                        <div class="photo-caption">{{ $foto['filename'] }}</div>
+                                    </div>
+                                @else
+                                    <div style="margin:2px 0;" class="photo-filename">&#128206; {{ $foto['filename'] }}</div>
+                                @endif
+                            @endforeach
+                        </div>
                     </div>
                 @endif
 
                 {{-- Nota Pengeluaran --}}
                 @if(!empty($kegiatan['nota_pengeluaran']))
-                    <div style="font-size:8px;color:#555;margin-top:4px;">
-                        <strong>Nota Pengeluaran:</strong><br>
-                        @foreach($kegiatan['nota_pengeluaran'] as $fname)
-                            &#128206; {{ $fname }}<br>
-                        @endforeach
+                    <div style="margin-top:6px;">
+                        <strong style="font-size:9px;">Nota Pengeluaran:</strong>
+                        <div class="photo-grid">
+                            @foreach($kegiatan['nota_pengeluaran'] as $nota)
+                                @if($nota['data_uri'])
+                                    <div class="photo-item">
+                                        <img src="{{ $nota['data_uri'] }}" alt="{{ $nota['filename'] }}">
+                                        <div class="photo-caption">{{ $nota['filename'] }}</div>
+                                    </div>
+                                @else
+                                    <div style="margin:2px 0;" class="photo-filename">&#128206; {{ $nota['filename'] }}</div>
+                                @endif
+                            @endforeach
+                        </div>
                     </div>
                 @endif
             </div>
@@ -284,18 +309,34 @@
 
     @if($buktiTransfer->isNotEmpty())
         <h3>Bukti Transfer</h3>
-        <div style="font-size:8px;color:#555;">
+        <div class="photo-grid">
             @foreach($buktiTransfer as $bt)
-                &#128206; {{ $bt->file?->original_filename ?? 'file' }}<br>
+                @php $imgData = $buktiImages[$bt->id] ?? null; @endphp
+                @if($imgData && $imgData['data_uri'])
+                    <div class="photo-item">
+                        <img src="{{ $imgData['data_uri'] }}" alt="{{ $imgData['filename'] }}">
+                        <div class="photo-caption">{{ $imgData['filename'] }}</div>
+                    </div>
+                @else
+                    <div style="margin:2px 0;" class="photo-filename">&#128206; {{ $imgData['filename'] ?? $bt->file?->original_filename ?? 'file' }}</div>
+                @endif
             @endforeach
         </div>
     @endif
 
     @if($fotoNota->isNotEmpty())
         <h3>Foto Nota di Kantor Pusat</h3>
-        <div style="font-size:8px;color:#555;">
+        <div class="photo-grid">
             @foreach($fotoNota as $fn)
-                &#128206; {{ $fn->file?->original_filename ?? 'file' }}<br>
+                @php $imgData = $buktiImages[$fn->id] ?? null; @endphp
+                @if($imgData && $imgData['data_uri'])
+                    <div class="photo-item">
+                        <img src="{{ $imgData['data_uri'] }}" alt="{{ $imgData['filename'] }}">
+                        <div class="photo-caption">{{ $imgData['filename'] }}</div>
+                    </div>
+                @else
+                    <div style="margin:2px 0;" class="photo-filename">&#128206; {{ $imgData['filename'] ?? $fn->file?->original_filename ?? 'file' }}</div>
+                @endif
             @endforeach
         </div>
     @endif

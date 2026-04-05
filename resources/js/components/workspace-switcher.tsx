@@ -1,5 +1,6 @@
 import { router, usePage } from '@inertiajs/react';
 import { ChevronsUpDown, Check } from 'lucide-react';
+import { store } from '@/actions/App/Http/Controllers/SwitcherController';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -10,7 +11,6 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Auth } from '@/types';
-import { store } from '@/actions/App/Http/Controllers/SwitcherController';
 
 export function WorkspaceSwitcher() {
     const { auth } = usePage<{ auth: Auth }>().props;

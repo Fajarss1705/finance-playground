@@ -14,11 +14,16 @@ use App\Http\Requests\Workflows\Prbl03DraftRequest;
 use App\Http\Requests\Workflows\Prbl03SubmitRequest;
 use App\Http\Requests\Workflows\Prbl04ApproveRequest;
 use App\Http\Requests\Workflows\Prbl04RejectRequest;
+use App\Http\Requests\Workflows\PrblAdminCreateRequest;
+use App\Http\Requests\Workflows\PrblAdminResetRequest;
 use App\Http\Requests\Workflows\PrblCommentRequest;
 use App\Models\File;
+use App\Models\Pabd\PabdWorkflow;
 use App\Models\Permission;
 use App\Models\Pk\Pk04Anggaran;
+use App\Models\Pk\Pk04Kuisioner;
 use App\Models\Pp\Pp06RekeningOrganisasi;
+use App\Models\Pp\PpWorkflow;
 use App\Models\Prbl\Prbl01Data;
 use App\Models\Prbl\Prbl01FotoKegiatan;
 use App\Models\Prbl\Prbl01ItemKegiatan;
@@ -161,6 +166,15 @@ class PrblWorkflowController extends Controller
 
         if ($scope === 'admin') {
             $props['availableTeams'] = $availableTeams;
+            $activePerms = $this->session->getActivePermissions();
+            $canAdminReset = in_array('admin.workflows.prbl.admin_reset', $activePerms);
+            $canAdminCreate = in_array('admin.workflows.prbl.admin_create', $activePerms);
+            $props['canAdminReset'] = $canAdminReset;
+            $props['canAdminCreate'] = $canAdminCreate;
+
+            if ($canAdminCreate) {
+                $props['creatablePpOptions'] = $this->computeCreatablePpOptions($workspaceId);
+            }
         }
 
         return Inertia::render('workflows/prbl/index', $props);
@@ -490,6 +504,9 @@ class PrblWorkflowController extends Controller
         // Validate realisasi constraint: sum(realisasi) <= sum(dicairkan)
         $this->validateRealisasiConstraint($prbl01Data, $prblWorkflow);
 
+        // Validate that every kegiatan has at least 1 foto and 1 nota
+        $this->validateFotoNotaPresence($prbl01Data);
+
         $prbl01Data->touch();
 
         $sessionContext = $this->getSessionContext();
@@ -550,7 +567,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -584,7 +601,7 @@ class PrblWorkflowController extends Controller
             'id' => $fotoRow->id,
             'file_id' => $file->id,
             'original_filename' => $file->original_filename,
-            'thumbnail_url' => route('files.download', $file),
+            'thumbnail_url' => route('files.download', ['file' => $file, 'inline' => 1]),
         ]);
     }
 
@@ -592,7 +609,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -620,7 +637,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -661,7 +678,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -705,6 +722,168 @@ class PrblWorkflowController extends Controller
         );
 
         return back()->with('success', 'Komentar berhasil ditambahkan.');
+    }
+
+    // ──────────────────────────────────────
+    // Admin Reset
+    // ──────────────────────────────────────
+
+    public function adminReset(PrblAdminResetRequest $request, PrblWorkflow $prblWorkflow): RedirectResponse
+    {
+        $this->checkPermission('admin.workflows.prbl.admin_reset');
+        $this->ensureWorkspaceOwnership($prblWorkflow);
+
+        $definition = $this->engine->resolveDefinition(WorkflowType::PRBL);
+        $history = $prblWorkflow->history ?? [];
+        $workflowStatus = $this->engine->getWorkflowStatus($history);
+
+        if ($workflowStatus === 'completed') {
+            return back()->with('error', 'PRBL sudah selesai (PRBL05). Tidak dapat direset.');
+        }
+
+        $currentSteps = $this->engine->getCurrentSteps($definition, $history);
+        $currentStep = $currentSteps[0] ?? 'PRBL01';
+
+        DB::transaction(function () use ($prblWorkflow, $currentStep, $request) {
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: $currentStep,
+                action: 'reset',
+                userId: $request->user()->id,
+                sessionContext: $this->getSessionContext(),
+                notes: $request->validated('notes'),
+                extra: [
+                    'reason' => 'admin_reset',
+                    'cycleTarget' => 'PRBL01',
+                ],
+            );
+
+            $freshPrbl01 = $this->createFreshPrbl01Data($prblWorkflow);
+
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL01',
+                action: 'created',
+                userId: $request->user()->id,
+                sessionContext: $this->getSessionContext(),
+                table: 'prbl01_data',
+                dataId: $freshPrbl01->id,
+                extra: ['reason' => 'admin_reset'],
+            );
+        });
+
+        $this->notifier->notify($prblWorkflow, 'prbl.admin_reset', [
+            'action_verb' => 'direset oleh admin',
+            'step_label' => 'Laporan Kegiatan (PRBL01)',
+            'next_instruction' => 'PRBL telah direset oleh admin. Silakan review ulang laporan kegiatan.',
+        ]);
+
+        return back()->with('success', 'PRBL berhasil direset ke PRBL01.');
+    }
+
+    public function adminCreate(PrblAdminCreateRequest $request): RedirectResponse
+    {
+        $this->checkPermission('admin.workflows.prbl.admin_create');
+
+        $workspaceId = $this->session->getActiveWorkspaceId();
+        $ppWorkflowId = (int) $request->validated('pp_workflow_id');
+        $teamId = (int) $request->validated('team_id');
+        $bulan = (int) $request->validated('bulan');
+
+        $ppWorkflow = PpWorkflow::query()
+            ->where('id', $ppWorkflowId)
+            ->where('workspace_id', $workspaceId)
+            ->whereHas('pp06PeriodeTahunan')
+            ->first();
+
+        if (! $ppWorkflow) {
+            return back()->with('error', 'Tidak ditemukan PP workflow dengan PP06 yang sudah selesai.');
+        }
+
+        $tahun = $ppWorkflow->latestPp06()?->tahun;
+        if (! $tahun) {
+            return back()->with('error', 'PP workflow tidak memiliki tahun.');
+        }
+
+        // Must have a completed PABD for this team + month + PP
+        $pabdWorkflow = PabdWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('team_id', $teamId)
+            ->where('pp_workflow_id', $ppWorkflow->id)
+            ->where('bulan_anggaran', $bulan)
+            ->where('tahun_anggaran', $tahun)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (! $pabdWorkflow) {
+            return back()->with('error', 'Tidak ditemukan PABD untuk tim dan bulan ini.');
+        }
+
+        $pabdStatus = $this->engine->getWorkflowStatus($pabdWorkflow->history ?? []);
+        if ($pabdStatus !== 'completed') {
+            return back()->with('error', 'PABD untuk bulan ini belum selesai (PABD05).');
+        }
+
+        // Check no existing PRBL for this team + month + PP
+        $exists = PrblWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('team_id', $teamId)
+            ->where('pp_workflow_id', $ppWorkflow->id)
+            ->where('bulan_laporan', $bulan)
+            ->where('tahun_laporan', $tahun)
+            ->exists();
+
+        if ($exists) {
+            return back()->with('error', 'PRBL untuk tim dan bulan ini sudah ada.');
+        }
+
+        // Check dicairkan anggaran exists
+        $hasDicairkan = Pk04Anggaran::query()
+            ->where('pencairan_pabd_workflow_id', $pabdWorkflow->id)
+            ->where('status_pencairan', 'dicairkan')
+            ->exists();
+
+        if (! $hasDicairkan) {
+            return back()->with('error', 'Tidak ada anggaran yang dicairkan untuk bulan ini.');
+        }
+
+        $prblWorkflow = DB::transaction(function () use ($workspaceId, $teamId, $ppWorkflow, $pabdWorkflow, $bulan, $tahun, $request) {
+            $prblWorkflow = PrblWorkflow::create([
+                'uuid' => (string) Str::uuid(),
+                'workspace_id' => $workspaceId,
+                'team_id' => $teamId,
+                'pabd_workflow_id' => $pabdWorkflow->id,
+                'pp_workflow_id' => $ppWorkflow->id,
+                'bulan_laporan' => $bulan,
+                'tahun_laporan' => $tahun,
+                'created_by_user_id' => $request->user()->id,
+                'created_by_role_id' => $this->session->getActiveRoleId(),
+                'created_by_team_id' => $teamId,
+                'created_by_org_id' => null,
+                'history' => [],
+            ]);
+
+            $freshPrbl01 = $this->createFreshPrbl01Data($prblWorkflow);
+
+            $this->engine->recordAction(
+                workflow: $prblWorkflow,
+                step: 'PRBL01',
+                action: 'created',
+                userId: $request->user()->id,
+                sessionContext: $this->getSessionContext(),
+                table: 'prbl01_data',
+                dataId: $freshPrbl01->id,
+                extra: ['reason' => 'admin_create'],
+            );
+
+            return $prblWorkflow;
+        });
+
+        $this->notifier->notify($prblWorkflow, 'prbl.auto_created', [
+            'actor_name' => $request->user()->name ?? 'Admin',
+        ]);
+
+        return back()->with('success', 'PRBL berhasil dibuat.');
     }
 
     // ──────────────────────────────────────
@@ -2166,7 +2345,8 @@ class PrblWorkflowController extends Controller
                 'id' => $foto->id,
                 'file_id' => $foto->file_id,
                 'original_filename' => $foto->file?->original_filename ?? '',
-                'thumbnail_url' => $foto->file ? route('files.download', $foto->file) : null,
+                'thumbnail_url' => $foto->file ? route('files.download', ['file' => $foto->file, 'inline' => 1]) : null,
+                'download_url' => $foto->file ? route('files.download', $foto->file) : null,
             ])->values()->all();
 
             // Nota
@@ -2175,7 +2355,7 @@ class PrblWorkflowController extends Controller
                 'file_id' => $n->file_id,
                 'original_filename' => $n->file?->original_filename ?? '',
                 'mime_type' => $n->file?->mime_type ?? '',
-                'download_url' => $n->file ? route('files.serve', $n->file->uuid) : null,
+                'download_url' => $n->file ? route('files.download', $n->file) : null,
             ])->values()->all();
 
             // Kuisioner
@@ -2296,6 +2476,41 @@ class PrblWorkflowController extends Controller
         if ($totalRealisasi > $totalDicairkan) {
             $selisih = $totalRealisasi - $totalDicairkan;
             abort(422, 'Total realisasi (Rp '.number_format($totalRealisasi, 0, ',', '.').') melebihi total anggaran dicairkan (Rp '.number_format($totalDicairkan, 0, ',', '.').'). Selisih: Rp '.number_format($selisih, 0, ',', '.').'.');
+        }
+    }
+
+    /**
+     * Validate that every kegiatan has at least 1 foto and 1 nota.
+     */
+    private function validateFotoNotaPresence(Prbl01Data $prbl01Data): void
+    {
+        $kegiatanItems = Prbl01ItemKegiatan::where('prbl01_data_id', $prbl01Data->id)->get();
+
+        $missingFoto = [];
+        $missingNota = [];
+
+        foreach ($kegiatanItems as $item) {
+            $fotoCount = Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $item->id)->count();
+            $notaCount = Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $item->id)->count();
+
+            if ($fotoCount === 0) {
+                $missingFoto[] = $item->id;
+            }
+
+            if ($notaCount === 0) {
+                $missingNota[] = $item->id;
+            }
+        }
+
+        if (count($missingFoto) > 0 || count($missingNota) > 0) {
+            $errors = [];
+            if (count($missingFoto) > 0) {
+                $errors[] = count($missingFoto).' kegiatan belum memiliki foto kegiatan';
+            }
+            if (count($missingNota) > 0) {
+                $errors[] = count($missingNota).' kegiatan belum memiliki nota pengeluaran';
+            }
+            abort(422, 'Tidak dapat submit: '.implode(', ', $errors).'. Setiap kegiatan wajib memiliki minimal 1 foto kegiatan dan 1 nota pengeluaran.');
         }
     }
 
@@ -2738,7 +2953,7 @@ class PrblWorkflowController extends Controller
                     'size' => $f->file?->size,
                     'path' => $f->file?->path,
                     'download_url' => $f->file?->path ? route('files.download', $f->file) : null,
-                    'thumbnail_url' => $f->file?->path ? route('files.download', $f->file) : null,
+                    'thumbnail_url' => $f->file?->path ? route('files.download', ['file' => $f->file, 'inline' => 1]) : null,
                 ])->values()->all(),
                 'nota' => $item->notaPengeluaran->map(fn ($n) => [
                     'id' => $n->id,
@@ -3279,6 +3494,174 @@ class PrblWorkflowController extends Controller
         }
 
         return [null, null];
+    }
+
+    /**
+     * Create fresh PRBL01 data from the completed PABD's dicairkan anggaran.
+     */
+    private function createFreshPrbl01Data(PrblWorkflow $prblWorkflow): Prbl01Data
+    {
+        $prbl01 = Prbl01Data::create([
+            'prbl_workflow_id' => $prblWorkflow->id,
+        ]);
+
+        $dicairkanAnggaran = Pk04Anggaran::query()
+            ->where('pencairan_pabd_workflow_id', $prblWorkflow->pabd_workflow_id)
+            ->where('status_pencairan', 'dicairkan')
+            ->get();
+
+        $anggaranByKegiatan = $dicairkanAnggaran->groupBy(fn ($anggaran) => $anggaran->pk04_kegiatan_id);
+
+        foreach ($anggaranByKegiatan as $kegiatanId => $anggaranItems) {
+            $itemKegiatan = Prbl01ItemKegiatan::create([
+                'prbl01_data_id' => $prbl01->id,
+                'pk04_kegiatan_id' => $kegiatanId,
+            ]);
+
+            $kuisioners = Pk04Kuisioner::query()
+                ->where('pk04_kegiatan_id', $kegiatanId)
+                ->get();
+
+            foreach ($kuisioners as $kuisioner) {
+                Prbl01ItemKuisioner::create([
+                    'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+                    'pk04_kuisioner_id' => $kuisioner->id,
+                ]);
+            }
+        }
+
+        foreach ($dicairkanAnggaran as $anggaran) {
+            Prbl01ItemRealisasi::create([
+                'prbl01_data_id' => $prbl01->id,
+                'pk04_anggaran_id' => $anggaran->id,
+            ]);
+        }
+
+        return $prbl01;
+    }
+
+    /**
+     * Return all PP workflows with completed PP06, each with their eligible teams/months for PRBL creation.
+     *
+     * @return array<int, array{pp_workflow_id: int, pp_label: string, teams: array}>
+     */
+    private function computeCreatablePpOptions(int $workspaceId): array
+    {
+        $ppWorkflows = PpWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereHas('pp06PeriodeTahunan')
+            ->get();
+
+        $result = [];
+
+        foreach ($ppWorkflows as $ppWorkflow) {
+            $tahun = $ppWorkflow->latestPp06()?->tahun;
+            if (! $tahun) {
+                continue;
+            }
+
+            $teams = $this->computeCreatableTeamMonths($workspaceId, $ppWorkflow->id, $tahun);
+            if (! empty($teams)) {
+                $result[] = [
+                    'pp_workflow_id' => $ppWorkflow->id,
+                    'pp_label' => "PP-{$tahun}",
+                    'teams' => $teams,
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * For a given PP workflow, compute which teams have eligible months for PRBL creation.
+     *
+     * A month is eligible when:
+     * - PABD for that team+month is completed (PABD05)
+     * - No existing PRBL for that team+month
+     * - Previous month's PRBL (if any) is completed
+     *
+     * @return array<int, array{team_id: int, team_name: string, months: int[]}>
+     */
+    private function computeCreatableTeamMonths(int $workspaceId, int $ppWorkflowId, int $tahun): array
+    {
+        // Find all completed PABDs
+        $pabdWorkflows = PabdWorkflow::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('pp_workflow_id', $ppWorkflowId)
+            ->where('tahun_anggaran', $tahun)
+            ->whereNull('deleted_at')
+            ->get();
+
+        $completedPabdByTeam = [];
+        foreach ($pabdWorkflows as $pabd) {
+            if ($this->engine->getWorkflowStatus($pabd->history ?? []) === 'completed') {
+                $completedPabdByTeam[$pabd->team_id][] = $pabd->bulan_anggaran;
+            }
+        }
+
+        if (empty($completedPabdByTeam)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($completedPabdByTeam as $teamId => $completedMonths) {
+            // Find months that already have a PRBL
+            $existingPrblMonths = PrblWorkflow::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('team_id', $teamId)
+                ->where('pp_workflow_id', $ppWorkflowId)
+                ->where('tahun_laporan', $tahun)
+                ->pluck('bulan_laporan')
+                ->toArray();
+
+            // Find the last completed PRBL month for chain logic
+            $lastCompletedPrblMonth = 0;
+            $prbls = PrblWorkflow::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('team_id', $teamId)
+                ->where('pp_workflow_id', $ppWorkflowId)
+                ->where('tahun_laporan', $tahun)
+                ->get();
+
+            foreach ($prbls as $prbl) {
+                if ($this->engine->getWorkflowStatus($prbl->history ?? []) === 'completed') {
+                    $lastCompletedPrblMonth = max($lastCompletedPrblMonth, $prbl->bulan_laporan);
+                }
+            }
+
+            $hasAnyPrbl = ! empty($existingPrblMonths);
+
+            $eligible = [];
+            sort($completedMonths);
+            foreach ($completedMonths as $month) {
+                if (in_array($month, $existingPrblMonths)) {
+                    continue;
+                }
+
+                if ($hasAnyPrbl && $month <= $lastCompletedPrblMonth) {
+                    continue;
+                }
+
+                if ($hasAnyPrbl && $lastCompletedPrblMonth === 0) {
+                    continue;
+                }
+
+                $eligible[] = $month;
+            }
+
+            if (! empty($eligible)) {
+                $team = \App\Models\Team::find($teamId);
+                $result[] = [
+                    'team_id' => $teamId,
+                    'team_name' => $team?->name ?? 'Unknown',
+                    'months' => array_values($eligible),
+                ];
+            }
+        }
+
+        return $result;
     }
 
     /** @return array<string, array<array{name: string, users: string[]}>> */

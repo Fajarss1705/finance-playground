@@ -1,6 +1,6 @@
 import { Head, usePage, router } from '@inertiajs/react';
-import { useRef, useState } from 'react';
 import { Download, Lock, Plus, Trash2, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';

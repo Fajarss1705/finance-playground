@@ -482,6 +482,55 @@ it('returns 403 for admin restore from different workspace', function () {
     expect($file->fresh()->deleted_at)->not->toBeNull();
 });
 
+// --- Inline image ---
+
+it('serves image inline when inline query param is set', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('admin.workflows.prbl.prbl01.show');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->image('photo.jpg', 100, 100);
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'photo.jpg');
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'source_route' => 'prbl.prbl01.foto_upload',
+        'disk' => 'local',
+        'path' => 'files/test/photo.jpg',
+        'original_filename' => 'photo.jpg',
+        'mime_type' => 'image/jpeg',
+    ]);
+
+    $response = $this->get(route('files.download', ['file' => $file, 'inline' => 1]));
+    $response->assertOk();
+    $response->assertHeader('content-type', 'image/jpeg');
+    expect($response->headers->get('content-disposition'))->not->toContain('attachment');
+});
+
+it('ignores inline param for non-image files', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace] = setupFileTestUser('admin.workflows.pp.pp04.show');
+    activateFileSession($this, $user, $role, $workspace);
+
+    $uploadedFile = UploadedFile::fake()->create('test.pdf', 100, 'application/pdf');
+    Storage::disk('local')->putFileAs('files/test', $uploadedFile, 'test.pdf');
+
+    $file = File::factory()->create([
+        'workspace_id' => $workspace->id,
+        'source_route' => 'pp.pp04.dokumen',
+        'disk' => 'local',
+        'path' => 'files/test/test.pdf',
+        'original_filename' => 'test.pdf',
+        'mime_type' => 'application/pdf',
+    ]);
+
+    $response = $this->get(route('files.download', ['file' => $file, 'inline' => 1]));
+    $response->assertOk();
+    expect($response->headers->get('content-disposition'))->toContain('attachment');
+});
+
 // --- Guest ---
 
 it('redirects guests to login', function () {

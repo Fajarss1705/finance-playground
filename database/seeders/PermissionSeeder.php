@@ -204,6 +204,8 @@ class PermissionSeeder extends Seeder
             'admin.workflows.prbl.prbl05.export.excel',
             'admin.workflows.prbl.prbl05.export.zip',
             'admin.workflows.prbl.comment',
+            'admin.workflows.prbl.admin_reset',
+            'admin.workflows.prbl.admin_create',
         ];
     }
 }

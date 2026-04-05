@@ -1,8 +1,21 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { FileText } from 'lucide-react';
+import { FileText, Plus, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
 import Heading from '@/components/heading';
 import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
@@ -31,6 +44,18 @@ type Filters = {
     team?: string | null;
 };
 
+type CreatableTeamMonth = {
+    team_id: number;
+    team_name: string;
+    months: number[];
+};
+
+type CreatablePpOption = {
+    pp_workflow_id: number;
+    pp_label: string;
+    teams: CreatableTeamMonth[];
+};
+
 type Props = {
     workflows: {
         data: PrblWorkflowRow[];
@@ -42,6 +67,9 @@ type Props = {
     filters: Filters;
     availablePpPeriods: { value: string; label: string }[];
     availableTeams?: { value: string; label: string }[];
+    canAdminReset?: boolean;
+    canAdminCreate?: boolean;
+    creatablePpOptions?: CreatablePpOption[];
     scope: 'team' | 'admin';
 };
 
@@ -51,20 +79,15 @@ const statusOptions = [
     { value: 'completed', label: 'Selesai' },
 ];
 
+const bulanLabels: Record<number, string> = {
+    1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April',
+    5: 'Mei', 6: 'Juni', 7: 'Juli', 8: 'Agustus',
+    9: 'September', 10: 'Oktober', 11: 'November', 12: 'Desember',
+};
+
 const bulanOptions = [
     { value: '', label: 'Semua' },
-    { value: '1', label: 'Januari' },
-    { value: '2', label: 'Februari' },
-    { value: '3', label: 'Maret' },
-    { value: '4', label: 'April' },
-    { value: '5', label: 'Mei' },
-    { value: '6', label: 'Juni' },
-    { value: '7', label: 'Juli' },
-    { value: '8', label: 'Agustus' },
-    { value: '9', label: 'September' },
-    { value: '10', label: 'Oktober' },
-    { value: '11', label: 'November' },
-    { value: '12', label: 'Desember' },
+    ...Object.entries(bulanLabels).map(([v, l]) => ({ value: v, label: l })),
 ];
 
 export default function PrblIndex({
@@ -72,11 +95,26 @@ export default function PrblIndex({
     filters,
     availablePpPeriods,
     availableTeams,
+    canAdminReset,
+    canAdminCreate,
+    creatablePpOptions,
     scope,
 }: Props) {
     const scopeLabel = scope === 'team' ? 'Tim' : 'Manajemen';
     const scopeBase = scope === 'team' ? '/team' : '/admin';
     const isAdmin = scope === 'admin';
+    const [resettingId, setResettingId] = useState<number | null>(null);
+
+    // Create modal state
+    const [createOpen, setCreateOpen] = useState(false);
+    const [createPpId, setCreatePpId] = useState<string>('');
+    const [createTeamId, setCreateTeamId] = useState<string>('');
+    const [createBulan, setCreateBulan] = useState<string>('');
+    const [creating, setCreating] = useState(false);
+
+    const selectedPp = creatablePpOptions?.find((p) => String(p.pp_workflow_id) === createPpId);
+    const selectedTeams = selectedPp?.teams ?? [];
+    const selectedTeamMonths = selectedTeams.find((t) => String(t.team_id) === createTeamId)?.months ?? [];
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: scopeLabel, href: scopeBase },
@@ -94,16 +132,122 @@ export default function PrblIndex({
         router.visit(`${scopeBase}/workflows/prbl?${params.toString()}`, { preserveState: true });
     }
 
-    const colCount = isAdmin ? 9 : 8;
+    function handleAdminReset(wfId: number, { notes }: { notes: string; files: File[] }) {
+        setResettingId(wfId);
+        router.post(`/admin/workflows/prbl/${wfId}/admin-reset`, { notes }, {
+            preserveScroll: true,
+            onFinish: () => setResettingId(null),
+        });
+    }
+
+    function handleAdminCreate() {
+        if (!createPpId || !createTeamId || !createBulan) return;
+        setCreating(true);
+        router.post('/admin/workflows/prbl/admin-create', {
+            pp_workflow_id: createPpId,
+            team_id: createTeamId,
+            bulan: createBulan,
+        }, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setCreateOpen(false);
+                setCreatePpId('');
+                setCreateTeamId('');
+                setCreateBulan('');
+            },
+            onFinish: () => setCreating(false),
+        });
+    }
+
+    const showResetCol = isAdmin && canAdminReset;
+    const colCount = (isAdmin ? 9 : 8) + (showResetCol ? 1 : 0);
+    const hasCreatableOptions = creatablePpOptions && creatablePpOptions.length > 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Laporan Bulanan" />
             <div className="space-y-6 p-6">
-                <Heading
-                    title="Laporan Bulanan"
-                    description={isAdmin ? 'Semua laporan bulanan' : 'Daftar laporan bulanan tim Anda'}
-                />
+                <div className="flex items-start justify-between gap-4">
+                    <Heading
+                        title="Laporan Bulanan"
+                        description={isAdmin ? 'Semua laporan bulanan' : 'Daftar laporan bulanan tim Anda'}
+                    />
+                    {isAdmin && canAdminCreate && hasCreatableOptions && (
+                        <Dialog open={createOpen} onOpenChange={(v) => { setCreateOpen(v); if (!v) { setCreatePpId(''); setCreateTeamId(''); setCreateBulan(''); } }}>
+                            <DialogTrigger asChild>
+                                <Button size="sm" className="gap-1.5 shrink-0">
+                                    <Plus className="h-4 w-4" />
+                                    Buat PRBL
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogTitle>Buat PRBL Baru</DialogTitle>
+                                <DialogDescription>
+                                    Pilih PP, tim, dan bulan untuk membuat PRBL baru. Hanya bulan yang PABD-nya sudah selesai dan belum memiliki PRBL yang tersedia.
+                                </DialogDescription>
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <Label>Periode PP *</Label>
+                                        <select
+                                            value={createPpId}
+                                            onChange={(e) => { setCreatePpId(e.target.value); setCreateTeamId(''); setCreateBulan(''); }}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                                        >
+                                            <option value="">Pilih PP...</option>
+                                            {creatablePpOptions?.map((p) => (
+                                                <option key={p.pp_workflow_id} value={p.pp_workflow_id}>{p.pp_label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Tim *</Label>
+                                        <select
+                                            value={createTeamId}
+                                            onChange={(e) => { setCreateTeamId(e.target.value); setCreateBulan(''); }}
+                                            disabled={!createPpId}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-50"
+                                        >
+                                            <option value="">{createPpId ? 'Pilih tim...' : 'Pilih PP dahulu'}</option>
+                                            {selectedTeams.map((t) => (
+                                                <option key={t.team_id} value={t.team_id}>{t.team_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Bulan *</Label>
+                                        <select
+                                            value={createBulan}
+                                            onChange={(e) => setCreateBulan(e.target.value)}
+                                            disabled={!createTeamId}
+                                            className="h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-50"
+                                        >
+                                            <option value="">{createTeamId ? 'Pilih bulan...' : 'Pilih tim dahulu'}</option>
+                                            {selectedTeamMonths.map((m) => (
+                                                <option key={m} value={m}>{bulanLabels[m]}</option>
+                                            ))}
+                                        </select>
+                                        {createTeamId && selectedTeamMonths.length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Tidak ada bulan yang tersedia. Pastikan PABD bulan sudah selesai dan PRBL bulan sebelumnya sudah selesai.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                                <DialogFooter className="gap-2">
+                                    <DialogClose asChild>
+                                        <Button variant="secondary">Batal</Button>
+                                    </DialogClose>
+                                    <Button
+                                        disabled={!createPpId || !createTeamId || !createBulan || creating}
+                                        onClick={handleAdminCreate}
+                                    >
+                                        {creating ? 'Membuat...' : 'Buat PRBL'}
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+                </div>
 
                 {/* Filter Bar */}
                 <div className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3">
@@ -175,6 +319,7 @@ export default function PrblIndex({
                                 <th className="px-4 py-3 text-right font-medium">Total Ref.</th>
                                 <th className="px-4 py-3 text-left font-medium">Terakhir</th>
                                 <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Tanggal</th>
+                                {showResetCol && <th className="px-4 py-3 text-center font-medium">Aksi</th>}
                             </tr>
                         </thead>
                         <tbody>
@@ -236,6 +381,31 @@ export default function PrblIndex({
                                             )}
                                         </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{wf.tanggal}</td>
+                                        {showResetCol && (
+                                            <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                                {wf.status === 'active' && (
+                                                    <ActionConfirmDialog
+                                                        trigger={
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 gap-1.5 text-destructive hover:text-destructive"
+                                                                disabled={resettingId === wf.id}
+                                                            >
+                                                                <RotateCcw className="h-3.5 w-3.5" />
+                                                                Reset
+                                                            </Button>
+                                                        }
+                                                        title="Reset PRBL ke PRBL01?"
+                                                        description={`PRBL ${wf.bulan_label} ${wf.tahun_laporan}${wf.team_name ? ` (${wf.team_name})` : ''} akan direset ke laporan kegiatan awal. Progress saat ini (${wf.step_aktif ?? 'PRBL01'}) akan diinvalidasi.`}
+                                                        confirmLabel="Reset"
+                                                        variant="destructive"
+                                                        processing={resettingId === wf.id}
+                                                        onConfirm={(data) => handleAdminReset(wf.id, data)}
+                                                    />
+                                                )}
+                                            </td>
+                                        )}
                                     </tr>
                                 ))
                             )}

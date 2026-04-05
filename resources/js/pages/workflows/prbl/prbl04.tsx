@@ -17,6 +17,9 @@ import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
+import { index as adminIndex } from '@/routes/admin';
+import prbl from '@/routes/admin/workflows/prbl';
+import { download as filesDownload } from '@/routes/files';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -379,7 +382,7 @@ function BuktiFileChips({ files, emptyText }: { files: BuktiFile[]; emptyText: s
             {files.map((file) => (
                 <a
                     key={file.id}
-                    href={file.uuid ? route('files.serve', file.uuid) : '#'}
+                    href={file.uuid ? filesDownload.url(file.uuid) : '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] ${file.uuid ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-muted text-muted-foreground'}`}
@@ -503,13 +506,13 @@ export default function Prbl04({
     const totalAnggaranItems = kegiatanItems.reduce((sum, p) => sum + p.kegiatan.reduce((s, k) => s + k.realisasi.length, 0), 0);
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: scope === 'admin' ? 'Admin' : 'Tim', href: route(`${scope}.index`) },
-        { title: 'Laporan Bulanan', href: route(`${scope}.workflows.prbl.index`) },
-        { title: workflow.label, href: route(`${scope}.workflows.prbl.show`, { prblWorkflow: workflow.id }) },
+        { title: scope === 'admin' ? 'Admin' : 'Tim', href: adminIndex.url() },
+        { title: 'Laporan Bulanan', href: prbl.index.url() },
+        { title: workflow.label, href: prbl.show.url(workflow.id) },
         { title: 'PRBL04: Review Final' },
     ];
 
-    const commentUrl = route(`${scope}.workflows.prbl.comment`, { prblWorkflow: workflow.id });
+    const commentUrl = prbl.comment.url(workflow.id);
 
     function handleApprove(notes?: string, files?: File[]) {
         if (processing) return;
@@ -523,7 +526,7 @@ export default function Prbl04({
             data.files = files;
         }
 
-        router.post(route('admin.workflows.prbl.prbl04.approve', { prblWorkflow: workflow.id }), data, {
+        router.post(prbl.prbl04.approve.url(workflow.id), data, {
             forceFormData: true,
             onFinish: () => setProcessing(false),
         });
@@ -533,7 +536,7 @@ export default function Prbl04({
         if (processing) return;
         setProcessing(true);
 
-        router.post(route('admin.workflows.prbl.prbl04.reject', { prblWorkflow: workflow.id }), {
+        router.post(prbl.prbl04.reject.url(workflow.id), {
             expected_updated_at: workflow.updated_at,
             rejection_target: data.rejection_target,
             notes: data.notes,

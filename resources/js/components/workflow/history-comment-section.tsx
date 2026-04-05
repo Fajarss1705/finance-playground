@@ -1,6 +1,6 @@
 import { Link, router } from '@inertiajs/react';
-import { useState } from 'react';
 import { ChevronDown, Download, FileText, Paperclip, X } from 'lucide-react';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';

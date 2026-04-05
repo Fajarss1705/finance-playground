@@ -259,7 +259,7 @@ export default function Prbl01({
         const map: Record<number, boolean> = {};
         for (const program of kegiatanItems) {
             for (const k of program.kegiatan) {
-                map[k.prbl01_item_kegiatan_id] = isReentry;
+                map[k.prbl01_item_kegiatan_id] = false;
             }
         }
         return map;
@@ -294,103 +294,146 @@ export default function Prbl01({
 
     const fotoInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
     const notaInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+    const [uploadingFoto, setUploadingFoto] = useState<Record<number, boolean>>({});
+    const [uploadingNota, setUploadingNota] = useState<Record<number, boolean>>({});
+    const [uploadError, setUploadError] = useState<string | null>(null);
+
+    function getCsrfToken(): string {
+        const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+        if (!token) {
+            console.error('CSRF token not found in meta tag');
+        }
+        return token ?? '';
+    }
 
     const handleFotoUpload = useCallback((kegiatanId: number, files: FileList | null) => {
         if (!files) return;
-        for (const file of Array.from(files)) {
+        setUploadError(null);
+        setUploadingFoto((prev) => ({ ...prev, [kegiatanId]: true }));
+
+        const uploads = Array.from(files).map((file) => {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('prbl01_item_kegiatan_id', String(kegiatanId));
 
-            fetch(`${basePath}/prbl01/${prbl01.id}/foto-upload`, {
+            return fetch(`${basePath}/prbl01/${prbl01.id}/foto-upload`, {
                 method: 'POST',
                 body: formData,
                 headers: {
-                    'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '',
+                    'X-CSRF-TOKEN': getCsrfToken(),
                     Accept: 'application/json',
                 },
-            })
-                .then((res) => res.json())
-                .then((data) => {
-                    setFotosMap((prev) => ({
-                        ...prev,
-                        [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
-                    }));
-                })
-                .catch(() => {
-                    /* silently handle */
-                });
-        }
+            }).then(async (res) => {
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.message || `Upload gagal (${res.status})`);
+                }
+                return res.json();
+            }).then((data) => {
+                setFotosMap((prev) => ({
+                    ...prev,
+                    [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
+                }));
+            });
+        });
+
+        Promise.allSettled(uploads).then((results) => {
+            setUploadingFoto((prev) => ({ ...prev, [kegiatanId]: false }));
+            const failed = results.filter((r) => r.status === 'rejected');
+            if (failed.length > 0) {
+                const reason = (failed[0] as PromiseRejectedResult).reason;
+                setUploadError(`Foto upload gagal: ${reason?.message || 'Terjadi kesalahan'}`);
+            }
+        });
     }, [basePath, prbl01.id]);
 
     const handleFotoDelete = useCallback((kegiatanId: number, fotoId: number) => {
+        setUploadError(null);
         fetch(`${basePath}/prbl01/${prbl01.id}/foto-delete`, {
             method: 'POST',
             body: JSON.stringify({ prbl01_foto_kegiatan_id: fotoId }),
             headers: {
-                'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '',
+                'X-CSRF-TOKEN': getCsrfToken(),
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
             },
-        })
-            .then(() => {
-                setFotosMap((prev) => ({
-                    ...prev,
-                    [kegiatanId]: (prev[kegiatanId] ?? []).filter((f) => f.id !== fotoId),
-                }));
-            })
-            .catch(() => {
-                /* silently handle */
-            });
+        }).then(async (res) => {
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || `Hapus gagal (${res.status})`);
+            }
+            setFotosMap((prev) => ({
+                ...prev,
+                [kegiatanId]: (prev[kegiatanId] ?? []).filter((f) => f.id !== fotoId),
+            }));
+        }).catch((err) => {
+            setUploadError(`Hapus foto gagal: ${err?.message || 'Terjadi kesalahan'}`);
+        });
     }, [basePath, prbl01.id]);
 
     const handleNotaUpload = useCallback((kegiatanId: number, files: FileList | null) => {
         if (!files) return;
-        for (const file of Array.from(files)) {
+        setUploadError(null);
+        setUploadingNota((prev) => ({ ...prev, [kegiatanId]: true }));
+
+        const uploads = Array.from(files).map((file) => {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('prbl01_item_kegiatan_id', String(kegiatanId));
 
-            fetch(`${basePath}/prbl01/${prbl01.id}/nota-upload`, {
+            return fetch(`${basePath}/prbl01/${prbl01.id}/nota-upload`, {
                 method: 'POST',
                 body: formData,
                 headers: {
-                    'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '',
+                    'X-CSRF-TOKEN': getCsrfToken(),
                     Accept: 'application/json',
                 },
-            })
-                .then((res) => res.json())
-                .then((data) => {
-                    setNotaMap((prev) => ({
-                        ...prev,
-                        [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
-                    }));
-                })
-                .catch(() => {
-                    /* silently handle */
-                });
-        }
+            }).then(async (res) => {
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.message || `Upload gagal (${res.status})`);
+                }
+                return res.json();
+            }).then((data) => {
+                setNotaMap((prev) => ({
+                    ...prev,
+                    [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
+                }));
+            });
+        });
+
+        Promise.allSettled(uploads).then((results) => {
+            setUploadingNota((prev) => ({ ...prev, [kegiatanId]: false }));
+            const failed = results.filter((r) => r.status === 'rejected');
+            if (failed.length > 0) {
+                const reason = (failed[0] as PromiseRejectedResult).reason;
+                setUploadError(`Nota upload gagal: ${reason?.message || 'Terjadi kesalahan'}`);
+            }
+        });
     }, [basePath, prbl01.id]);
 
     const handleNotaDelete = useCallback((kegiatanId: number, notaId: number) => {
+        setUploadError(null);
         fetch(`${basePath}/prbl01/${prbl01.id}/nota-delete`, {
             method: 'POST',
             body: JSON.stringify({ prbl01_nota_pengeluaran_id: notaId }),
             headers: {
-                'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '',
+                'X-CSRF-TOKEN': getCsrfToken(),
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
             },
-        })
-            .then(() => {
-                setNotaMap((prev) => ({
-                    ...prev,
-                    [kegiatanId]: (prev[kegiatanId] ?? []).filter((n) => n.id !== notaId),
-                }));
-            })
-            .catch(() => {
-                /* silently handle */
-            });
+        }).then(async (res) => {
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || `Hapus gagal (${res.status})`);
+            }
+            setNotaMap((prev) => ({
+                ...prev,
+                [kegiatanId]: (prev[kegiatanId] ?? []).filter((n) => n.id !== notaId),
+            }));
+        }).catch((err) => {
+            setUploadError(`Hapus nota gagal: ${err?.message || 'Terjadi kesalahan'}`);
+        });
     }, [basePath, prbl01.id]);
 
     // ─── Form submission ────────────────────────────────
@@ -463,6 +506,11 @@ export default function Prbl01({
     ];
 
     const hasNoItems = kegiatanItems.length === 0 || kegiatanItems.every((p) => p.kegiatan.length === 0);
+
+    // Submit is blocked if any kegiatan is missing foto or nota
+    const missingFoto = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (fotosMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
+    const missingNota = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (notaMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
+    const hasFilesError = missingFoto || missingNota;
 
     // Kegiatan counter
     let kegiatanIndex = 0;
@@ -554,6 +602,17 @@ export default function Prbl01({
                     </dl>
                 </SectionCard>
 
+                {/* Upload error banner */}
+                {uploadError && (
+                    <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+                        <div className="flex-1 text-sm text-red-800 dark:text-red-200">{uploadError}</div>
+                        <button type="button" onClick={() => setUploadError(null)} className="shrink-0 text-red-600 hover:text-red-800 dark:text-red-400">
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                )}
+
                 {/* Empty state */}
                 {hasNoItems && (
                     <SectionCard title="Kegiatan">
@@ -564,7 +623,7 @@ export default function Prbl01({
                 )}
 
                 {/* Per-kegiatan sections */}
-                {kegiatanItems.map((program) =>
+                {kegiatanItems.flatMap((program) =>
                     program.kegiatan.map((kegiatan) => {
                         kegiatanIndex++;
                         const kId = kegiatan.prbl01_item_kegiatan_id;
@@ -667,7 +726,9 @@ export default function Prbl01({
 
                                         {/* Foto Kegiatan */}
                                         <div>
-                                            <h5 className="mb-2 text-sm font-semibold">Foto Kegiatan</h5>
+                                            <h5 className="mb-2 text-sm font-semibold">
+                                                Foto Kegiatan <span className="text-red-500">*</span>
+                                            </h5>
                                             {!isReadonly && (
                                                 <div className="mb-2">
                                                     <input
@@ -676,14 +737,23 @@ export default function Prbl01({
                                                         accept="image/jpeg,image/png,image/webp"
                                                         multiple
                                                         className="hidden"
-                                                        onChange={(e) => handleFotoUpload(kId, e.target.files)}
+                                                        onChange={(e) => {
+                                                            handleFotoUpload(kId, e.target.files);
+                                                            e.target.value = '';
+                                                        }}
                                                     />
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
+                                                        disabled={uploadingFoto[kId]}
                                                         onClick={() => fotoInputRefs.current[kId]?.click()}
                                                     >
-                                                        <Upload className="mr-1 h-3.5 w-3.5" /> Upload Foto
+                                                        {uploadingFoto[kId] ? (
+                                                            <span className="mr-1 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                                        ) : (
+                                                            <Upload className="mr-1 h-3.5 w-3.5" />
+                                                        )}
+                                                        {uploadingFoto[kId] ? 'Mengupload...' : 'Upload Foto'}
                                                     </Button>
                                                     <span className="ml-2 text-xs text-muted-foreground">JPG, PNG, WEBP</span>
                                                 </div>
@@ -718,13 +788,15 @@ export default function Prbl01({
                                                     ))}
                                                 </div>
                                             ) : (
-                                                <p className="text-xs text-muted-foreground">Belum ada foto.</p>
+                                                <p className="text-xs text-red-500">Belum ada foto. Minimal 1 foto wajib diupload.</p>
                                             )}
                                         </div>
 
                                         {/* Nota Pengeluaran */}
                                         <div>
-                                            <h5 className="mb-2 text-sm font-semibold">Nota Pengeluaran</h5>
+                                            <h5 className="mb-2 text-sm font-semibold">
+                                                Nota Pengeluaran <span className="text-red-500">*</span>
+                                            </h5>
                                             <p className="mb-2 text-xs text-muted-foreground">
                                                 Bukti pengeluaran (kuitansi, invoice). Semua tipe file kecuali executable. Maks 25MB/file.
                                             </p>
@@ -735,14 +807,23 @@ export default function Prbl01({
                                                         type="file"
                                                         multiple
                                                         className="hidden"
-                                                        onChange={(e) => handleNotaUpload(kId, e.target.files)}
+                                                        onChange={(e) => {
+                                                            handleNotaUpload(kId, e.target.files);
+                                                            e.target.value = '';
+                                                        }}
                                                     />
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
+                                                        disabled={uploadingNota[kId]}
                                                         onClick={() => notaInputRefs.current[kId]?.click()}
                                                     >
-                                                        <Upload className="mr-1 h-3.5 w-3.5" /> Tambah File
+                                                        {uploadingNota[kId] ? (
+                                                            <span className="mr-1 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                                        ) : (
+                                                            <Upload className="mr-1 h-3.5 w-3.5" />
+                                                        )}
+                                                        {uploadingNota[kId] ? 'Mengupload...' : 'Tambah File'}
                                                     </Button>
                                                 </div>
                                             )}
@@ -771,7 +852,7 @@ export default function Prbl01({
                                                     ))}
                                                 </div>
                                             ) : (
-                                                <p className="text-xs text-muted-foreground">Belum ada nota.</p>
+                                                <p className="text-xs text-red-500">Belum ada nota. Minimal 1 nota wajib diupload.</p>
                                             )}
                                         </div>
 
@@ -787,7 +868,9 @@ export default function Prbl01({
                                                                 <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
                                                                 <th className="w-20 px-3 py-2 text-left font-medium">Tipe</th>
                                                                 <th className="w-20 px-3 py-2 text-left font-medium">Satuan</th>
-                                                                <th className="w-40 px-3 py-2 text-left font-medium">Jawaban</th>
+                                                                <th className="w-40 px-3 py-2 text-left font-medium">
+                                                                    Jawaban <span className="text-red-500">*</span>
+                                                                </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -809,7 +892,8 @@ export default function Prbl01({
                                                                                         [q.prbl01_item_kuisioner_id]: e.target.value,
                                                                                     }))
                                                                                 }
-                                                                                className="h-8 text-sm"
+                                                                                className="h-8 text-sm border-red-200 focus:border-red-500 focus:ring-red-500"
+                                                                                placeholder="Wajib diisi"
                                                                             />
                                                                         )}
                                                                     </td>
@@ -831,7 +915,9 @@ export default function Prbl01({
                                                             <th className="px-3 py-2 text-left font-medium">Kode Anggaran</th>
                                                             <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
                                                             <th className="px-3 py-2 text-right font-medium">Dicairkan (Rp)</th>
-                                                            <th className="w-40 px-3 py-2 text-right font-medium">Realisasi (Rp)</th>
+                                                            <th className="w-40 px-3 py-2 text-right font-medium">
+                                                                Realisasi (Rp) <span className="text-red-500">*</span>
+                                                            </th>
                                                             <th className="w-40 px-3 py-2 text-left font-medium">Komentar</th>
                                                         </tr>
                                                     </thead>
@@ -860,7 +946,7 @@ export default function Prbl01({
                                                                                         [rId]: { ...prev[rId], nominal: parseFloat(e.target.value) || 0 },
                                                                                     }))
                                                                                 }
-                                                                                className="h-8 text-right text-sm tabular-nums"
+                                                                                className="h-8 text-right text-sm tabular-nums border-red-200 focus:border-red-500 focus:ring-red-500"
                                                                             />
                                                                         ) : (
                                                                             <span className="text-muted-foreground">—</span>
@@ -943,7 +1029,20 @@ export default function Prbl01({
 
                 {/* Actions */}
                 {!isReadonly && (canDraft || canSubmit) && (
-                    <div className="flex justify-end gap-3">
+                    <>
+                        {hasFilesError && (
+                            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+                                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+                                <div className="text-sm text-red-800 dark:text-red-200">
+                                    <p className="font-medium">Tidak dapat submit:</p>
+                                    <ul className="mt-1 list-disc pl-4">
+                                        {missingFoto && <li>Setiap kegiatan wajib memiliki minimal 1 foto kegiatan</li>}
+                                        {missingNota && <li>Setiap kegiatan wajib memiliki minimal 1 nota pengeluaran</li>}
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex justify-end gap-3">
                         {canDraft && (
                             <ActionConfirmDialog
                                 trigger={
@@ -961,7 +1060,7 @@ export default function Prbl01({
                         {canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
-                                    <Button disabled={processing || hasNoItems || summary.overBudget}>
+                                    <Button disabled={processing || hasNoItems || summary.overBudget || hasFilesError}>
                                         Submit
                                     </Button>
                                 }
@@ -973,6 +1072,7 @@ export default function Prbl01({
                             />
                         )}
                     </div>
+                    </>
                 )}
             </div>
         </AppLayout>

@@ -1,8 +1,8 @@
 import { Link } from '@inertiajs/react';
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 type StepStatus = 'completed' | 'active' | 'pending' | 'skipped' | 'rejected' | 'reset';
 
