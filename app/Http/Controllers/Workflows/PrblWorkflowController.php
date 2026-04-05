@@ -2346,6 +2346,7 @@ class PrblWorkflowController extends Controller
                 'file_id' => $foto->file_id,
                 'original_filename' => $foto->file?->original_filename ?? '',
                 'thumbnail_url' => $foto->file ? route('files.download', ['file' => $foto->file, 'inline' => 1]) : null,
+                'download_url' => $foto->file ? route('files.download', $foto->file) : null,
             ])->values()->all();
 
             // Nota

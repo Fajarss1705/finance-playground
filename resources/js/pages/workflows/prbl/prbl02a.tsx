@@ -1,5 +1,5 @@
 import { Head, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Download, FileIcon, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Download, Info } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,8 @@ import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
+import { index as adminIndex } from '@/routes/admin';
+import prbl from '@/routes/admin/workflows/prbl';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -23,6 +25,7 @@ type FotoItem = {
     file_id: number;
     original_filename: string;
     thumbnail_url: string | null;
+    download_url: string | null;
 };
 
 type NotaItem = {
@@ -159,31 +162,28 @@ function NarasiField({ label, value }: { label: string; value: string | null }) 
 // ─── Foto View Grid ─────────────────────────────────
 
 function FotoViewGrid({ photos }: { photos: FotoItem[] }) {
-    const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
-
     if (photos.length === 0) {
         return <p className="text-xs text-muted-foreground/50">Tidak ada foto kegiatan.</p>;
     }
 
     return (
-        <>
-            <div className="flex flex-wrap gap-2">
-                {photos.map((foto) => (
-                    <button key={foto.id} type="button" className="group relative h-16 w-16 overflow-hidden rounded border" onClick={() => foto.thumbnail_url && setViewingPhoto(foto.thumbnail_url)}>
-                        {foto.thumbnail_url ? (
-                            <img src={foto.thumbnail_url} alt={foto.original_filename} className="h-full w-full object-cover" />
-                        ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-muted text-[10px] text-muted-foreground">No img</div>
-                        )}
-                    </button>
-                ))}
-            </div>
-            {viewingPhoto && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setViewingPhoto(null)}>
-                    <img src={viewingPhoto} alt="Full size" className="max-h-[90vh] max-w-[90vw] rounded" />
-                </div>
-            )}
-        </>
+        <div className="flex flex-wrap gap-2">
+            {photos.map((foto) => (
+                <a
+                    key={foto.id}
+                    href={foto.download_url ?? foto.thumbnail_url ?? '#'}
+                    download={foto.original_filename}
+                    className="group relative h-16 w-16 overflow-hidden rounded border"
+                    title={foto.original_filename}
+                >
+                    {foto.thumbnail_url ? (
+                        <img src={foto.thumbnail_url} alt={foto.original_filename} className="h-full w-full object-cover" />
+                    ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-muted text-[10px] text-muted-foreground">No img</div>
+                    )}
+                </a>
+            ))}
+        </div>
     );
 }
 
@@ -197,9 +197,9 @@ function NotaFileList({ items }: { items: NotaItem[] }) {
     return (
         <div className="flex flex-wrap gap-1">
             {items.map((nota) => (
-                <a key={nota.id} href={nota.download_url ?? '#'} target="_blank" rel="noopener noreferrer"
+                <a key={nota.id} href={nota.download_url ?? '#'} download={nota.original_filename}
                     className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] ${nota.download_url ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-muted text-muted-foreground'}`}>
-                    {nota.mime_type?.startsWith('image/') ? <FileIcon className="h-3 w-3" /> : <Download className="h-3 w-3" />}
+                    <Download className="h-3 w-3" />
                     {nota.original_filename}
                 </a>
             ))}
@@ -334,19 +334,19 @@ export default function Prbl02a({
     const totalKegiatan = kegiatanItems.reduce((sum, p) => sum + p.kegiatan.length, 0);
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Admin', href: route('admin.index') },
-        { title: 'Laporan Bulanan', href: route('admin.workflows.prbl.index') },
-        { title: workflow.label, href: route('admin.workflows.prbl.show', { prblWorkflow: workflow.id }) },
+        { title: 'Admin', href: adminIndex.url() },
+        { title: 'Laporan Bulanan', href: prbl.index.url() },
+        { title: workflow.label, href: prbl.show.url(workflow.id) },
         { title: 'PRBL02A: Persetujuan Narasi' },
     ];
 
-    const commentUrl = route('admin.workflows.prbl.comment', { prblWorkflow: workflow.id });
+    const commentUrl = prbl.comment.url(workflow.id);
 
     function handleAction(action: 'approve' | 'reject', notes?: string, files?: File[]) {
         if (processing) return;
         setProcessing(true);
 
-        const routeName = `admin.workflows.prbl.prbl02a.${action}`;
+        const actionFn = action === 'approve' ? prbl.prbl02a.approve : prbl.prbl02a.reject;
         const data: Record<string, unknown> = {
             expected_updated_at: workflow.updated_at,
             notes: notes || null,
@@ -356,7 +356,7 @@ export default function Prbl02a({
             data.files = files;
         }
 
-        router.post(route(routeName, { prblWorkflow: workflow.id }), data, {
+        router.post(actionFn.url(workflow.id), data, {
             forceFormData: true,
             onFinish: () => setProcessing(false),
         });
