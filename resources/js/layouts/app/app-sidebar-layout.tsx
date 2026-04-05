@@ -1,8 +1,8 @@
-import { BottomBar } from '@/components/bottom-bar';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
+import { BottomBar } from '@/components/bottom-bar';
 import { NotificationBell } from '@/components/notification-bell';
 import type { AppLayoutProps } from '@/types';
 

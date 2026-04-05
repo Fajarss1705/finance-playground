@@ -1,7 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { FileText, Plus, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
-import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import Heading from '@/components/heading';
 import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +15,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';

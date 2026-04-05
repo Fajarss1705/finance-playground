@@ -1,17 +1,17 @@
 import { Head, usePage, router } from '@inertiajs/react';
-import { useState } from 'react';
 import { Download } from 'lucide-react';
+import { useState } from 'react';
 import AlertError from '@/components/alert-error';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import HistoryCommentSection from '@/components/workflow/history-comment-section';
-import type { HistoryEntry } from '@/components/workflow/history-comment-section';
-import SectionCard from '@/components/workflow/section-card';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
+import HistoryCommentSection from '@/components/workflow/history-comment-section';
+import type { HistoryEntry } from '@/components/workflow/history-comment-section';
+import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 

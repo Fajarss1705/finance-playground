@@ -1,8 +1,8 @@
 import { Head, router } from '@inertiajs/react';
+import { store } from '@/actions/App/Http/Controllers/SwitcherController';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AuthLayout from '@/layouts/auth-layout';
-import { store } from '@/actions/App/Http/Controllers/SwitcherController';
 
 type Role = {
     id: number;

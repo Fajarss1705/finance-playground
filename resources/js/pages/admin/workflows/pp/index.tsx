@@ -2,9 +2,9 @@ import { Head, Link, router } from '@inertiajs/react';
 import { FileText, Plus, Trash2 } from 'lucide-react';
 import Heading from '@/components/heading';
 import Pagination from '@/components/pagination';
-import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
 

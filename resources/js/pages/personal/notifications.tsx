@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
+import { show } from '@/routes/notifications';
 import { index as personalIndex, notifications as personalNotifications } from '@/routes/personal';
 import { markAllRead } from '@/routes/personal/notifications';
-import { show } from '@/routes/notifications';
 import type { BreadcrumbItem } from '@/types';
 
 type NotificationRow = {
