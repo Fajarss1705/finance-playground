@@ -504,6 +504,9 @@ class PrblWorkflowController extends Controller
         // Validate realisasi constraint: sum(realisasi) <= sum(dicairkan)
         $this->validateRealisasiConstraint($prbl01Data, $prblWorkflow);
 
+        // Validate that every kegiatan has at least 1 foto and 1 nota
+        $this->validateFotoNotaPresence($prbl01Data);
+
         $prbl01Data->touch();
 
         $sessionContext = $this->getSessionContext();
@@ -2472,6 +2475,41 @@ class PrblWorkflowController extends Controller
         if ($totalRealisasi > $totalDicairkan) {
             $selisih = $totalRealisasi - $totalDicairkan;
             abort(422, 'Total realisasi (Rp '.number_format($totalRealisasi, 0, ',', '.').') melebihi total anggaran dicairkan (Rp '.number_format($totalDicairkan, 0, ',', '.').'). Selisih: Rp '.number_format($selisih, 0, ',', '.').'.');
+        }
+    }
+
+    /**
+     * Validate that every kegiatan has at least 1 foto and 1 nota.
+     */
+    private function validateFotoNotaPresence(Prbl01Data $prbl01Data): void
+    {
+        $kegiatanItems = Prbl01ItemKegiatan::where('prbl01_data_id', $prbl01Data->id)->get();
+
+        $missingFoto = [];
+        $missingNota = [];
+
+        foreach ($kegiatanItems as $item) {
+            $fotoCount = Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $item->id)->count();
+            $notaCount = Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $item->id)->count();
+
+            if ($fotoCount === 0) {
+                $missingFoto[] = $item->id;
+            }
+
+            if ($notaCount === 0) {
+                $missingNota[] = $item->id;
+            }
+        }
+
+        if (count($missingFoto) > 0 || count($missingNota) > 0) {
+            $errors = [];
+            if (count($missingFoto) > 0) {
+                $errors[] = count($missingFoto).' kegiatan belum memiliki foto kegiatan';
+            }
+            if (count($missingNota) > 0) {
+                $errors[] = count($missingNota).' kegiatan belum memiliki nota pengeluaran';
+            }
+            abort(422, 'Tidak dapat submit: '.implode(', ', $errors).'. Setiap kegiatan wajib memiliki minimal 1 foto kegiatan dan 1 nota pengeluaran.');
         }
     }
 

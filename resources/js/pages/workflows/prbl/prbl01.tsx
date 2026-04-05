@@ -507,6 +507,11 @@ export default function Prbl01({
 
     const hasNoItems = kegiatanItems.length === 0 || kegiatanItems.every((p) => p.kegiatan.length === 0);
 
+    // Submit is blocked if any kegiatan is missing foto or nota
+    const missingFoto = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (fotosMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
+    const missingNota = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (notaMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
+    const hasFilesError = missingFoto || missingNota;
+
     // Kegiatan counter
     let kegiatanIndex = 0;
     let totalKegiatan = 0;
@@ -721,7 +726,9 @@ export default function Prbl01({
 
                                         {/* Foto Kegiatan */}
                                         <div>
-                                            <h5 className="mb-2 text-sm font-semibold">Foto Kegiatan</h5>
+                                            <h5 className="mb-2 text-sm font-semibold">
+                                                Foto Kegiatan <span className="text-red-500">*</span>
+                                            </h5>
                                             {!isReadonly && (
                                                 <div className="mb-2">
                                                     <input
@@ -781,13 +788,15 @@ export default function Prbl01({
                                                     ))}
                                                 </div>
                                             ) : (
-                                                <p className="text-xs text-muted-foreground">Belum ada foto.</p>
+                                                <p className="text-xs text-red-500">Belum ada foto. Minimal 1 foto wajib diupload.</p>
                                             )}
                                         </div>
 
                                         {/* Nota Pengeluaran */}
                                         <div>
-                                            <h5 className="mb-2 text-sm font-semibold">Nota Pengeluaran</h5>
+                                            <h5 className="mb-2 text-sm font-semibold">
+                                                Nota Pengeluaran <span className="text-red-500">*</span>
+                                            </h5>
                                             <p className="mb-2 text-xs text-muted-foreground">
                                                 Bukti pengeluaran (kuitansi, invoice). Semua tipe file kecuali executable. Maks 25MB/file.
                                             </p>
@@ -843,7 +852,7 @@ export default function Prbl01({
                                                     ))}
                                                 </div>
                                             ) : (
-                                                <p className="text-xs text-muted-foreground">Belum ada nota.</p>
+                                                <p className="text-xs text-red-500">Belum ada nota. Minimal 1 nota wajib diupload.</p>
                                             )}
                                         </div>
 
@@ -1015,7 +1024,20 @@ export default function Prbl01({
 
                 {/* Actions */}
                 {!isReadonly && (canDraft || canSubmit) && (
-                    <div className="flex justify-end gap-3">
+                    <>
+                        {hasFilesError && (
+                            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+                                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+                                <div className="text-sm text-red-800 dark:text-red-200">
+                                    <p className="font-medium">Tidak dapat submit:</p>
+                                    <ul className="mt-1 list-disc pl-4">
+                                        {missingFoto && <li>Setiap kegiatan wajib memiliki minimal 1 foto kegiatan</li>}
+                                        {missingNota && <li>Setiap kegiatan wajib memiliki minimal 1 nota pengeluaran</li>}
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex justify-end gap-3">
                         {canDraft && (
                             <ActionConfirmDialog
                                 trigger={
@@ -1033,7 +1055,7 @@ export default function Prbl01({
                         {canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
-                                    <Button disabled={processing || hasNoItems || summary.overBudget}>
+                                    <Button disabled={processing || hasNoItems || summary.overBudget || hasFilesError}>
                                         Submit
                                     </Button>
                                 }
@@ -1045,6 +1067,7 @@ export default function Prbl01({
                             />
                         )}
                     </div>
+                    </>
                 )}
             </div>
         </AppLayout>
