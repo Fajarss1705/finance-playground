@@ -1,5 +1,5 @@
 import { Head, router } from '@inertiajs/react';
-import { FileText, Info, AlertTriangle, Upload, X } from 'lucide-react';
+import { FileText, Info, AlertTriangle, Upload, X, Download } from 'lucide-react';
 import { useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
@@ -16,8 +16,9 @@ import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
 import { formatRupiah } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
-import { index as teamIndex } from '@/routes/team';
 import prbl from '@/routes/admin/workflows/prbl';
+import { download as filesDownload } from '@/routes/files';
+import { index as teamIndex } from '@/routes/team';
 import prblTeam from '@/routes/team/workflows/prbl';
 import type { BreadcrumbItem } from '@/types';
 
@@ -283,6 +284,17 @@ function FileUploadSection({
                     <div key={file.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
                         <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="flex-1 truncate">{file.original_filename || 'File'}</span>
+                        {file.uuid && (
+                            <a
+                                href={filesDownload.url(file.uuid)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-primary"
+                                title="Unduh file"
+                            >
+                                <Download className="h-3.5 w-3.5" />
+                            </a>
+                        )}
                         {!readonly && (
                             <button
                                 type="button"
