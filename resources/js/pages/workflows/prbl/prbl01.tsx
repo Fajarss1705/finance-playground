@@ -868,7 +868,9 @@ export default function Prbl01({
                                                                 <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
                                                                 <th className="w-20 px-3 py-2 text-left font-medium">Tipe</th>
                                                                 <th className="w-20 px-3 py-2 text-left font-medium">Satuan</th>
-                                                                <th className="w-40 px-3 py-2 text-left font-medium">Jawaban</th>
+                                                                <th className="w-40 px-3 py-2 text-left font-medium">
+                                                                    Jawaban <span className="text-red-500">*</span>
+                                                                </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -890,7 +892,8 @@ export default function Prbl01({
                                                                                         [q.prbl01_item_kuisioner_id]: e.target.value,
                                                                                     }))
                                                                                 }
-                                                                                className="h-8 text-sm"
+                                                                                className="h-8 text-sm border-red-200 focus:border-red-500 focus:ring-red-500"
+                                                                                placeholder="Wajib diisi"
                                                                             />
                                                                         )}
                                                                     </td>
@@ -912,7 +915,9 @@ export default function Prbl01({
                                                             <th className="px-3 py-2 text-left font-medium">Kode Anggaran</th>
                                                             <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
                                                             <th className="px-3 py-2 text-right font-medium">Dicairkan (Rp)</th>
-                                                            <th className="w-40 px-3 py-2 text-right font-medium">Realisasi (Rp)</th>
+                                                            <th className="w-40 px-3 py-2 text-right font-medium">
+                                                                Realisasi (Rp) <span className="text-red-500">*</span>
+                                                            </th>
                                                             <th className="w-40 px-3 py-2 text-left font-medium">Komentar</th>
                                                         </tr>
                                                     </thead>
@@ -941,7 +946,7 @@ export default function Prbl01({
                                                                                         [rId]: { ...prev[rId], nominal: parseFloat(e.target.value) || 0 },
                                                                                     }))
                                                                                 }
-                                                                                className="h-8 text-right text-sm tabular-nums"
+                                                                                className="h-8 text-right text-sm tabular-nums border-red-200 focus:border-red-500 focus:ring-red-500"
                                                                             />
                                                                         ) : (
                                                                             <span className="text-muted-foreground">—</span>
