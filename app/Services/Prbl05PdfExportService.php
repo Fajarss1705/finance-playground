@@ -8,6 +8,7 @@ use App\Models\Prbl\PrblWorkflow;
 use App\Models\Role;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Storage;
 
 class Prbl05PdfExportService
 {
@@ -45,6 +46,10 @@ class Prbl05PdfExportService
         $bulanLabel = $bulanLabels[$bulan] ?? '-';
         $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
+        $buktiImages = $prbl05->bukti->mapWithKeys(fn ($b) => [
+            $b->id => $this->fileToImageData($b->file),
+        ])->all();
+
         $pdf = Pdf::loadView('exports.prbl05-pdf', [
             'prbl05' => $prbl05,
             'workflow' => $workflow,
@@ -58,6 +63,7 @@ class Prbl05PdfExportService
             'groupedKegiatan' => $groupedKegiatan,
             'groupedRealisasi' => $groupedRealisasi,
             'logoBase64' => $logoBase64,
+            'buktiImages' => $buktiImages,
             'label' => "PRBL-{$bulanLabel} {$tahun}-{$teamName}",
             'judul' => "Laporan Bulanan {$bulanLabel} {$tahun} — {$teamName}",
             'revision' => 0,
@@ -86,8 +92,8 @@ class Prbl05PdfExportService
      *     harapan: string|null,
      *     catatan_tim: string|null,
      *     kuisioner: list<array{kode: string|null, pertanyaan: string, tipe: string, satuan: string|null, jawaban: string|null}>,
-     *     foto_kegiatan: list<string>,
-     *     nota_pengeluaran: list<string>,
+     *     foto_kegiatan: list<array{filename: string, data_uri: string|null}>,
+     *     nota_pengeluaran: list<array{filename: string, data_uri: string|null}>,
      *   }>,
      * }>
      */
@@ -117,11 +123,11 @@ class Prbl05PdfExportService
             ])->all();
 
             $fotoKegiatan = $item->fotoKegiatan
-                ->map(fn ($f) => $f->file?->original_filename ?? 'file')
+                ->map(fn ($f) => $this->fileToImageData($f->file))
                 ->all();
 
             $notaPengeluaran = $item->notaPengeluaran
-                ->map(fn ($n) => $n->file?->original_filename ?? 'file')
+                ->map(fn ($n) => $this->fileToImageData($n->file))
                 ->all();
 
             $programs[$programKey]['kegiatan'][] = [
@@ -139,6 +145,33 @@ class Prbl05PdfExportService
         }
 
         return array_values($programs);
+    }
+
+    /**
+     * Convert a File model to an array with its filename and base64 data URI (images only).
+     *
+     * @return array{filename: string, data_uri: string|null}
+     */
+    private function fileToImageData(?File $file): array
+    {
+        if (! $file) {
+            return ['filename' => 'file', 'data_uri' => null];
+        }
+
+        $dataUri = null;
+
+        if (str_starts_with((string) $file->mime_type, 'image/')) {
+            try {
+                $contents = Storage::disk($file->disk)->get($file->path);
+                if ($contents !== null) {
+                    $dataUri = 'data:'.$file->mime_type.';base64,'.base64_encode($contents);
+                }
+            } catch (\Throwable) {
+                // File unreadable — fall back to filename only
+            }
+        }
+
+        return ['filename' => $file->original_filename, 'data_uri' => $dataUri];
     }
 
     /**
