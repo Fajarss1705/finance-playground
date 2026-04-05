@@ -564,7 +564,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -598,7 +598,7 @@ class PrblWorkflowController extends Controller
             'id' => $fotoRow->id,
             'file_id' => $file->id,
             'original_filename' => $file->original_filename,
-            'thumbnail_url' => route('files.download', $file),
+            'thumbnail_url' => route('files.download', ['file' => $file, 'inline' => 1]),
         ]);
     }
 
@@ -606,7 +606,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -634,7 +634,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -675,7 +675,7 @@ class PrblWorkflowController extends Controller
     {
         $this->ensureWorkspaceOwnership($prblWorkflow);
         $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.draft');
+        $this->checkPermission('team.workflows.prbl.prbl01.submit');
         $this->ensureStepActive($prblWorkflow, 'PRBL01');
         $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
 
@@ -2342,7 +2342,7 @@ class PrblWorkflowController extends Controller
                 'id' => $foto->id,
                 'file_id' => $foto->file_id,
                 'original_filename' => $foto->file?->original_filename ?? '',
-                'thumbnail_url' => $foto->file ? route('files.download', $foto->file) : null,
+                'thumbnail_url' => $foto->file ? route('files.download', ['file' => $foto->file, 'inline' => 1]) : null,
             ])->values()->all();
 
             // Nota
@@ -2914,7 +2914,7 @@ class PrblWorkflowController extends Controller
                     'size' => $f->file?->size,
                     'path' => $f->file?->path,
                     'download_url' => $f->file?->path ? route('files.download', $f->file) : null,
-                    'thumbnail_url' => $f->file?->path ? route('files.download', $f->file) : null,
+                    'thumbnail_url' => $f->file?->path ? route('files.download', ['file' => $f->file, 'inline' => 1]) : null,
                 ])->values()->all(),
                 'nota' => $item->notaPengeluaran->map(fn ($n) => [
                     'id' => $n->id,
