@@ -10,13 +10,14 @@ use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * Seeds org, workspace, teams, users, roles, and permissions for manual browser testing.
  *
  * NO workflows are created — test PP → PK → PABD → PRBL manually.
  *
- * Password for all accounts: `password`
+ * Password for all accounts: `password123!`
  */
 class ManualTestingSeeder extends Seeder
 {
@@ -140,34 +141,34 @@ class ManualTestingSeeder extends Seeder
     private function createUsers(): void
     {
         // Admin super-user
-        $this->createUser('Admin Demo', 'admin@demo.test', []);
+        $this->createUser('Admin Test User', 'admin@demo.test', []);
 
         // Tim Monev
-        $this->createUser('Hendra Wijaya', 'koordinator-monev@demo.test', ['monev_koordinator_monev']);
-        $this->createUser('Sari Wulandari', 'evaluator-narasi@demo.test', ['monev_evaluator_narasi']);
-        $this->createUser('Budi Santoso', 'evaluator-anggaran@demo.test', ['monev_evaluator_anggaran']);
+        $this->createUser('Koordinator MONEV Test User', 'koordinator-monev@demo.test', ['monev_koordinator_monev']);
+        $this->createUser('Evaluator Narasi Test User', 'evaluator-narasi@demo.test', ['monev_evaluator_narasi']);
+        $this->createUser('Evaluator Anggaran Test User', 'evaluator-anggaran@demo.test', ['monev_evaluator_anggaran']);
 
         // Tim Bendahara Umum
-        $this->createUser('Ratna Kusuma', 'bu1@demo.test', ['bu_bendahara_umum_1']);
-        $this->createUser('Agus Prasetyo', 'bu2@demo.test', ['bu_bendahara_umum_2']);
-        $this->createUser('Dewi Anggraini', 'asisten-bu@demo.test', ['bu_asisten_bendahara_umum']);
+        $this->createUser('Bendahara Umum 1 Test User', 'bu1@demo.test', ['bu_bendahara_umum_1']);
+        $this->createUser('Bendahara Umum 2 Test User', 'bu2@demo.test', ['bu_bendahara_umum_2']);
+        $this->createUser('Asisten Bendahara Umum Test User', 'asisten-bu@demo.test', ['bu_asisten_bendahara_umum']);
 
         // Tim Kantor Pusat
-        $this->createUser('Lina Hartono', 'staff-kg@demo.test', ['kg_staff_kantor_organisasi']);
+        $this->createUser('Staff Kantor Pusat Test User', 'staff-kg@demo.test', ['kg_staff_kantor_organisasi']);
 
         // Divisi Kepemudaan
-        $this->createUser('Rina Suharto', 'koordinator-remaja@demo.test', ['remaja_koordinator']);
-        $this->createUser('Dani Pratama', 'bendahara-remaja@demo.test', ['remaja_bendahara_tim']);
+        $this->createUser('Koordinator Remaja Test User', 'koordinator-remaja@demo.test', ['remaja_koordinator']);
+        $this->createUser('Bendahara Tim Test User', 'bendahara-remaja@demo.test', ['remaja_bendahara_tim']);
 
         // Divisi Kaderisasi
-        $this->createUser('Yuni Kartika', 'koordinator-pemuda@demo.test', ['pemuda_koordinator']);
-        $this->createUser('Rian Nugroho', 'anggota-pemuda@demo.test', ['pemuda_anggota']);
+        $this->createUser('Koordinator Pemuda Test User', 'koordinator-pemuda@demo.test', ['pemuda_koordinator']);
+        $this->createUser('Anggota Test User', 'anggota-pemuda@demo.test', ['pemuda_anggota']);
 
         // Tim Multi Media
-        $this->createUser('Mega Putri', 'koordinator-tmm@demo.test', ['tmm_koordinator']);
+        $this->createUser('Koordinator TMM Test User', 'koordinator-tmm@demo.test', ['tmm_koordinator']);
 
         // Divisi Pendidikan
-        $this->createUser('Rina Wijaya', 'rina@demo.test', ['anak_ketua']);
+        $this->createUser('Ketua Test User', 'rina@demo.test', ['anak_ketua']);
     }
 
     /** @param list<string> $roleKeys */
@@ -177,6 +178,7 @@ class ManualTestingSeeder extends Seeder
             'name' => $name,
             'email' => $email,
             'email_verified_at' => now(),
+            'password' => Hash::make('password123!'),
         ]);
 
         foreach ($roleKeys as $key) {
