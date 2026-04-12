@@ -165,10 +165,10 @@ class ManualTestingSeeder extends Seeder
         $this->createUser('Anggota Test User', 'anggota-pemuda@demo.test', ['pemuda_anggota']);
 
         // Tim Multi Media
-        $this->createUser('Koordinator TMM Test User', 'koordinator-tmm@demo.test', ['tmm_koordinator']);
+        $this->createUser('Koordinator Multimedia Test User', 'koordinator-tmm@demo.test', ['tmm_koordinator']);
 
         // Divisi Pendidikan
-        $this->createUser('Ketua Test User', 'rina@demo.test', ['anak_ketua']);
+        $this->createUser('Koordinator Anak Test User', 'rina@demo.test', ['anak_koordinator']);
     }
 
     /** @param list<string> $roleKeys */
