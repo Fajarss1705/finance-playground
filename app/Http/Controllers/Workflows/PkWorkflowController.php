@@ -2784,13 +2784,21 @@ class PkWorkflowController extends Controller
             ->value('plafon_anggaran') ?? 0);
 
         // Accepted: SUM from completed PK04 active anggaran items for this team (raker)
+        // Scoped to latest revision only — snapshot copies on older revisions must not be counted.
         $accepted = (float) Pk04Anggaran::query()
-            ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
-                ->where('team_id', $teamId)
-                ->where('workspace_id', $pkWorkflow->workspace_id)
-                ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
-                ->where('tipe', 'raker')
-                ->whereNull('deleted_at')
+            ->whereHas('pk04Kegiatan.pk04ProgramTahunan', fn ($q) => $q
+                ->whereHas('pkWorkflow', fn ($q2) => $q2
+                    ->where('team_id', $teamId)
+                    ->where('workspace_id', $pkWorkflow->workspace_id)
+                    ->where('pp_workflow_id', $pkWorkflow->pp_workflow_id)
+                    ->where('tipe', 'raker')
+                    ->whereNull('deleted_at')
+                )
+                ->whereRaw('pk04_program_tahunan.revision = (
+                    SELECT MAX(latest.revision)
+                    FROM pk04_program_tahunan latest
+                    WHERE latest.pk_workflow_id = pk04_program_tahunan.pk_workflow_id
+                )')
             )
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');

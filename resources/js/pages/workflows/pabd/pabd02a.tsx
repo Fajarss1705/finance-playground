@@ -818,12 +818,14 @@ export default function Pabd02a({
         setPickerOpen(null);
     }
 
-    // Valid bulan_tujuan options
+    // Valid bulan_tujuan options: from PABD target month up to bulan_awal - 1.
+    // Floor is bulan_anggaran (not current calendar month) so a January PABD can
+    // always pull items to January even when processed in a later month.
     function getValidBulanTujuan(bulanAwal: number | null): number[] {
         if (!bulanAwal) return [];
-        const currentMonth = new Date().getMonth() + 1;
+        const floor = workflowMeta.bulan_anggaran;
         const months: number[] = [];
-        for (let m = currentMonth; m < bulanAwal; m++) {
+        for (let m = floor; m < bulanAwal; m++) {
             months.push(m);
         }
         return months;

@@ -1655,6 +1655,60 @@ it('approves PABD02B with tarik_maju item and recompiles PK04', function () {
         ->and($freshPabd01->pk04_revisions_snapshot[$newPk04->id])->toBe(1);
 });
 
+// ── PABD02B Approve — budget counter regression ──
+
+it('budget counter accepted does not double-count after tarik_maju PK04 recompile', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.submit',
+        'admin.workflows.pabd.pabd02b.show',
+        'admin.workflows.pabd.pabd02b.draft',
+        'admin.workflows.pabd.pabd02b.approve',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+
+    // Total active before tarik maju: 2.5M + 1M (bulan 3) + 3M (bulan 6) = 6.5M
+    $expectedTotal = 6500000;
+
+    [$pabdWorkflow, $pabd01, $pabd02a, $pabd02b] = setupPabd02bActive(
+        $workspace, $team, $ppWorkflow, $pk04, 3, $user, $role,
+        itemType: 'tarik_maju', futureAnggaran: $futureAnggaran,
+    );
+
+    $reviewItem = $pabd02b->itemReview->first();
+
+    $this->post(route('admin.workflows.pabd.pabd02b.approve', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02bData' => $pabd02b->id,
+    ]), [
+        'items' => [['pabd02b_item_review_id' => $reviewItem->id, 'komentar_approval' => null]],
+        'expected_updated_at' => $pabd02b->updated_at->toIso8601String(),
+    ])->assertRedirect();
+
+    // After approve: PK04 was recompiled (snapshot + new revision).
+    // PABD01 cycle 2 is now active — get the fresh pabd01.
+    $pabdWorkflow->refresh();
+    $freshPabd01 = $pabdWorkflow->latestPabd01();
+
+    $response = $this->get(route('team.workflows.pabd.pabd01.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd01Data' => $freshPabd01->id,
+    ]));
+
+    $response->assertOk();
+
+    // Snapshot copies on old pk04 revision must NOT be counted.
+    $response->assertInertia(fn ($page) => $page
+        ->where('budgetCounter.accepted', $expectedTotal)
+    );
+});
+
 // ── PABD02B Approve (proposal_baru) ──
 
 it('approves PABD02B with proposal_baru item and compiles to PK04', function () {

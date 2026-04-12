@@ -19,6 +19,7 @@ class Pabd02aItemPerubahan extends Model
         'pk04_anggaran_id',
         'bulan_awal',
         'bulan_tujuan',
+        'nominal_awal',
         'pk_workflow_id',
         'komentar',
     ];

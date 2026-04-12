@@ -1004,17 +1004,18 @@ class PabdWorkflowController extends Controller
         }
 
         // Validate bulan_tujuan constraints for tarik_maju items
+        // Floor is bulan_anggaran (PABD target month), not the current calendar month,
+        // so a January PABD processed in April can still pull items to January.
         foreach ($validated['items'] as $idx => $item) {
             if ($item['tipe_perubahan'] === 'tarik_maju') {
                 $bulanAwal = $item['bulan_awal'] ?? 0;
                 $bulanTujuan = $item['bulan_tujuan'] ?? 0;
-                $currentMonth = (int) now()->month;
 
                 if ($bulanTujuan >= $bulanAwal) {
                     abort(422, "Bulan tujuan harus lebih kecil dari bulan asal (item #{$idx}).");
                 }
-                if ($bulanTujuan < $currentMonth) {
-                    abort(422, "Bulan tujuan tidak boleh di masa lalu (item #{$idx}).");
+                if ($bulanTujuan < $pabdWorkflow->bulan_anggaran) {
+                    abort(422, "Bulan tujuan tidak boleh sebelum bulan PABD ini (item #{$idx}).");
                 }
             }
         }
@@ -1123,8 +1124,15 @@ class PabdWorkflowController extends Controller
                 'pk04_anggaran_id' => $tipe === 'tarik_maju' ? ($itemData['pk04_anggaran_id'] ?? null) : null,
                 'bulan_awal' => $tipe === 'tarik_maju' ? ($itemData['bulan_awal'] ?? null) : null,
                 'bulan_tujuan' => $tipe === 'tarik_maju' ? ($itemData['bulan_tujuan'] ?? null) : null,
+                'nominal_awal' => null,
                 'komentar' => $itemData['komentar'] ?? null,
             ];
+
+            // Snapshot nominal at creation time so it survives PK04 recompile zeroing.
+            if ($tipe === 'tarik_maju' && ! empty($itemAttrs['pk04_anggaran_id'])) {
+                $itemAttrs['nominal_awal'] = \App\Models\Pk\Pk04Anggaran::where('id', $itemAttrs['pk04_anggaran_id'])
+                    ->value('nominal_anggaran');
+            }
 
             // Handle proposal_baru: create/update PK Proposal
             if ($tipe === 'proposal_baru' && ! empty($itemData['proposal'])) {
@@ -1297,7 +1305,7 @@ class PabdWorkflowController extends Controller
                 'bulan_label' => $bulanNames[$kegiatan?->bulan ?? 0] ?? null,
                 'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
                 'mata_anggaran' => $anggaran->mata_anggaran,
-                'nominal' => (float) $anggaran->nominal_anggaran,
+                'nominal' => (float) ($item->nominal_awal ?? $anggaran->nominal_anggaran),
             ];
             $result['bulan_awal_label'] = $bulanNames[$item->bulan_awal ?? 0] ?? null;
             $result['bulan_tujuan_label'] = $bulanNames[$item->bulan_tujuan ?? 0] ?? null;
@@ -3512,12 +3520,19 @@ class PabdWorkflowController extends Controller
             ->value('plafon_anggaran') ?? 0);
 
         $accepted = (float) Pk04Anggaran::query()
-            ->whereHas('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow', fn ($q) => $q
-                ->where('team_id', $teamId)
-                ->where('workspace_id', $pabdWorkflow->workspace_id)
-                ->where('pp_workflow_id', $pabdWorkflow->pp_workflow_id)
-                ->where('tipe', 'raker')
-                ->whereNull('deleted_at')
+            ->whereHas('pk04Kegiatan.pk04ProgramTahunan', fn ($q) => $q
+                ->whereHas('pkWorkflow', fn ($q2) => $q2
+                    ->where('team_id', $teamId)
+                    ->where('workspace_id', $pabdWorkflow->workspace_id)
+                    ->where('pp_workflow_id', $pabdWorkflow->pp_workflow_id)
+                    ->where('tipe', 'raker')
+                    ->whereNull('deleted_at')
+                )
+                ->whereRaw('pk04_program_tahunan.revision = (
+                    SELECT MAX(latest.revision)
+                    FROM pk04_program_tahunan latest
+                    WHERE latest.pk_workflow_id = pk04_program_tahunan.pk_workflow_id
+                )')
             )
             ->where('status_item', 'active')
             ->sum('nominal_anggaran');
