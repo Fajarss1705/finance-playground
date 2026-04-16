@@ -6,8 +6,10 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Http\Responses\LoginResponse;
 use App\Http\Responses\TwoFactorLoginResponse;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -45,6 +47,16 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
+
+        VerifyEmail::toMailUsing(function (object $_notifiable, string $url) {
+            return (new MailMessage)
+                ->subject('Verifikasi Alamat Email Anda')
+                ->greeting('Halo!')
+                ->line('Klik tombol di bawah untuk memverifikasi alamat email Anda.')
+                ->action('Verifikasi Alamat Email', $url)
+                ->line('Jika Anda tidak membuat akun, abaikan email ini.')
+                ->salutation('Salam, '.config('app.name'));
+        });
     }
 
     /**
