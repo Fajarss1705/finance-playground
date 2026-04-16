@@ -6,6 +6,7 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Http\Responses\LoginResponse;
 use App\Http\Responses\TwoFactorLoginResponse;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -47,6 +48,17 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
+
+        ResetPassword::toMailUsing(function (object $_notifiable, string $url) {
+            return (new MailMessage)
+                ->subject('Reset Kata Sandi')
+                ->greeting('Halo!')
+                ->line('Anda menerima email ini karena kami menerima permintaan reset kata sandi untuk akun Anda.')
+                ->action('Reset Kata Sandi', $url)
+                ->line('Tautan reset kata sandi ini akan kedaluwarsa dalam '.config('auth.passwords.'.config('auth.defaults.passwords').'.expire').' menit.')
+                ->line('Jika Anda tidak meminta reset kata sandi, abaikan email ini.')
+                ->salutation('Salam, '.config('app.name'));
+        });
 
         VerifyEmail::toMailUsing(function (object $_notifiable, string $url) {
             return (new MailMessage)
