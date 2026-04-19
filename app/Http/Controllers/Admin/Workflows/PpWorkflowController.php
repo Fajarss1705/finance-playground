@@ -1051,7 +1051,7 @@ class PpWorkflowController extends Controller
 
         $pp01?->load(['kodeBidangPelayanan', 'kodeSubBidangPelayanan', 'kodeKategoriPelayanan', 'kodeJenisProgram']);
         $pp02?->load('itemKuisioner');
-        $pp03?->load('itemPlafonAnggaran.team');
+        $pp03?->load(['itemPlafonAnggaran.team', 'rekeningOrganisasi']);
         $pp04?->load('itemDokumen.file');
 
         $isActive = $statuses['PP05']['status'] === 'active';

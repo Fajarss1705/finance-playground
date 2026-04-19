@@ -18,6 +18,7 @@ import type { BreadcrumbItem } from '@/types';
 type KodeItem = { kode: string; nama: string; catatan: string | null };
 type KuisionerItem = { kode: string; pertanyaan: string; tipe: string; satuan: string | null };
 type PlafonItem = { team_id: number; kode_team: string; plafon_anggaran: number; nama_bank: string; nama_rekening: string; nomor_rekening: string; catatan: string | null; team?: { name: string } };
+type RekeningOrganisasiItem = { nama_bank: string; nama_rekening: string; nomor_rekening: string };
 
 type ReviewData = {
     pp01: {
@@ -30,7 +31,7 @@ type ReviewData = {
         kode_jenis_program: KodeItem[];
     } | null;
     pp02: { item_kuisioner: KuisionerItem[] } | null;
-    pp03: { item_plafon_anggaran: PlafonItem[] } | null;
+    pp03: { item_plafon_anggaran: PlafonItem[]; rekening_organisasi: RekeningOrganisasiItem[] } | null;
     pp04: { item_dokumen: { file: { uuid: string; original_filename: string } }[] } | null;
 };
 
@@ -158,10 +159,10 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
 
                 {/* PP03 Review */}
                 {reviewData.pp03 && (
-                    <SectionCard title="PP03 — Plafon Anggaran">
+                    <SectionCard title="PP03 — Plafon Anggaran & Rekening">
                         <SubmittedBy info={submitters.PP03} />
                         <div className="-mx-4 mt-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-                            <table className="min-w-175 w-full text-sm">
+                            <table className="min-w-200 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
                                         <th className="px-3 py-2 text-left font-medium w-20">Kode</th>
@@ -170,6 +171,7 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                                         <th className="px-3 py-2 text-left font-medium w-28">Bank</th>
                                         <th className="px-3 py-2 text-left font-medium w-32">Nama Rek.</th>
                                         <th className="px-3 py-2 text-left font-medium w-28">No. Rek.</th>
+                                        <th className="px-3 py-2 text-left font-medium w-40">Catatan</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -181,6 +183,7 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                                             <td className="px-3 py-2">{item.nama_bank}</td>
                                             <td className="px-3 py-2">{item.nama_rekening}</td>
                                             <td className="px-3 py-2">{item.nomor_rekening}</td>
+                                            <td className="px-3 py-2 text-muted-foreground">{item.catatan || '—'}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -190,11 +193,34 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                                         <td className="px-3 py-2 text-right tabular-nums">
                                             {formatRupiah(reviewData.pp03.item_plafon_anggaran.reduce((sum, item) => sum + Number(item.plafon_anggaran), 0))}
                                         </td>
-                                        <td colSpan={3} />
+                                        <td colSpan={4} />
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
+                        {reviewData.pp03.rekening_organisasi.length > 0 && (
+                            <div className="-mx-4 mt-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+                                <h4 className="mb-1 text-xs font-medium text-muted-foreground">Rekening Organisasi untuk Refund</h4>
+                                <table className="min-w-150 w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b bg-muted/50">
+                                            <th className="px-3 py-2 text-left font-medium w-40">Nama Bank</th>
+                                            <th className="px-3 py-2 text-left font-medium w-56">Nama Rekening</th>
+                                            <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reviewData.pp03.rekening_organisasi.map((item, i) => (
+                                            <tr key={i} className="border-b last:border-0">
+                                                <td className="px-3 py-2">{item.nama_bank}</td>
+                                                <td className="px-3 py-2">{item.nama_rekening}</td>
+                                                <td className="px-3 py-2">{item.nomor_rekening}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </SectionCard>
                 )}
 

@@ -871,6 +871,7 @@ it('completes full PP flow through approval and compile', function () {
             'nomor_rekening' => '1234567890',
             'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -953,6 +954,7 @@ it('handles PP05 rejection and re-entry', function () {
             'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -1020,6 +1022,7 @@ function runFlowToPp05(object $test, $user, $role, $workspace): PpWorkflow
             'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -1204,6 +1207,7 @@ function runFullPpFlowToCompletion(object $test, $user, $role, $workspace): arra
             'team_id' => $team->id, 'kode_team' => 'KT', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -2090,6 +2094,7 @@ it('passes rejection notes to PP01 after PP05 rejection', function () {
             'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
