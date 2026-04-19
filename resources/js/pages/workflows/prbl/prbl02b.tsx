@@ -437,6 +437,17 @@ export default function Prbl02b({
                     commentSource="prbl02b"
                     canComment={canComment}
                     finalSteps={['PRBL05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PRBL01' && entry.id) return `${basePath}/prbl01/${entry.id}`;
+                        if (step === 'PRBL02A') return `${basePath}/prbl02a`;
+                        if (step === 'PRBL02B') return `${basePath}/prbl02b`;
+                        if (step === 'PRBL03' && entry.id) return `${basePath}/prbl03/${entry.id}`;
+                        if (step === 'PRBL04') return `${basePath}/prbl04`;
+                        if (step === 'PRBL05') return `${basePath}/prbl05`;
+                        return null;
+                    }}
                 />
 
                 {/* Info Laporan */}

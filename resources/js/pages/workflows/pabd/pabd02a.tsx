@@ -910,6 +910,17 @@ export default function Pabd02a({
                     commentSource="pabd02a"
                     canComment={canComment}
                     finalSteps={['PABD05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PABD01' && entry.id) return `${basePath}/pabd01/${entry.id}`;
+                        if (step === 'PABD02A' && entry.id) return `${basePath}/pabd02a/${entry.id}`;
+                        if (step === 'PABD02B') return `${basePath}/pabd02b`;
+                        if (step === 'PABD03') return `${basePath}/pabd03`;
+                        if (step === 'PABD04' && entry.id) return `${basePath}/pabd04/${entry.id}`;
+                        if (step === 'PABD05') return `${basePath}/pabd05`;
+                        return null;
+                    }}
                 />
 
                 {/* Budget Reference */}
