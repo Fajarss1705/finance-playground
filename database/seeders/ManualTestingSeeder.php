@@ -244,6 +244,19 @@ class ManualTestingSeeder extends Seeder
             ]);
         }
 
+        // Files use different verbs (upload/destroy, no create/edit/update)
+        $fullCrud = array_merge($fullCrud, [
+            'admin.files.index',
+            'admin.files.upload',
+            'admin.files.destroy',
+            'admin.files.trash',
+            'admin.files.restore',
+        ]);
+        $viewOnly = array_merge($viewOnly, [
+            'admin.files.index',
+            'admin.files.trash',
+        ]);
+
         $this->syncPermissions($this->roles['monev_koordinator_monev'], $fullCrud);
         $this->syncPermissions($this->roles['monev_evaluator_narasi'], $viewOnly);
         $this->syncPermissions($this->roles['monev_evaluator_anggaran'], $viewOnly);
