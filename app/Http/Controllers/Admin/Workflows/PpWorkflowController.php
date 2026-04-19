@@ -626,10 +626,18 @@ class PpWorkflowController extends Controller
             ->first();
 
         if ($previousPp03) {
+            $previousPp03->load(['itemPlafonAnggaran', 'rekeningOrganisasi']);
+
             foreach ($previousPp03->itemPlafonAnggaran as $item) {
                 $pp03->itemPlafonAnggaran()->create($item->only([
                     'team_id', 'kode_team', 'plafon_anggaran',
                     'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan',
+                ]));
+            }
+
+            foreach ($previousPp03->rekeningOrganisasi as $item) {
+                $pp03->rekeningOrganisasi()->create($item->only([
+                    'nama_bank', 'nama_rekening', 'nomor_rekening',
                 ]));
             }
         }
