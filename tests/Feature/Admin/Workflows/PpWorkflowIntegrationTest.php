@@ -232,6 +232,11 @@ function pp03SubmitData(int $teamId): array
             'nomor_rekening' => '1234567890',
             'catatan' => null,
         ]],
+        'rekening_organisasi' => [[
+            'nama_bank' => 'BCA',
+            'nama_rekening' => 'Finance Playground Pusat',
+            'nomor_rekening' => '9876543210',
+        ]],
     ];
 }
 
