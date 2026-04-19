@@ -478,7 +478,7 @@ export default function Pk04({
                                 Lanjutkan Revisi
                             </Button>
                         ) : (
-                            <Button variant="outline" onClick={() => router.post(`/admin/workflows/pk/${workflow.id}/pk05/create`)}>
+                            <Button variant="outline" onClick={() => router.post(`/admin/workflows/pk/${workflow.id}/pk05`)}>
                                 Revisi
                             </Button>
                         )}

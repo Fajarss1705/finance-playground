@@ -354,7 +354,7 @@ export default function Pk05({
                 {/* Kegiatan & Anggaran */}
                 <SectionCard
                     title={`Kegiatan & Anggaran (${kegiatanList.length} kegiatan)`}
-                    headerContent={!isReadonly && (
+                    headerRight={!isReadonly && (
                         <Button variant="outline" size="sm" onClick={addKegiatan}>
                             <Plus className="mr-1 h-3.5 w-3.5" /> Tambah Kegiatan
                         </Button>

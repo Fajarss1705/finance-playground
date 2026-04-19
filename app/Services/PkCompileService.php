@@ -779,14 +779,19 @@ class PkCompileService
         $changes = [];
         $currentPk04->loadMissing(['kegiatan.anggaran', 'kegiatan.kuisioner']);
 
+        $bulanLabels = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        $fieldLabels = ['nama_program' => 'Nama Program', 'deskripsi_program' => 'Deskripsi Program', 'tujuan_program' => 'Tujuan Program', 'mata_anggaran' => 'Mata Anggaran', 'deskripsi_pk' => 'Deskripsi'];
+
         // 1. Program-level editable fields (kode_kategori is locked)
         foreach (['nama_program', 'deskripsi_program', 'tujuan_program'] as $field) {
             if (($currentPk04->$field ?? '') !== ($draftData[$field] ?? '')) {
+                $label = $fieldLabels[$field] ?? $field;
                 $changes[] = [
                     'type' => 'program_changed',
                     'field' => $field,
                     'old' => $currentPk04->$field,
                     'new' => $draftData[$field] ?? null,
+                    'description' => "{$label} diubah: \"{$currentPk04->$field}\" → \"{$draftData[$field]}\"",
                 ];
             }
         }
@@ -805,7 +810,14 @@ class PkCompileService
 
         // 2. Added kegiatan
         foreach ($newDraftKegiatan as $dk) {
-            $changes[] = ['type' => 'kegiatan_added', 'nama_kegiatan' => $dk['nama_kegiatan'] ?? '', 'bulan' => $dk['bulan'] ?? null];
+            $nama = $dk['nama_kegiatan'] ?? '';
+            $bulan = isset($dk['bulan']) ? ($bulanLabels[(int) $dk['bulan']] ?? $dk['bulan']) : '';
+            $changes[] = [
+                'type' => 'kegiatan_added',
+                'nama_kegiatan' => $nama,
+                'bulan' => $dk['bulan'] ?? null,
+                'description' => "Kegiatan ditambahkan: \"{$nama}\" ({$bulan})",
+            ];
         }
 
         // 3. Existing kegiatan cannot be removed (locked), skip removed diff
@@ -819,7 +831,14 @@ class PkCompileService
 
             // Kegiatan: only nama_kegiatan is editable (bulan is locked)
             if (($kegiatan->nama_kegiatan ?? '') !== ($dk['nama_kegiatan'] ?? '')) {
-                $changes[] = ['type' => 'kegiatan_changed', 'pk04_kegiatan_id' => $kId, 'field' => 'nama_kegiatan', 'old' => $kegiatan->nama_kegiatan, 'new' => $dk['nama_kegiatan'] ?? ''];
+                $changes[] = [
+                    'type' => 'kegiatan_changed',
+                    'pk04_kegiatan_id' => $kId,
+                    'field' => 'nama_kegiatan',
+                    'old' => $kegiatan->nama_kegiatan,
+                    'new' => $dk['nama_kegiatan'] ?? '',
+                    'description' => "Kegiatan \"{$kegiatan->nama_kegiatan}\": nama diubah → \"{$dk['nama_kegiatan']}\"",
+                ];
             }
 
             // Anggaran changes (only editable fields: mata_anggaran, deskripsi_pk, nominal)
@@ -837,7 +856,12 @@ class PkCompileService
             // Existing anggaran cannot be removed (locked), skip removed diff
 
             foreach ($newDraftAnggaran as $da) {
-                $changes[] = ['type' => 'anggaran_added', 'mata_anggaran' => $da['mata_anggaran'] ?? ''];
+                $mata = $da['mata_anggaran'] ?? '';
+                $changes[] = [
+                    'type' => 'anggaran_added',
+                    'mata_anggaran' => $mata,
+                    'description' => "Kegiatan \"{$kegiatan->nama_kegiatan}\": anggaran ditambahkan \"{$mata}\"",
+                ];
             }
 
             foreach ($draftAnggaranById as $aId => $da) {
@@ -846,14 +870,35 @@ class PkCompileService
                     continue;
                 }
 
+                $mataLabel = $da['mata_anggaran'] ?? $anggaran->mata_anggaran;
+
                 foreach (['mata_anggaran', 'deskripsi_pk'] as $field) {
                     if (($anggaran->$field ?? '') !== ($da[$field] ?? '')) {
-                        $changes[] = ['type' => 'anggaran_changed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $da['mata_anggaran'] ?? $anggaran->mata_anggaran, 'field' => $field, 'old' => $anggaran->$field, 'new' => $da[$field] ?? null];
+                        $label = $fieldLabels[$field] ?? $field;
+                        $changes[] = [
+                            'type' => 'anggaran_changed',
+                            'pk04_anggaran_id' => $aId,
+                            'mata_anggaran' => $mataLabel,
+                            'field' => $field,
+                            'old' => $anggaran->$field,
+                            'new' => $da[$field] ?? null,
+                            'description' => "Kegiatan \"{$kegiatan->nama_kegiatan}\" › {$mataLabel}: {$label} diubah",
+                        ];
                     }
                 }
 
                 if ((float) $anggaran->nominal_anggaran != (float) ($da['nominal_anggaran'] ?? 0)) {
-                    $changes[] = ['type' => 'anggaran_changed', 'pk04_anggaran_id' => $aId, 'mata_anggaran' => $da['mata_anggaran'] ?? $anggaran->mata_anggaran, 'field' => 'nominal_anggaran', 'old' => (float) $anggaran->nominal_anggaran, 'new' => (float) ($da['nominal_anggaran'] ?? 0)];
+                    $oldRp = 'Rp '.number_format((float) $anggaran->nominal_anggaran, 0, ',', '.');
+                    $newRp = 'Rp '.number_format((float) ($da['nominal_anggaran'] ?? 0), 0, ',', '.');
+                    $changes[] = [
+                        'type' => 'anggaran_changed',
+                        'pk04_anggaran_id' => $aId,
+                        'mata_anggaran' => $mataLabel,
+                        'field' => 'nominal_anggaran',
+                        'old' => (float) $anggaran->nominal_anggaran,
+                        'new' => (float) ($da['nominal_anggaran'] ?? 0),
+                        'description' => "Kegiatan \"{$kegiatan->nama_kegiatan}\" › {$mataLabel}: nominal {$oldRp} → {$newRp}",
+                    ];
                 }
             }
 
@@ -871,12 +916,21 @@ class PkCompileService
 
             foreach ($currentKuisionerMap as $qId => $q) {
                 if (! isset($draftKuisionerById[$qId])) {
-                    $changes[] = ['type' => 'kuisioner_removed', 'pertanyaan' => $q->pertanyaan];
+                    $changes[] = [
+                        'type' => 'kuisioner_removed',
+                        'pertanyaan' => $q->pertanyaan,
+                        'description' => "Kegiatan \"{$kegiatan->nama_kegiatan}\": kuisioner dihapus \"{$q->pertanyaan}\"",
+                    ];
                 }
             }
 
             foreach ($newDraftKuisioner as $dq) {
-                $changes[] = ['type' => 'kuisioner_added', 'pertanyaan' => $dq['pertanyaan'] ?? ''];
+                $pertanyaan = $dq['pertanyaan'] ?? '';
+                $changes[] = [
+                    'type' => 'kuisioner_added',
+                    'pertanyaan' => $pertanyaan,
+                    'description' => "Kegiatan \"{$kegiatan->nama_kegiatan}\": kuisioner ditambahkan \"{$pertanyaan}\"",
+                ];
             }
         }
 
