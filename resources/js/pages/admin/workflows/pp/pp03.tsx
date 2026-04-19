@@ -31,6 +31,7 @@ type RekeningOrganisasiItem = {
     nama_bank: string;
     nama_rekening: string;
     nomor_rekening: string;
+    catatan: string | null;
 };
 
 type Team = { id: number; name: string };
@@ -128,7 +129,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
     }
 
     function addRekeningRow() {
-        setRekeningOrganisasi([...rekeningOrganisasi, { nama_bank: '', nama_rekening: '', nomor_rekening: '' }]);
+        setRekeningOrganisasi([...rekeningOrganisasi, { nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' }]);
     }
 
     function removeRekeningRow(index: number) {
@@ -362,6 +363,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                         <th className="px-3 py-2 text-left font-medium w-40">Nama Bank <span className="text-destructive">*</span></th>
                                         <th className="px-3 py-2 text-left font-medium w-56">Nama Rekening <span className="text-destructive">*</span></th>
                                         <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening <span className="text-destructive">*</span></th>
+                                        <th className="px-3 py-2 text-left font-medium min-w-48">Catatan</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -385,6 +387,9 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                             <td className="px-3 py-1.5">
                                                 <Input value={item.nomor_rekening} onChange={(e) => updateRekeningRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
                                                 {errors[`rekening_organisasi.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`rekening_organisasi.${i}.nomor_rekening`]}</p>}
+                                            </td>
+                                            <td className="px-3 py-1.5 align-top">
+                                                <Textarea value={item.catatan ?? ''} onChange={(e) => updateRekeningRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
                                             </td>
                                         </tr>
                                     ))}

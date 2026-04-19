@@ -14,6 +14,7 @@ class Pp06RekeningOrganisasi extends Model
         'nama_bank',
         'nama_rekening',
         'nomor_rekening',
+        'catatan',
     ];
 
     public function pp06PeriodeTahunan(): BelongsTo

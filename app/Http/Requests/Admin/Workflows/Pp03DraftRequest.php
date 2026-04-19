@@ -29,6 +29,7 @@ class Pp03DraftRequest extends FormRequest
             'rekening_organisasi.*.nama_bank' => ['nullable', 'string', 'max:255'],
             'rekening_organisasi.*.nama_rekening' => ['nullable', 'string', 'max:255'],
             'rekening_organisasi.*.nomor_rekening' => ['nullable', 'string', 'max:50'],
+            'rekening_organisasi.*.catatan' => ['nullable', 'string'],
             'expected_updated_at' => ['required', 'string'],
             'notes' => ['nullable', 'string'],
             'files' => ['nullable', 'array'],

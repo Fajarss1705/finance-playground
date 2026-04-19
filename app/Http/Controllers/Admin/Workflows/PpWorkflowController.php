@@ -637,7 +637,7 @@ class PpWorkflowController extends Controller
 
             foreach ($previousPp03->rekeningOrganisasi as $item) {
                 $pp03->rekeningOrganisasi()->create($item->only([
-                    'nama_bank', 'nama_rekening', 'nomor_rekening',
+                    'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan',
                 ]));
             }
         }
@@ -1583,7 +1583,7 @@ class PpWorkflowController extends Controller
             'item_kuisioner' => $latestPp06->itemKuisioner->map->only(['kode', 'pertanyaan', 'tipe', 'satuan'])->values()->toArray(),
             'item_plafon_anggaran' => $latestPp06->itemPlafonAnggaran->map->only(['team_id', 'kode_team', 'plafon_anggaran', 'nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan'])->values()->toArray(),
             'item_dokumen_sop' => $latestPp06->itemDokumenSop->map->only(['file_id'])->values()->toArray(),
-            'rekening_organisasi' => $latestPp06->rekeningOrganisasi->map->only(['nama_bank', 'nama_rekening', 'nomor_rekening'])->values()->toArray(),
+            'rekening_organisasi' => $latestPp06->rekeningOrganisasi->map->only(['nama_bank', 'nama_rekening', 'nomor_rekening', 'catatan'])->values()->toArray(),
         ];
 
         $pp07 = Pp07Data::create([

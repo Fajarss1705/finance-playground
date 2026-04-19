@@ -18,7 +18,7 @@ import type { BreadcrumbItem } from '@/types';
 type KodeItem = { kode: string; nama: string; catatan: string | null };
 type KuisionerItem = { kode: string; pertanyaan: string; tipe: string; satuan: string | null };
 type PlafonItem = { team_id: number; kode_team: string; plafon_anggaran: number; nama_bank: string; nama_rekening: string; nomor_rekening: string; catatan: string | null; team?: { name: string } };
-type RekeningOrganisasiItem = { nama_bank: string; nama_rekening: string; nomor_rekening: string };
+type RekeningOrganisasiItem = { nama_bank: string; nama_rekening: string; nomor_rekening: string; catatan: string | null };
 
 type ReviewData = {
     pp01: {
@@ -207,6 +207,7 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                                             <th className="px-3 py-2 text-left font-medium w-40">Nama Bank</th>
                                             <th className="px-3 py-2 text-left font-medium w-56">Nama Rekening</th>
                                             <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening</th>
+                                            <th className="px-3 py-2 text-left font-medium">Catatan</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -215,6 +216,7 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                                                 <td className="px-3 py-2">{item.nama_bank}</td>
                                                 <td className="px-3 py-2">{item.nama_rekening}</td>
                                                 <td className="px-3 py-2">{item.nomor_rekening}</td>
+                                                <td className="px-3 py-2 text-muted-foreground">{item.catatan || '—'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
