@@ -88,3 +88,18 @@ export function formatDateShort(iso: string | null | undefined): string {
         timeZone: 'Asia/Jakarta',
     });
 }
+
+/**
+ * Pick the Tailwind class for an anggaran status badge (PABD pages).
+ * "Tarik Maju …" / "Ditarik Maju …" → amber; "Di Luar Plafon" → purple;
+ * "Normal" and anything else → slate.
+ */
+export function statusBadgeClass(label: string): string {
+    if (label.startsWith('Tarik Maju') || label.startsWith('Ditarik Maju')) {
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
+    }
+    if (label === 'Di Luar Plafon') {
+        return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300';
+    }
+    return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+}

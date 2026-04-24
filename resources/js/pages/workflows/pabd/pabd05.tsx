@@ -20,6 +20,7 @@ type AnggaranItem = {
     pabd05_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     status: 'dicairkan' | 'hangus';
@@ -296,29 +297,19 @@ export default function Pabd05Show({
                                                 {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
                                             </h5>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full border-collapse border text-sm">
+                                                <table className="w-full min-w-195 border-collapse border text-sm">
                                                     <thead>
                                                         <tr className="bg-muted/50 text-left text-xs text-gray-500">
-                                                            <th className="border px-3 py-2 font-medium">Kode Anggaran</th>
-                                                            <th className="border px-3 py-2 font-medium">Mata Anggaran</th>
-                                                            <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
                                                             <th className="border px-3 py-2 font-medium">Status</th>
+                                                            <th className="border px-3 py-2 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                            <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
+                                                            <th className="border px-3 py-2 font-medium">Mata Anggaran</th>
+                                                            <th className="border px-3 py-2 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((anggaran) => (
                                                             <tr key={anggaran.pabd05_item_id}>
-                                                                <td className="border px-3 py-2">
-                                                                    {anggaran.kode_anggaran_baru ? (
-                                                                        <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
-                                                                    ) : (
-                                                                        <span className="text-gray-400">-</span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="border px-3 py-2">{anggaran.mata_anggaran}</td>
-                                                                <td className="border px-3 py-2 text-right font-mono">
-                                                                    {formatRupiah(anggaran.nominal_anggaran)}
-                                                                </td>
                                                                 <td className="border px-3 py-2">
                                                                     {anggaran.status === 'dicairkan' ? (
                                                                         <Badge variant="default" className="bg-green-100 text-green-800 hover:bg-green-100">
@@ -330,6 +321,18 @@ export default function Pabd05Show({
                                                                         </Badge>
                                                                     )}
                                                                 </td>
+                                                                <td className="border px-3 py-2 whitespace-nowrap">
+                                                                    {anggaran.kode_anggaran_baru ? (
+                                                                        <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
+                                                                    ) : (
+                                                                        <span className="text-gray-400">-</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="border px-3 py-2 text-right font-mono">
+                                                                    {formatRupiah(anggaran.nominal_anggaran)}
+                                                                </td>
+                                                                <td className="border px-3 py-2">{anggaran.mata_anggaran}</td>
+                                                                <td className="border px-3 py-2 whitespace-nowrap font-mono text-xs text-muted-foreground">{anggaran.kode_anggaran_lama || '—'}</td>
                                                             </tr>
                                                         ))}
                                                     </tbody>

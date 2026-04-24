@@ -2808,6 +2808,7 @@ class PabdWorkflowController extends Controller
                 'pabd05_item_id' => $item->id,
                 'pk04_anggaran_id' => $pk04Anggaran->id,
                 'kode_anggaran_baru' => $pk04Anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $pk04Anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $pk04Anggaran->mata_anggaran,
                 'nominal_anggaran' => (float) $item->nominal_anggaran,
                 'status' => $item->status,
@@ -3420,7 +3421,6 @@ class PabdWorkflowController extends Controller
             }
 
             // Determine status badge
-            $statusLabel = null;
             if ($anggaran->status_item === 'ditarik_maju') {
                 // Source item that was pulled forward to another month
                 $targetKegiatan = Pk04Anggaran::where('previous_anggaran_id', $anggaran->id)
@@ -3437,12 +3437,15 @@ class PabdWorkflowController extends Controller
                     : 'Tarik Maju';
             } elseif ($grouped[$programKey]['tipe'] === 'proposal') {
                 $statusLabel = 'Di Luar Plafon';
+            } else {
+                $statusLabel = 'Normal';
             }
 
             $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
                 'pabd01_item_id' => $item->id,
                 'pk04_anggaran_id' => $anggaran->id,
                 'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $anggaran->mata_anggaran,
                 'nominal' => (float) $anggaran->nominal_anggaran,
                 'status_item' => $anggaran->status_item,

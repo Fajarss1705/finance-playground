@@ -19,7 +19,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, statusBadgeClass } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -55,6 +55,7 @@ type AnggaranItem = {
     pabd01_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal: number;
     status_item: string;
@@ -955,14 +956,16 @@ export default function Pabd02a({
                                             <p className="mb-1 text-xs font-medium text-muted-foreground">
                                                 {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
                                             </p>
-                                            <table className="w-full border-collapse border text-sm">
+                                            <div className="overflow-x-auto">
+                                            <table className="w-full min-w-195 border-collapse border text-sm">
                                                 <thead>
                                                     <tr className="bg-muted/50">
                                                         <th className="w-10 border px-3 py-1 text-center text-xs font-medium">✓/✗</th>
-                                                        <th className="border px-3 py-1 text-left text-xs font-medium">Kode Anggaran</th>
-                                                        <th className="border px-3 py-1 text-left text-xs font-medium">Mata Anggaran</th>
-                                                        <th className="border px-3 py-1 text-right text-xs font-medium">Nominal (Rp)</th>
                                                         <th className="border px-3 py-1 text-left text-xs font-medium">Status</th>
+                                                        <th className="border px-3 py-1 text-left text-xs font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                        <th className="border px-3 py-1 text-right text-xs font-medium">Nominal (Rp)</th>
+                                                        <th className="border px-3 py-1 text-left text-xs font-medium">Mata Anggaran</th>
+                                                        <th className="border px-3 py-1 text-left text-xs font-medium whitespace-nowrap">Kode Anggaran Lama</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -972,23 +975,19 @@ export default function Pabd02a({
                                                                 {item.dicairkan ? '✓' : '✗'}
                                                             </td>
                                                             <td className="border px-3 py-1">
+                                                                {item.status_label && <Badge className={statusBadgeClass(item.status_label)}>{item.status_label}</Badge>}
+                                                            </td>
+                                                            <td className="border px-3 py-1 whitespace-nowrap">
                                                                 <KodeAnggaranFromString kode={item.kode_anggaran_baru} />
                                                             </td>
-                                                            <td className="border px-3 py-1 text-xs">{item.mata_anggaran}</td>
                                                             <td className="border px-3 py-1 text-right text-xs tabular-nums">{formatRupiah(item.nominal)}</td>
-                                                            <td className="border px-3 py-1">
-                                                                {item.status_label && (
-                                                                    <Badge className={item.status_label.startsWith('Tarik Maju') || item.status_label.startsWith('Ditarik Maju')
-                                                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
-                                                                        : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}>
-                                                                        {item.status_label}
-                                                                    </Badge>
-                                                                )}
-                                                            </td>
+                                                            <td className="border px-3 py-1 text-xs">{item.mata_anggaran}</td>
+                                                            <td className="border px-3 py-1 whitespace-nowrap font-mono text-xs text-muted-foreground">{item.kode_anggaran_lama || '—'}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
                                             </table>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>

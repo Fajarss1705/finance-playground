@@ -18,7 +18,7 @@ import KodeDiffDisplay from '@/components/workflow/kode-diff-display';
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatRupiah, statusBadgeClass } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -27,6 +27,7 @@ type AnggaranItem = {
     pabd01_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal: number;
     status_item: string;
@@ -187,30 +188,26 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
                         <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
                             <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
                             <div className="mt-1 overflow-x-auto">
-                                <table className="w-full border-collapse border text-xs">
+                                <table className="w-full min-w-180 border-collapse border text-xs">
                                     <thead>
                                         <tr className="bg-muted/50 text-left text-muted-foreground">
                                             <th className="w-8 border p-1.5"></th>
-                                            <th className="border p-1.5">Kode Anggaran</th>
-                                            <th className="border p-1.5">Mata Anggaran</th>
-                                            <th className="border p-1.5 text-right">Nominal (Rp)</th>
                                             <th className="border p-1.5">Status</th>
+                                            <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
+                                            <th className="border p-1.5 text-right">Nominal (Rp)</th>
+                                            <th className="border p-1.5">Mata Anggaran</th>
+                                            <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {kegiatan.anggaran.map((a) => (
                                             <tr key={a.pk04_anggaran_id}>
                                                 <td className="border p-1.5 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
-                                                <td className="border p-1.5">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
-                                                <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                <td className="border p-1.5">{a.status_label && <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>}</td>
+                                                <td className="border p-1.5 whitespace-nowrap">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
                                                 <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal)}</td>
-                                                <td className="border p-1.5">{a.status_label && (
-                                                    <Badge className={`text-[10px] ${
-                                                        a.status_label.startsWith('Tarik Maju') || a.status_label.startsWith('Ditarik Maju')
-                                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
-                                                            : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-                                                    }`}>{a.status_label}</Badge>
-                                                )}</td>
+                                                <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">{a.kode_anggaran_lama || '—'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
