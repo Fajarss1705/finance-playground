@@ -1286,8 +1286,8 @@ class PabdWorkflowController extends Controller
             'komentar' => $item->komentar,
             'files' => $item->files->map(fn ($f) => [
                 'id' => $f->id,
-                'name' => $f->original_name ?? $f->name,
-                'url' => $f->path ? asset("storage/{$f->path}") : null,
+                'name' => $f->original_filename ?? $f->filename,
+                'url' => $f->path ? route('files.download', $f) : null,
             ])->values(),
         ];
 
@@ -3592,6 +3592,7 @@ class PabdWorkflowController extends Controller
 
         $proposalDraft = 0.0;
         $proposalReview = 0.0;
+        $pabdDefinition = new \App\Workflows\PabdWorkflowDefinition;
 
         $activeProposalPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
@@ -3617,11 +3618,19 @@ class PabdWorkflowController extends Controller
                 ->flatMap(fn ($k) => $k->anggaran)
                 ->sum('nominal_anggaran');
 
-            $currentSteps = $this->engine->getCurrentSteps($pkDefinition, $wf->history ?? []);
+            // Proposal PKs are auto-compiled to PK04 on PABD02B approve — they never run their own
+            // PK01/PK02A/PK02B review. Classify by the linking PABD's current step instead:
+            // PABD02A active => Bapel still drafting => proposalDraft.
+            // PABD02B (or later) active => BU reviewing => proposalReview.
+            $linkedItem = Pabd02aItemPerubahan::where('pk_workflow_id', $wf->id)->latest('id')->first();
+            $linkedPabd = $linkedItem ? PabdWorkflow::find($linkedItem->pabd_workflow_id) : null;
+            $pabdSteps = $linkedPabd
+                ? $this->engine->getCurrentSteps($pabdDefinition, $linkedPabd->history ?? [])
+                : [];
 
-            if (in_array('PK01', $currentSteps)) {
+            if (in_array('PABD02A', $pabdSteps)) {
                 $proposalDraft += $total;
-            } elseif (array_intersect(['PK02A', 'PK02B'], $currentSteps)) {
+            } else {
                 $proposalReview += $total;
             }
         }

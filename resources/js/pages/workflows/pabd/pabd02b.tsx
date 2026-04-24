@@ -421,7 +421,7 @@ export default function Pabd02b({
                         </div>
                     )}
                     {!pabd01Open && (
-                        <p className="text-xs text-muted-foreground">Klik untuk melihat checklist pencairan PABD01.</p>
+                        <p className="text-xs text-muted-foreground">Klik tombol dropdown di kanan atas untuk melihat checklist pencairan PABD01.</p>
                     )}
                 </SectionCard>
 
@@ -489,11 +489,12 @@ export default function Pabd02b({
 
                                 {/* Files */}
                                 {item.files.length > 0 && (
-                                    <div className="mb-3">
+                                    <div className="mb-3 text-xs">
+                                        <p className="mb-1 font-medium">Lampiran:</p>
                                         <div className="flex flex-wrap gap-1">
                                             {item.files.map((f) => (
                                                 <a key={f.id} href={f.url ?? '#'} target="_blank" rel="noopener noreferrer"
-                                                    className={`rounded px-2 py-0.5 text-[10px] ${f.url ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-muted text-muted-foreground'}`}>
+                                                    className={`rounded px-2 py-0.5 text-[11px] ${f.url ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-muted text-muted-foreground'}`}>
                                                     {f.name}
                                                 </a>
                                             ))}

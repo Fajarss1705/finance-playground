@@ -1,3 +1,5 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+
 /**
  * KodeDiffDisplay — shows "Saat ini" vs "Setelah tarik maju" kodes
  * with changed segments highlighted (bold/color).
@@ -13,12 +15,18 @@ const SEGMENT_LABELS = [
 
 function SegmentSpan({ value, changed, label }: { value: string; changed: boolean; label: string }) {
     return (
-        <span
-            className={changed ? 'rounded bg-amber-100 px-0.5 font-bold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'text-muted-foreground'}
-            title={label}
-        >
-            {value}
-        </span>
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span
+                    className={`cursor-help ${changed ? 'rounded bg-amber-100 px-0.5 font-bold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                    {value}
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+                {label}: {value}
+            </TooltipContent>
+        </Tooltip>
     );
 }
 
