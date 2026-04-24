@@ -15,7 +15,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -269,11 +269,11 @@ export default function Pabd01({
                                     {cycleBackNotes.role_name && ` (${cycleBackNotes.role_name}`}
                                     {cycleBackNotes.team_name && ` \u00B7 ${cycleBackNotes.team_name}`}
                                     {cycleBackNotes.role_name && ')'}
-                                    {cycleBackNotes.at && ` — ${cycleBackNotes.at}`}
+                                    {cycleBackNotes.at && ` — ${formatDateTime(cycleBackNotes.at)}`}
                                 </p>
                             )}
                             {!cycleBackNotes.by_name && cycleBackNotes.at && (
-                                <p className="text-xs text-amber-600 dark:text-amber-400">— {cycleBackNotes.at}</p>
+                                <p className="text-xs text-amber-600 dark:text-amber-400">— {formatDateTime(cycleBackNotes.at)}</p>
                             )}
                             {cycleBackNotes.notes && (
                                 <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
