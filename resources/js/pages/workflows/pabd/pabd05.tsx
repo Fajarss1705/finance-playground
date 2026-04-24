@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
@@ -11,7 +12,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -111,6 +112,31 @@ type Props = {
 };
 
 // ─── Helpers ──────────────────────────────────────────
+
+const PABD05_TABLE_HEADERS = ['Status', 'Kode Anggaran Baru', 'Nominal (Rp)', 'Mata Anggaran', 'Kode Anggaran Lama'];
+const PABD05_SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', 'Bulan', ...PABD05_TABLE_HEADERS];
+
+function pabd05AnggaranToRow(a: AnggaranItem): string[] {
+    return [
+        a.status === 'dicairkan' ? 'Dicairkan' : 'Hangus',
+        a.kode_anggaran_baru ?? '',
+        String(a.nominal_anggaran),
+        a.mata_anggaran,
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildPabd05SectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, kegiatan.bulan_label, ...pabd05AnggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(PABD05_SECTION_HEADERS, rows);
+}
 
 function formatDate(iso: string | null): string {
     return iso ? formatDateTime(iso) : '-';
@@ -280,7 +306,10 @@ export default function Pabd05Show({
                 </SectionCard>
 
                 {/* Daftar Anggaran */}
-                <SectionCard title="Daftar Anggaran">
+                <SectionCard
+                    title="Daftar Anggaran"
+                    headerRight={items.length > 0 ? <CopyButton variant="button" label="Salin Daftar Anggaran" value={() => buildPabd05SectionTSV(items)} /> : undefined}
+                >
                     {items.length === 0 ? (
                         <p className="text-sm text-gray-500">Tidak ada item anggaran.</p>
                     ) : (
@@ -293,11 +322,14 @@ export default function Pabd05Show({
                                     </h4>
                                     {program.kegiatan.map((kegiatan) => (
                                         <div key={kegiatan.kegiatan_id} className="mb-4 ml-2">
-                                            <h5 className="mb-2 text-sm font-medium text-gray-600">
-                                                {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
-                                            </h5>
+                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                <h5 className="text-sm font-medium text-gray-600">
+                                                    {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
+                                                </h5>
+                                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(PABD05_TABLE_HEADERS, kegiatan.anggaran.map(pabd05AnggaranToRow))} />
+                                            </div>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full min-w-195 border-collapse border text-sm">
+                                                <table className="w-full min-w-200 border-collapse border text-sm">
                                                     <thead>
                                                         <tr className="bg-muted/50 text-left text-xs text-gray-500">
                                                             <th className="border px-3 py-2 font-medium">Status</th>
@@ -305,6 +337,7 @@ export default function Pabd05Show({
                                                             <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
                                                             <th className="border px-3 py-2 font-medium">Mata Anggaran</th>
                                                             <th className="border px-3 py-2 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
+                                                            <th className="w-8 border px-2 py-2"></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -322,17 +355,28 @@ export default function Pabd05Show({
                                                                     )}
                                                                 </td>
                                                                 <td className="border px-3 py-2 whitespace-nowrap">
-                                                                    {anggaran.kode_anggaran_baru ? (
-                                                                        <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
-                                                                    ) : (
-                                                                        <span className="text-gray-400">-</span>
-                                                                    )}
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {anggaran.kode_anggaran_baru ? (
+                                                                            <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
+                                                                        ) : (
+                                                                            <span className="text-gray-400">-</span>
+                                                                        )}
+                                                                        {anggaran.kode_anggaran_baru && <CopyButton value={anggaran.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                                    </span>
                                                                 </td>
                                                                 <td className="border px-3 py-2 text-right font-mono">
                                                                     {formatRupiah(anggaran.nominal_anggaran)}
                                                                 </td>
                                                                 <td className="border px-3 py-2">{anggaran.mata_anggaran}</td>
-                                                                <td className="border px-3 py-2 whitespace-nowrap font-mono text-xs text-muted-foreground">{anggaran.kode_anggaran_lama || '—'}</td>
+                                                                <td className="border px-3 py-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {anggaran.kode_anggaran_lama || '—'}
+                                                                        {anggaran.kode_anggaran_lama && <CopyButton value={anggaran.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border px-2 py-2 text-center">
+                                                                    <CopyButton value={() => rowToTSV(pabd05AnggaranToRow(anggaran))} label="Salin Baris" />
+                                                                </td>
                                                             </tr>
                                                         ))}
                                                     </tbody>

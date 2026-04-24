@@ -15,7 +15,8 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah, statusBadgeClass } from '@/lib/utils';
+import CopyButton from '@/components/ui/copy-button';
+import { formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -113,6 +114,32 @@ function StepStatusBadge({ status }: { status: string }) {
 
 // ─── Checklist Table (readonly) ─────────────────────
 
+const TABLE_HEADERS = ['Dicairkan', 'Status', 'Kode Anggaran Baru', 'Nominal (Rp)', 'Mata Anggaran', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', 'Bulan', ...TABLE_HEADERS];
+
+function anggaranToRow(a: AnggaranItem): string[] {
+    return [
+        a.dicairkan ? 'Ya' : 'Tidak',
+        a.status_label ?? '',
+        a.kode_anggaran_baru ?? '',
+        String(a.nominal),
+        a.mata_anggaran,
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildSectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, kegiatan.bulan_label, ...anggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
+
 function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
     const totalAll = programs.flatMap(p => p.kegiatan.flatMap(k => k.anggaran));
     const totalAnggaran = totalAll.reduce((sum, a) => sum + a.nominal, 0);
@@ -121,12 +148,18 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
 
     return (
         <div className="space-y-3">
+            <div className="flex justify-end">
+                <CopyButton variant="button" label="Salin Seluruh Checklist" value={() => buildSectionTSV(programs)} />
+            </div>
             {programs.map((program) => (
                 <div key={program.program_id} className="rounded border p-3">
                     <h5 className="text-xs font-semibold">{program.program_name} ({program.kode_kategori})</h5>
                     {program.kegiatan.map((kegiatan) => (
                         <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
-                            <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
+                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(TABLE_HEADERS, kegiatan.anggaran.map(anggaranToRow))} />
+                            </div>
                             <div className="mt-1 overflow-x-auto">
                                 <table className="w-full min-w-180 border-collapse border text-xs">
                                     <thead>
@@ -137,6 +170,7 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
                                             <th className="border p-1.5 text-right">Nominal (Rp)</th>
                                             <th className="border p-1.5">Mata Anggaran</th>
                                             <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
+                                            <th className="w-8 border p-1.5"></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -144,10 +178,23 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
                                             <tr key={a.pk04_anggaran_id}>
                                                 <td className="border p-1.5 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
                                                 <td className="border p-1.5">{a.status_label && <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>}</td>
-                                                <td className="border p-1.5 whitespace-nowrap">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
+                                                <td className="border p-1.5 whitespace-nowrap">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}
+                                                        {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                    </span>
+                                                </td>
                                                 <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal)}</td>
                                                 <td className="border p-1.5">{a.mata_anggaran}</td>
-                                                <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">{a.kode_anggaran_lama || '—'}</td>
+                                                <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {a.kode_anggaran_lama || '—'}
+                                                        {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                    </span>
+                                                </td>
+                                                <td className="border p-1.5 text-center">
+                                                    <CopyButton value={() => rowToTSV(anggaranToRow(a))} label="Salin Baris" />
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>

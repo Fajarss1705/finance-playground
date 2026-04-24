@@ -103,3 +103,21 @@ export function statusBadgeClass(label: string): string {
     }
     return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
 }
+
+/**
+ * Join row cells as a TSV line (tab-separated, no trailing newline).
+ * Pastes cleanly into Excel/Sheets.
+ */
+export function rowToTSV(cells: Array<string | number | null | undefined>): string {
+    return cells.map((c) => (c == null ? '' : String(c).replace(/\t/g, ' ').replace(/\n/g, ' '))).join('\t');
+}
+
+/**
+ * Join header + multiple rows into a full TSV block.
+ */
+export function tableToTSV(
+    headers: string[],
+    rows: Array<Array<string | number | null | undefined>>,
+): string {
+    return [rowToTSV(headers), ...rows.map(rowToTSV)].join('\n');
+}
