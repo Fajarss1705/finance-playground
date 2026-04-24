@@ -296,30 +296,30 @@ export default function Pabd05Show({
                                                 {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
                                             </h5>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b text-left text-xs text-gray-500">
-                                                            <th className="pb-2 pr-3 font-medium">Kode Anggaran</th>
-                                                            <th className="pb-2 pr-3 font-medium">Mata Anggaran</th>
-                                                            <th className="pb-2 pr-3 text-right font-medium">Nominal (Rp)</th>
-                                                            <th className="pb-2 font-medium">Status</th>
+                                                        <tr className="bg-muted/50 text-left text-xs text-gray-500">
+                                                            <th className="border px-3 py-2 font-medium">Kode Anggaran</th>
+                                                            <th className="border px-3 py-2 font-medium">Mata Anggaran</th>
+                                                            <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
+                                                            <th className="border px-3 py-2 font-medium">Status</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((anggaran) => (
-                                                            <tr key={anggaran.pabd05_item_id} className="border-b border-gray-100">
-                                                                <td className="py-2 pr-3">
+                                                            <tr key={anggaran.pabd05_item_id}>
+                                                                <td className="border px-3 py-2">
                                                                     {anggaran.kode_anggaran_baru ? (
                                                                         <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
                                                                     ) : (
                                                                         <span className="text-gray-400">-</span>
                                                                     )}
                                                                 </td>
-                                                                <td className="py-2 pr-3">{anggaran.mata_anggaran}</td>
-                                                                <td className="py-2 pr-3 text-right font-mono">
+                                                                <td className="border px-3 py-2">{anggaran.mata_anggaran}</td>
+                                                                <td className="border px-3 py-2 text-right font-mono">
                                                                     {formatRupiah(anggaran.nominal_anggaran)}
                                                                 </td>
-                                                                <td className="py-2">
+                                                                <td className="border px-3 py-2">
                                                                     {anggaran.status === 'dicairkan' ? (
                                                                         <Badge variant="default" className="bg-green-100 text-green-800 hover:bg-green-100">
                                                                             Dicairkan

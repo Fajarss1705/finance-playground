@@ -127,24 +127,30 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
                         <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
                             <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
                             <div className="mt-1 overflow-x-auto">
-                                <table className="w-full text-xs">
+                                <table className="w-full border-collapse border text-xs">
                                     <thead>
-                                        <tr className="border-b text-left text-muted-foreground">
-                                            <th className="w-8 p-1"></th>
-                                            <th className="p-1">Kode Anggaran</th>
-                                            <th className="p-1">Mata Anggaran</th>
-                                            <th className="p-1 text-right">Nominal (Rp)</th>
-                                            <th className="p-1">Status</th>
+                                        <tr className="bg-muted/50 text-left text-muted-foreground">
+                                            <th className="w-8 border p-1.5"></th>
+                                            <th className="border p-1.5">Kode Anggaran</th>
+                                            <th className="border p-1.5">Mata Anggaran</th>
+                                            <th className="border p-1.5 text-right">Nominal (Rp)</th>
+                                            <th className="border p-1.5">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {kegiatan.anggaran.map((a) => (
-                                            <tr key={a.pk04_anggaran_id} className="border-b last:border-0">
-                                                <td className="p-1 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
-                                                <td className="p-1">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
-                                                <td className="p-1">{a.mata_anggaran}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(a.nominal)}</td>
-                                                <td className="p-1">{a.status_label && <Badge variant="outline" className="text-[10px]">{a.status_label}</Badge>}</td>
+                                            <tr key={a.pk04_anggaran_id}>
+                                                <td className="border p-1.5 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
+                                                <td className="border p-1.5">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
+                                                <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal)}</td>
+                                                <td className="border p-1.5">{a.status_label && (
+                                                    <Badge className={`text-[10px] ${
+                                                        a.status_label.startsWith('Tarik Maju') || a.status_label.startsWith('Ditarik Maju')
+                                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+                                                            : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                                                    }`}>{a.status_label}</Badge>
+                                                )}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -286,7 +292,7 @@ export default function Pabd03({
 
                 {/* PABD01 Checklist (readonly) */}
                 <SectionCard
-                    title="PABD01 — Checklist Pencairan"
+                    title={`PABD01 — Checklist Pencairan ${workflow.bulan_label} ${workflow.tahun_anggaran}`}
                     headerRight={
                         pabd01Cycle > 1 ? <Badge variant="outline" className="text-[10px]">Pengisian ke-{pabd01Cycle}</Badge> : undefined
                     }

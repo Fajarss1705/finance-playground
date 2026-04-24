@@ -303,13 +303,13 @@ function TarikMajuPicker({
                                         <p className="mb-1 text-xs font-medium text-muted-foreground">
                                             {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
                                         </p>
-                                        <table className="w-full text-sm">
+                                        <table className="w-full border-collapse border text-sm">
                                             <thead>
-                                                <tr className="border-b bg-muted/50">
-                                                    <th className="w-10 px-2 py-1"></th>
-                                                    <th className="px-2 py-1 text-left text-xs font-medium">Kode Anggaran</th>
-                                                    <th className="px-2 py-1 text-left text-xs font-medium">Mata Anggaran</th>
-                                                    <th className="px-2 py-1 text-right text-xs font-medium">Nominal</th>
+                                                <tr className="bg-muted/50">
+                                                    <th className="w-10 border px-2 py-1"></th>
+                                                    <th className="border px-2 py-1 text-left text-xs font-medium">Kode Anggaran</th>
+                                                    <th className="border px-2 py-1 text-left text-xs font-medium">Mata Anggaran</th>
+                                                    <th className="border px-2 py-1 text-right text-xs font-medium">Nominal</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -318,7 +318,7 @@ function TarikMajuPicker({
                                                     return (
                                                         <tr
                                                             key={a.pk04_anggaran_id}
-                                                            className={`cursor-pointer border-b last:border-0 ${isUsed ? 'opacity-40' : 'hover:bg-muted/30'}`}
+                                                            className={`cursor-pointer ${isUsed ? 'opacity-40' : 'hover:bg-muted/30'}`}
                                                             onClick={() => {
                                                                 if (isUsed) return;
                                                                 onSelect(a.pk04_anggaran_id, {
@@ -333,14 +333,14 @@ function TarikMajuPicker({
                                                                 }, kegiatan.bulan);
                                                             }}
                                                         >
-                                                            <td className="px-2 py-1 text-center">
+                                                            <td className="border px-2 py-1 text-center">
                                                                 <input type="radio" disabled={isUsed} checked={false} readOnly className="h-3.5 w-3.5" />
                                                             </td>
-                                                            <td className="px-2 py-1">
+                                                            <td className="border px-2 py-1">
                                                                 <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
                                                             </td>
-                                                            <td className="px-2 py-1 text-xs">{a.mata_anggaran}</td>
-                                                            <td className="px-2 py-1 text-right text-xs tabular-nums">{formatRupiah(a.nominal)}</td>
+                                                            <td className="border px-2 py-1 text-xs">{a.mata_anggaran}</td>
+                                                            <td className="border px-2 py-1 text-right text-xs tabular-nums">{formatRupiah(a.nominal)}</td>
                                                         </tr>
                                                     );
                                                 })}
@@ -586,48 +586,48 @@ function KegiatanSection({
                     <div>
                         <Label className="text-xs font-medium">Anggaran</Label>
                         <div className="mt-1 overflow-x-auto">
-                            <table className="min-w-[700px] text-xs">
+                            <table className="min-w-[700px] border-collapse border text-xs">
                                 <thead>
-                                    <tr className="border-b bg-muted/50">
-                                        <th className="px-2 py-1 text-left font-medium">Bidang</th>
-                                        <th className="px-2 py-1 text-left font-medium">Sub Bidang</th>
-                                        <th className="px-2 py-1 text-left font-medium">Jenis</th>
-                                        <th className="min-w-[120px] px-2 py-1 text-left font-medium">Mata Anggaran</th>
-                                        <th className="min-w-[100px] px-2 py-1 text-right font-medium">Nominal</th>
-                                        <th className="w-8 px-2 py-1"></th>
+                                    <tr className="bg-muted/50">
+                                        <th className="border px-2 py-1 text-left font-medium">Bidang</th>
+                                        <th className="border px-2 py-1 text-left font-medium">Sub Bidang</th>
+                                        <th className="border px-2 py-1 text-left font-medium">Jenis</th>
+                                        <th className="min-w-[120px] border px-2 py-1 text-left font-medium">Mata Anggaran</th>
+                                        <th className="min-w-[100px] border px-2 py-1 text-right font-medium">Nominal</th>
+                                        <th className="w-8 border px-2 py-1"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {kegiatan.anggaran.map((a, aIdx) => (
-                                        <tr key={aIdx} className="border-b last:border-0">
-                                            <td className="px-1 py-1">
+                                        <tr key={aIdx}>
+                                            <td className="border px-1 py-1">
                                                 <Select value={a.kode_bidang} onValueChange={(v) => onUpdateAnggaran(aIdx, { kode_bidang: v })} disabled={isReadonly}>
                                                     <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="..." /></SelectTrigger>
                                                     <SelectContent>{kodeRefs.bidang.map((k) => <SelectItem key={k.kode} value={k.kode}>{k.kode}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </td>
-                                            <td className="px-1 py-1">
+                                            <td className="border px-1 py-1">
                                                 <Select value={a.kode_sub_bidang} onValueChange={(v) => onUpdateAnggaran(aIdx, { kode_sub_bidang: v })} disabled={isReadonly}>
                                                     <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="..." /></SelectTrigger>
                                                     <SelectContent>{kodeRefs.subBidang.map((k) => <SelectItem key={k.kode} value={k.kode}>{k.kode}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </td>
-                                            <td className="px-1 py-1">
+                                            <td className="border px-1 py-1">
                                                 <Select value={a.kode_jenis} onValueChange={(v) => onUpdateAnggaran(aIdx, { kode_jenis: v })} disabled={isReadonly}>
                                                     <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="..." /></SelectTrigger>
                                                     <SelectContent>{kodeRefs.jenis.map((k) => <SelectItem key={k.kode} value={k.kode}>{k.kode}</SelectItem>)}</SelectContent>
                                                 </Select>
                                             </td>
-                                            <td className="px-1 py-1">
+                                            <td className="border px-1 py-1">
                                                 <Textarea className="min-w-[100px] resize-y text-xs" rows={1} value={a.mata_anggaran}
                                                     onChange={(e) => onUpdateAnggaran(aIdx, { mata_anggaran: e.target.value.replace(/\n/g, '') })}
                                                     onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                                                     disabled={isReadonly} />
                                             </td>
-                                            <td className="px-1 py-1">
+                                            <td className="border px-1 py-1">
                                                 <RupiahInput value={a.nominal_anggaran} onChange={(v) => onUpdateAnggaran(aIdx, { nominal_anggaran: v })} disabled={isReadonly} className="h-7 text-xs" />
                                             </td>
-                                            <td className="px-1 py-1">
+                                            <td className="border px-1 py-1">
                                                 {!isReadonly && kegiatan.anggaran.length > 1 && (
                                                     <Button variant="ghost" size="sm" onClick={() => onRemoveAnggaran(aIdx)} className="h-6 w-6 p-0 text-destructive">
                                                         <Trash2 className="h-3 w-3" />
@@ -650,27 +650,27 @@ function KegiatanSection({
                     <div>
                         <Label className="text-xs font-medium">Kuisioner</Label>
                         <div className="mt-1 overflow-x-auto">
-                            <table className="min-w-[500px] text-xs">
+                            <table className="min-w-[500px] border-collapse border text-xs">
                                 <thead>
-                                    <tr className="border-b bg-muted/50">
-                                        <th className="min-w-[180px] px-2 py-1 text-left font-medium">Pertanyaan</th>
-                                        <th className="px-2 py-1 text-left font-medium">Tipe</th>
-                                        <th className="px-2 py-1 text-left font-medium">Satuan</th>
-                                        <th className="w-8 px-2 py-1"></th>
+                                    <tr className="bg-muted/50">
+                                        <th className="min-w-[180px] border px-2 py-1 text-left font-medium">Pertanyaan</th>
+                                        <th className="border px-2 py-1 text-left font-medium">Tipe</th>
+                                        <th className="border px-2 py-1 text-left font-medium">Satuan</th>
+                                        <th className="w-8 border px-2 py-1"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {kegiatan.kuisioner.map((q, qIdx) => {
                                         const isTemplate = !!q.kode_kuisioner;
                                         return (
-                                            <tr key={qIdx} className="border-b last:border-0">
-                                                <td className="px-1 py-1">
+                                            <tr key={qIdx}>
+                                                <td className="border px-1 py-1">
                                                     <Textarea className="min-w-[160px] resize-y text-xs" rows={1} value={q.pertanyaan}
                                                         onChange={(e) => onUpdateKuisioner(qIdx, { pertanyaan: e.target.value.replace(/\n/g, '') })}
                                                         onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                                                         disabled={isReadonly || isTemplate} />
                                                 </td>
-                                                <td className="px-1 py-1">
+                                                <td className="border px-1 py-1">
                                                     <Select value={q.tipe} onValueChange={(v) => onUpdateKuisioner(qIdx, { tipe: v })} disabled={isReadonly || isTemplate}>
                                                         <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                                                         <SelectContent>
@@ -679,10 +679,10 @@ function KegiatanSection({
                                                         </SelectContent>
                                                     </Select>
                                                 </td>
-                                                <td className="px-1 py-1">
+                                                <td className="border px-1 py-1">
                                                     <Input className="h-7 text-xs" value={q.satuan} onChange={(e) => onUpdateKuisioner(qIdx, { satuan: e.target.value })} disabled={isReadonly || isTemplate} />
                                                 </td>
-                                                <td className="px-1 py-1">
+                                                <td className="border px-1 py-1">
                                                     {!isReadonly && (
                                                         <Button variant="ghost" size="sm" onClick={() => onRemoveKuisioner(qIdx)} className="h-6 w-6 p-0 text-destructive">
                                                             <Trash2 className="h-3 w-3" />
@@ -955,30 +955,30 @@ export default function Pabd02a({
                                             <p className="mb-1 text-xs font-medium text-muted-foreground">
                                                 {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
                                             </p>
-                                            <table className="w-full text-sm">
+                                            <table className="w-full border-collapse border text-sm">
                                                 <thead>
-                                                    <tr className="border-b bg-muted/50">
-                                                        <th className="w-10 px-3 py-1 text-center text-xs font-medium">✓/✗</th>
-                                                        <th className="px-3 py-1 text-left text-xs font-medium">Kode Anggaran</th>
-                                                        <th className="px-3 py-1 text-left text-xs font-medium">Mata Anggaran</th>
-                                                        <th className="px-3 py-1 text-right text-xs font-medium">Nominal (Rp)</th>
-                                                        <th className="px-3 py-1 text-left text-xs font-medium">Status</th>
+                                                    <tr className="bg-muted/50">
+                                                        <th className="w-10 border px-3 py-1 text-center text-xs font-medium">✓/✗</th>
+                                                        <th className="border px-3 py-1 text-left text-xs font-medium">Kode Anggaran</th>
+                                                        <th className="border px-3 py-1 text-left text-xs font-medium">Mata Anggaran</th>
+                                                        <th className="border px-3 py-1 text-right text-xs font-medium">Nominal (Rp)</th>
+                                                        <th className="border px-3 py-1 text-left text-xs font-medium">Status</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {kegiatan.anggaran.map((item) => (
-                                                        <tr key={item.pabd01_item_id} className="border-b last:border-0">
-                                                            <td className="px-3 py-1 text-center text-sm">
+                                                        <tr key={item.pabd01_item_id}>
+                                                            <td className="border px-3 py-1 text-center text-sm">
                                                                 {item.dicairkan ? '✓' : '✗'}
                                                             </td>
-                                                            <td className="px-3 py-1">
+                                                            <td className="border px-3 py-1">
                                                                 <KodeAnggaranFromString kode={item.kode_anggaran_baru} />
                                                             </td>
-                                                            <td className="px-3 py-1 text-xs">{item.mata_anggaran}</td>
-                                                            <td className="px-3 py-1 text-right text-xs tabular-nums">{formatRupiah(item.nominal)}</td>
-                                                            <td className="px-3 py-1">
+                                                            <td className="border px-3 py-1 text-xs">{item.mata_anggaran}</td>
+                                                            <td className="border px-3 py-1 text-right text-xs tabular-nums">{formatRupiah(item.nominal)}</td>
+                                                            <td className="border px-3 py-1">
                                                                 {item.status_label && (
-                                                                    <Badge className={item.status_item === 'ditarik_maju'
+                                                                    <Badge className={item.status_label.startsWith('Tarik Maju') || item.status_label.startsWith('Ditarik Maju')
                                                                         ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
                                                                         : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'}>
                                                                         {item.status_label}

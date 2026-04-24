@@ -3422,14 +3422,20 @@ class PabdWorkflowController extends Controller
             // Determine status badge
             $statusLabel = null;
             if ($anggaran->status_item === 'ditarik_maju') {
-                // Find which month it was pulled forward to
+                // Source item that was pulled forward to another month
                 $targetKegiatan = Pk04Anggaran::where('previous_anggaran_id', $anggaran->id)
                     ->first()?->pk04Kegiatan;
                 $targetBulan = $targetKegiatan?->bulan;
                 $statusLabel = $targetBulan
                     ? "Ditarik Maju ke Bln {$targetBulan}"
                     : 'Ditarik Maju';
-            } elseif ($tipe === 'proposal') {
+            } elseif ($anggaran->source === 'tarik_maju') {
+                // Item that was pulled forward INTO this month from a future month
+                $sourceBulan = Pk04Anggaran::find($anggaran->previous_anggaran_id)?->pk04Kegiatan?->bulan;
+                $statusLabel = $sourceBulan
+                    ? "Tarik Maju dari Bln {$sourceBulan}"
+                    : 'Tarik Maju';
+            } elseif ($grouped[$programKey]['tipe'] === 'proposal') {
                 $statusLabel = 'Di Luar Plafon';
             }
 

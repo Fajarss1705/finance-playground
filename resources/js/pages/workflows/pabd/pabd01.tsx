@@ -369,20 +369,20 @@ export default function Pabd01({
                                                 {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
                                             </p>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b bg-muted/50">
-                                                            <th className="w-10 px-3 py-2"></th>
-                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
-                                                            <th className="px-3 py-2 text-right font-medium">Nominal (Rp)</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Status</th>
+                                                        <tr className="bg-muted/50">
+                                                            <th className="w-10 border px-3 py-2"></th>
+                                                            <th className="border px-3 py-2 text-left font-medium">Kode Anggaran</th>
+                                                            <th className="border px-3 py-2 text-left font-medium">Mata Anggaran</th>
+                                                            <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
+                                                            <th className="border px-3 py-2 text-left font-medium">Status</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((item) => (
-                                                            <tr key={item.pabd01_item_id} className="border-b last:border-0">
-                                                                <td className="px-3 py-2 text-center">
+                                                            <tr key={item.pabd01_item_id}>
+                                                                <td className="border px-3 py-2 text-center">
                                                                     {isReadonly ? (
                                                                         <span className="text-sm">
                                                                             {checkedMap[item.pabd01_item_id] ? '✓' : '✗'}
@@ -399,18 +399,18 @@ export default function Pabd01({
                                                                         />
                                                                     )}
                                                                 </td>
-                                                                <td className="px-3 py-2">
+                                                                <td className="border px-3 py-2">
                                                                     <KodeAnggaranFromString kode={item.kode_anggaran_baru} />
                                                                 </td>
-                                                                <td className="px-3 py-2">{item.mata_anggaran}</td>
-                                                                <td className="px-3 py-2 text-right tabular-nums">
+                                                                <td className="border px-3 py-2">{item.mata_anggaran}</td>
+                                                                <td className="border px-3 py-2 text-right tabular-nums">
                                                                     {formatRupiah(item.nominal)}
                                                                 </td>
-                                                                <td className="px-3 py-2">
+                                                                <td className="border px-3 py-2">
                                                                     {item.status_label && (
                                                                         <Badge
                                                                             className={
-                                                                                item.status_item === 'ditarik_maju'
+                                                                                item.status_label.startsWith('Tarik Maju') || item.status_label.startsWith('Ditarik Maju')
                                                                                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
                                                                                     : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
                                                                             }
@@ -433,7 +433,7 @@ export default function Pabd01({
                 </SectionCard>
 
                 {/* Summary */}
-                <SectionCard title="Ringkasan Pencairan">
+                <SectionCard title={`Ringkasan Pencairan — ${workflowMeta.bulan_label} ${workflowMeta.tahun_anggaran}`}>
                     <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                         {ppLabel && (
                             <div className="sm:col-span-2">
