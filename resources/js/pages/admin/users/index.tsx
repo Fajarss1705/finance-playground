@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateShort } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { BreadcrumbItem } from '@/types';
@@ -195,13 +196,7 @@ export default function UsersIndex({ users, filters }: Props) {
                                             </Badge>
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">
-                                            {new Date(
-                                                user.created_at,
-                                            ).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric',
-                                            })}
+                                            {formatDateShort(user.created_at)}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex justify-end gap-2">

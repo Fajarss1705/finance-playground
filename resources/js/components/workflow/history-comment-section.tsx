@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { formatDateTimeShort } from '@/lib/utils';
 
 type FileRef = {
     id: number;
@@ -138,17 +139,6 @@ const dotColor: Record<string, string> = {
 };
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-
-function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Jakarta',
-    });
-}
 
 function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -288,7 +278,7 @@ export default function HistoryCommentSection({
 
                                                 {/* Date */}
                                                 <p className="text-xs text-muted-foreground/60">
-                                                    {formatDate(entry.at)}
+                                                    {formatDateTimeShort(entry.at)}
                                                 </p>
 
                                                 {/* Notes */}

@@ -187,5 +187,5 @@ function formatRelativeTime(dateString: string): string {
     if (diffMin < 60) return `${diffMin}m`;
     if (diffHour < 24) return `${diffHour}j`;
     if (diffDay < 7) return `${diffDay}h`;
-    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'Asia/Jakarta' });
 }

@@ -8,6 +8,7 @@ import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTimeShort } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminFilesIndex } from '@/routes/admin/files';
 import type { BreadcrumbItem } from '@/types';
@@ -108,13 +109,7 @@ export default function AdminFilesTrash({ files }: Props) {
                                         </td>
                                         <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">{formatFileSize(file.size)}</td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                                            {new Date(file.deleted_at).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric',
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                            })}
+                                            {formatDateTimeShort(file.deleted_at)}
                                         </td>
                                         <td className="px-4 py-3 text-right whitespace-nowrap">
                                             <Can permission="admin.files.restore">

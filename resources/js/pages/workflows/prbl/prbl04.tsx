@@ -16,7 +16,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -568,7 +568,7 @@ export default function Prbl04({
                         <div>
                             <p className="font-medium">Dikembalikan ke PRBL03: perbaiki bukti transfer / foto nota.</p>
                             <p className="mt-0.5 text-[10px]">
-                                Oleh: {rejectionInfo.by_name} ({rejectionInfo.role_name}{rejectionInfo.team_name ? ` · ${rejectionInfo.team_name}` : ''}) &mdash; {rejectionInfo.at}
+                                Oleh: {rejectionInfo.by_name} ({rejectionInfo.role_name}{rejectionInfo.team_name ? ` · ${rejectionInfo.team_name}` : ''}) &mdash; {formatDateTime(rejectionInfo.at)}
                             </p>
                             {rejectionInfo.notes && <p className="mt-0.5 text-[10px]">Catatan: {rejectionInfo.notes}</p>}
                         </div>
@@ -580,7 +580,7 @@ export default function Prbl04({
                         <div>
                             <p className="font-medium">Dikembalikan ke PRBL01: perbaiki laporan kegiatan / realisasi.</p>
                             <p className="mt-0.5 text-[10px]">
-                                Oleh: {rejectionInfo.by_name} ({rejectionInfo.role_name}{rejectionInfo.team_name ? ` · ${rejectionInfo.team_name}` : ''}) &mdash; {rejectionInfo.at}
+                                Oleh: {rejectionInfo.by_name} ({rejectionInfo.role_name}{rejectionInfo.team_name ? ` · ${rejectionInfo.team_name}` : ''}) &mdash; {formatDateTime(rejectionInfo.at)}
                             </p>
                             {rejectionInfo.notes && <p className="mt-0.5 text-[10px]">Catatan: {rejectionInfo.notes}</p>}
                         </div>

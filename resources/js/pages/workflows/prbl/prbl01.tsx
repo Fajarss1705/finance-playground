@@ -14,7 +14,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -1105,7 +1105,7 @@ function CycleBackBanner({ cycleBackNotes }: { cycleBackNotes: CycleBackNotes })
                     {info && (
                         <>
                             <p className="text-amber-700 dark:text-amber-300">
-                                Oleh: {info.by_name} ({info.role_name}{info.team_name ? ` \u00B7 ${info.team_name}` : ''}) — {info.at}
+                                Oleh: {info.by_name} ({info.role_name}{info.team_name ? ` \u00B7 ${info.team_name}` : ''}) — {formatDateTime(info.at)}
                             </p>
                             {info.notes && (
                                 <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
@@ -1136,7 +1136,7 @@ function CycleBackBanner({ cycleBackNotes }: { cycleBackNotes: CycleBackNotes })
                             Status: {prbl02a.status}
                         </p>
                         <p className="text-amber-700 dark:text-amber-300">
-                            Oleh: {prbl02a.by_name} ({prbl02a.role_name}{prbl02a.team_name ? ` \u00B7 ${prbl02a.team_name}` : ''}) — {prbl02a.at}
+                            Oleh: {prbl02a.by_name} ({prbl02a.role_name}{prbl02a.team_name ? ` \u00B7 ${prbl02a.team_name}` : ''}) — {formatDateTime(prbl02a.at)}
                         </p>
                         {prbl02a.notes && (
                             <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
@@ -1153,7 +1153,7 @@ function CycleBackBanner({ cycleBackNotes }: { cycleBackNotes: CycleBackNotes })
                             Status: {prbl02b.status}
                         </p>
                         <p className="text-amber-700 dark:text-amber-300">
-                            Oleh: {prbl02b.by_name} ({prbl02b.role_name}{prbl02b.team_name ? ` \u00B7 ${prbl02b.team_name}` : ''}) — {prbl02b.at}
+                            Oleh: {prbl02b.by_name} ({prbl02b.role_name}{prbl02b.team_name ? ` \u00B7 ${prbl02b.team_name}` : ''}) — {formatDateTime(prbl02b.at)}
                         </p>
                         {prbl02b.notes && (
                             <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">

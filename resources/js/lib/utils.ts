@@ -52,3 +52,39 @@ export function formatDate(iso: string | null | undefined): string {
         timeZone: 'Asia/Jakarta',
     });
 }
+
+/**
+ * Compact datetime (short month) for table cells and dense UI, WIB.
+ *
+ * Example: "2026-04-24T19:27:33+07:00" → "24 Apr 2026, 19.27"
+ */
+export function formatDateTimeShort(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString('id-ID', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jakarta',
+    });
+}
+
+/**
+ * Compact date-only (short month), WIB.
+ *
+ * Example: "2026-04-24T19:27:33+07:00" → "24 Apr 2026"
+ */
+export function formatDateShort(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'Asia/Jakarta',
+    });
+}

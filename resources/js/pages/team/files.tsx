@@ -6,6 +6,7 @@ import Pagination from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateShort } from '@/lib/utils';
 import { index as teamIndex } from '@/routes/team';
 import { index as teamFilesIndex } from '@/routes/team/files';
 import type { BreadcrumbItem } from '@/types';
@@ -94,11 +95,7 @@ export default function FilesTeam({ files }: Props) {
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{file.user.name}</td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{file.role?.name || '—'}</td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                                            {new Date(file.created_at).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric',
-                                            })}
+                                            {formatDateShort(file.created_at)}
                                         </td>
                                         <td className="px-4 py-3">
                                             <Badge variant="secondary">{file.mime_type.split('/').pop()}</Badge>

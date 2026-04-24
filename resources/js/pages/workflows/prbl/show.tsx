@@ -8,7 +8,7 @@ import StepProgress from '@/components/workflow/step-progress';
 import type { StepperCycle } from '@/components/workflow/step-progress';
 import WorkflowStatusBadge from '@/components/workflow/workflow-status-badge';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 type DataTerbaru = {
@@ -139,7 +139,7 @@ export default function PrblShow({
                                     {latestRejectionInfo.role_name && ` (${latestRejectionInfo.role_name}`}
                                     {latestRejectionInfo.team_name && ` \u00B7 ${latestRejectionInfo.team_name}`}
                                     {latestRejectionInfo.role_name && ')'}
-                                    {latestRejectionInfo.at && ` — ${latestRejectionInfo.at}`}
+                                    {latestRejectionInfo.at && ` — ${formatDateTime(latestRejectionInfo.at)}`}
                                 </p>
                             )}
                             {latestRejectionInfo.notes && (

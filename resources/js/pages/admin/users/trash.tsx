@@ -6,6 +6,7 @@ import Heading from '@/components/heading';
 import Pagination from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTimeShort } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { BreadcrumbItem } from '@/types';
@@ -101,15 +102,7 @@ export default function UsersTrash({ users }: Props) {
                                             {user.jabatan || '—'}
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">
-                                            {new Date(
-                                                user.deleted_at,
-                                            ).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric',
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                            })}
+                                            {formatDateTimeShort(user.deleted_at)}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <Can permission="admin.users.restore">

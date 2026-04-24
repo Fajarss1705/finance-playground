@@ -14,7 +14,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -490,7 +490,7 @@ export default function Prbl03({
                                 {cycleBackNotes.role_name && ` (${cycleBackNotes.role_name}`}
                                 {cycleBackNotes.team_name && ` · ${cycleBackNotes.team_name}`}
                                 {cycleBackNotes.role_name && ')'}
-                                {cycleBackNotes.at && ` — ${cycleBackNotes.at}`}
+                                {cycleBackNotes.at && ` — ${formatDateTime(cycleBackNotes.at)}`}
                             </p>
                         )}
                         {cycleBackNotes.notes && <p className="whitespace-pre-line italic">&ldquo;{cycleBackNotes.notes}&rdquo;</p>}

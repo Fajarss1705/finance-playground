@@ -19,7 +19,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -932,7 +932,7 @@ export default function Pabd02a({
                     headerRight={
                         pabd01Submitter ? (
                             <span className="text-xs text-muted-foreground">
-                                Diisi oleh: {pabd01Submitter.name} ({pabd01Submitter.role}{pabd01Submitter.team ? ` · ${pabd01Submitter.team}` : ''}) — {pabd01Submitter.at}
+                                Diisi oleh: {pabd01Submitter.name} ({pabd01Submitter.role}{pabd01Submitter.team ? ` · ${pabd01Submitter.team}` : ''}) — {formatDateTime(pabd01Submitter.at)}
                             </span>
                         ) : undefined
                     }

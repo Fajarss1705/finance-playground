@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, Download, FileText, Paperclip, X } from 'lucide
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { formatDateTimeShort } from '@/lib/utils';
 
 export type HistoryEntry = {
     action: string;
@@ -46,16 +47,6 @@ function parseStep(table?: string): { code: string; name: string } | null {
     if (!table) return null;
     const code = table.replace('_data', '').replace(/_/g, '').toUpperCase();
     return { code, name: stepNames[code] ?? code };
-}
-
-function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
 }
 
 const dotColor: Record<string, string> = {
@@ -150,7 +141,7 @@ export default function HistoryTimeline({ entries }: { entries: HistoryEntry[] }
                                                 )}
                                             </div>
                                             <p className="mt-0.5 text-xs text-muted-foreground/60">
-                                                {formatDate(entry.at)}
+                                                {formatDateTimeShort(entry.at)}
                                             </p>
                                             {entry.notes && (
                                                 <div className="mt-1.5 rounded-md border bg-muted/30 px-3 py-2 text-sm">

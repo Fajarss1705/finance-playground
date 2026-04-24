@@ -13,6 +13,7 @@ import HistoryCommentSection from '@/components/workflow/history-comment-section
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
+import { formatDate, formatDateTime } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 type KodeItem = { kode: string; nama: string; catatan: string | null };
@@ -59,10 +60,6 @@ type Props = {
 
 function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
-}
-
-function formatTanggal(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 export default function Pp05({ workflow, reviewData, submitters, stepStatus, canApprove, canReject, canTerminate, canComment, actionRoles, activeRoleName }: Props) {
@@ -116,8 +113,8 @@ export default function Pp05({ workflow, reviewData, submitters, stepStatus, can
                         <SubmittedBy info={submitters.PP01} />
                         <div className="mt-4 space-y-1.5 text-sm">
                             <div><span className="text-muted-foreground">Tahun:</span> {reviewData.pp01.tahun}</div>
-                            <div><span className="text-muted-foreground">Mulai Pra-Raker:</span> {formatTanggal(reviewData.pp01.tanggal_mulai_pra_raker)}</div>
-                            <div><span className="text-muted-foreground">Penetapan Program:</span> {formatTanggal(reviewData.pp01.tanggal_penetapan_program)}</div>
+                            <div><span className="text-muted-foreground">Mulai Pra-Raker:</span> {formatDate(reviewData.pp01.tanggal_mulai_pra_raker)}</div>
+                            <div><span className="text-muted-foreground">Penetapan Program:</span> {formatDate(reviewData.pp01.tanggal_penetapan_program)}</div>
                         </div>
                         <div className="mt-5 grid gap-3 sm:grid-cols-2">
                             <KodeList title="Bidang Pelayanan" items={reviewData.pp01.kode_bidang_pelayanan} />
@@ -356,7 +353,7 @@ function SubmittedBy({ info }: { info?: SubmitterInfo }) {
     if (info.team) parts.push(info.team);
     return (
         <p className="text-xs text-muted-foreground">
-            Disubmit oleh: <span className="font-medium text-foreground">{parts.join(' · ')}</span> — {info.at}
+            Disubmit oleh: <span className="font-medium text-foreground">{parts.join(' · ')}</span> — {formatDateTime(info.at)}
         </p>
     );
 }

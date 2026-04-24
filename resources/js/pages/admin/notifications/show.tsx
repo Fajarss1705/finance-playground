@@ -4,6 +4,7 @@ import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTime } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminNotificationsIndex } from '@/routes/admin/notifications';
 import type { BreadcrumbItem } from '@/types';
@@ -23,16 +24,6 @@ type AdminNotificationDetail = {
 type Props = {
     notification: AdminNotificationDetail;
 };
-
-function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-}
 
 export default function AdminNotificationShow({ notification }: Props) {
     const breadcrumbs: BreadcrumbItem[] = [
@@ -66,7 +57,7 @@ export default function AdminNotificationShow({ notification }: Props) {
 
                 <div className="space-y-1 text-sm">
                     <p className="text-muted-foreground">
-                        <span className="font-medium text-foreground">Tanggal:</span> {formatDate(notification.created_at)}
+                        <span className="font-medium text-foreground">Tanggal:</span> {formatDateTime(notification.created_at)}
                     </p>
                     <p className="text-muted-foreground">
                         <span className="font-medium text-foreground">Status:</span>{' '}

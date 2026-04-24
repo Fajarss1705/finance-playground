@@ -11,7 +11,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -164,14 +164,7 @@ type Props = {
 // ─── Helpers ──────────────────────────────────────────
 
 function formatDate(iso: string | null): string {
-    if (!iso) return '-';
-    return new Date(iso).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    return iso ? formatDateTime(iso) : '-';
 }
 
 function formatFileSize(bytes: number | null): string {
