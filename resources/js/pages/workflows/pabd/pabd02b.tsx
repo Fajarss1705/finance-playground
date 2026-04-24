@@ -389,7 +389,7 @@ export default function Pabd02b({
                         const step = entry.step;
                         if (step === 'PABD01' && entry.id) return `${basePath}/pabd01/${entry.id}`;
                         if (step === 'PABD02A' && entry.id) return `${basePath}/pabd02a/${entry.id}`;
-                        if (step === 'PABD02B') return `${basePath}/pabd02b`;
+                        if (step === 'PABD02B' && entry.id) return `${basePath}/pabd02b/${entry.id}`;
                         if (step === 'PABD03') return `${basePath}/pabd03`;
                         if (step === 'PABD04' && entry.id) return `${basePath}/pabd04/${entry.id}`;
                         if (step === 'PABD05') return `${basePath}/pabd05`;

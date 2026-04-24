@@ -221,7 +221,7 @@ export default function PabdShow({
 
                         if (step === 'PABD01' && entry.id) return `${base}/pabd01/${entry.id}`;
                         if (step === 'PABD02A' && entry.id) return `${base}/pabd02a/${entry.id}`;
-                        if (step === 'PABD02B') return `${base}/pabd02b`;
+                        if (step === 'PABD02B' && entry.id) return `${base}/pabd02b/${entry.id}`;
                         if (step === 'PABD03') return `${base}/pabd03`;
                         if (step === 'PABD04' && entry.id) return `${base}/pabd04/${entry.id}`;
                         if (step === 'PABD05') return `${base}/pabd05`;
