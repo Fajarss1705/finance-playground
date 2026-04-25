@@ -793,26 +793,26 @@ export default function Prbl01({
                                             <div>
                                                 <h5 className="mb-2 text-sm font-semibold">Kuisioner</h5>
                                                 <div className="overflow-x-auto">
-                                                    <table className="w-full text-sm">
+                                                    <table className="w-full border-collapse border text-sm">
                                                         <thead>
-                                                            <tr className="border-b bg-muted/50">
-                                                                <th className="w-10 px-3 py-2 text-center font-medium">#</th>
-                                                                <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
-                                                                <th className="w-20 px-3 py-2 text-left font-medium">Tipe</th>
-                                                                <th className="w-20 px-3 py-2 text-left font-medium">Satuan</th>
-                                                                <th className="w-40 px-3 py-2 text-left font-medium">
+                                                            <tr className="bg-muted/50 text-left">
+                                                                <th className="w-10 border p-1.5 text-center font-medium">#</th>
+                                                                <th className="border p-1.5 font-medium">Pertanyaan</th>
+                                                                <th className="w-20 border p-1.5 font-medium">Tipe</th>
+                                                                <th className="w-20 border p-1.5 font-medium">Satuan</th>
+                                                                <th className="w-40 border p-1.5 font-medium">
                                                                     Jawaban <span className="text-red-500">*</span>
                                                                 </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             {kegiatan.kuisioner.map((q, idx) => (
-                                                                <tr key={q.prbl01_item_kuisioner_id} className="border-b last:border-0">
-                                                                    <td className="px-3 py-2 text-center">{idx + 1}</td>
-                                                                    <td className="px-3 py-2">{q.pertanyaan}</td>
-                                                                    <td className="px-3 py-2 text-muted-foreground">{q.tipe}</td>
-                                                                    <td className="px-3 py-2 text-muted-foreground">{q.satuan ?? '—'}</td>
-                                                                    <td className="px-3 py-2">
+                                                                <tr key={q.prbl01_item_kuisioner_id}>
+                                                                    <td className="border p-1.5 text-center">{idx + 1}</td>
+                                                                    <td className="border p-1.5">{q.pertanyaan}</td>
+                                                                    <td className="border p-1.5 text-muted-foreground">{q.tipe}</td>
+                                                                    <td className="border p-1.5 text-muted-foreground">{q.satuan ?? '—'}</td>
+                                                                    <td className="border p-1.5">
                                                                         {isReadonly ? (
                                                                             <span>{kuisionerAnswers[q.prbl01_item_kuisioner_id] || '—'}</span>
                                                                         ) : (
@@ -841,30 +841,30 @@ export default function Prbl01({
                                         <div>
                                             <h5 className="mb-2 text-sm font-semibold">Realisasi Anggaran</h5>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full min-w-180 border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b bg-muted/50">
-                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran Baru</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
-                                                            <th className="px-3 py-2 text-right font-medium">Dicairkan (Rp)</th>
-                                                            <th className="w-40 px-3 py-2 text-right font-medium">
+                                                        <tr className="bg-muted/50 text-left">
+                                                            <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                            <th className="border p-1.5 font-medium">Mata Anggaran</th>
+                                                            <th className="border p-1.5 text-right font-medium">Dicairkan (Rp)</th>
+                                                            <th className="w-40 border p-1.5 text-right font-medium">
                                                                 Realisasi (Rp) <span className="text-red-500">*</span>
                                                             </th>
-                                                            <th className="w-40 px-3 py-2 text-left font-medium">Komentar</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran Lama</th>
+                                                            <th className="w-40 border p-1.5 font-medium">Komentar</th>
+                                                            <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.realisasi.map((r) => {
                                                             const rId = r.prbl01_item_realisasi_id;
                                                             return (
-                                                                <tr key={r.pk04_anggaran_id} className="border-b last:border-0">
-                                                                    <td className="px-3 py-2">
+                                                                <tr key={r.pk04_anggaran_id}>
+                                                                    <td className="border p-1.5 whitespace-nowrap">
                                                                         <KodeAnggaranFromString kode={r.kode_anggaran_baru} />
                                                                     </td>
-                                                                    <td className="px-3 py-2">{r.mata_anggaran}</td>
-                                                                    <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(r.nominal_anggaran)}</td>
-                                                                    <td className="px-3 py-2 text-right">
+                                                                    <td className="border p-1.5">{r.mata_anggaran}</td>
+                                                                    <td className="border p-1.5 text-right tabular-nums">{formatRupiah(r.nominal_anggaran)}</td>
+                                                                    <td className="border p-1.5 text-right">
                                                                         {isReadonly ? (
                                                                             <span className="tabular-nums">{formatRupiah(rId ? (realisasiMap[rId]?.nominal ?? 0) : 0)}</span>
                                                                         ) : rId ? (
@@ -883,7 +883,7 @@ export default function Prbl01({
                                                                             <span className="text-muted-foreground">—</span>
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-3 py-2">
+                                                                    <td className="border p-1.5">
                                                                         {isReadonly ? (
                                                                             <span className="text-muted-foreground">{rId ? (realisasiMap[rId]?.komentar || '—') : '—'}</span>
                                                                         ) : rId ? (
@@ -900,7 +900,7 @@ export default function Prbl01({
                                                                             />
                                                                         ) : null}
                                                                     </td>
-                                                                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                                                                    <td className="border p-1.5 whitespace-nowrap font-mono text-xs text-muted-foreground">
                                                                         {r.kode_anggaran_lama ?? '—'}
                                                                     </td>
                                                                 </tr>
@@ -908,14 +908,14 @@ export default function Prbl01({
                                                         })}
                                                     </tbody>
                                                     <tfoot>
-                                                        <tr className="border-t bg-muted/30 font-medium">
-                                                            <td colSpan={2} className="px-3 py-2 text-right">Subtotal</td>
-                                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(subDicairkan)}</td>
-                                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(subRealisasi)}</td>
-                                                            <td className="px-3 py-2 text-sm text-muted-foreground">
+                                                        <tr className="bg-muted/30 font-medium">
+                                                            <td colSpan={2} className="border p-1.5 text-right">Subtotal</td>
+                                                            <td className="border p-1.5 text-right tabular-nums">{formatRupiah(subDicairkan)}</td>
+                                                            <td className="border p-1.5 text-right tabular-nums">{formatRupiah(subRealisasi)}</td>
+                                                            <td className="border p-1.5 text-sm text-muted-foreground">
                                                                 Selisih: {formatRupiah(subDicairkan - subRealisasi)}
                                                             </td>
-                                                            <td />
+                                                            <td className="border p-1.5" />
                                                         </tr>
                                                     </tfoot>
                                                 </table>

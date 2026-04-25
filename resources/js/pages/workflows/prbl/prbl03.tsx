@@ -163,37 +163,37 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                     {kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}
                                 </p>
                                 <div className="mt-1 overflow-x-auto">
-                                    <table className="w-full text-xs">
+                                    <table className="w-full min-w-180 border-collapse border text-xs">
                                         <thead>
-                                            <tr className="border-b text-left text-muted-foreground">
-                                                <th className="p-1">Kode Anggaran Baru</th>
-                                                <th className="p-1">Mata Anggaran</th>
-                                                <th className="p-1 text-right">Dicairkan (Rp)</th>
-                                                <th className="p-1 text-right">Realisasi (Rp)</th>
-                                                <th className="p-1 text-right">Selisih (Rp)</th>
-                                                <th className="p-1">Kode Anggaran Lama</th>
+                                            <tr className="bg-muted/50 text-left text-muted-foreground">
+                                                <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
+                                                <th className="border p-1.5">Mata Anggaran</th>
+                                                <th className="border p-1.5 text-right">Dicairkan (Rp)</th>
+                                                <th className="border p-1.5 text-right">Realisasi (Rp)</th>
+                                                <th className="border p-1.5 text-right">Selisih (Rp)</th>
+                                                <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {kegiatan.anggaran.map((a) => (
                                                 <tr
                                                     key={a.pk04_anggaran_id}
-                                                    className={`border-b last:border-0 ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}
+                                                    className={a.selisih < 0 ? 'text-muted-foreground' : ''}
                                                 >
-                                                    <td className="p-1">
+                                                    <td className="border p-1.5 whitespace-nowrap">
                                                         {a.kode_anggaran_baru ? (
                                                             <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
                                                         ) : (
                                                             '—'
                                                         )}
                                                     </td>
-                                                    <td className="p-1">{a.mata_anggaran}</td>
-                                                    <td className="p-1 text-right font-mono">{formatRupiah(a.nominal_dicairkan)}</td>
-                                                    <td className="p-1 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
-                                                    <td className={`p-1 text-right font-mono ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}>
+                                                    <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                    <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_dicairkan)}</td>
+                                                    <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
+                                                    <td className={`border p-1.5 text-right font-mono ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}>
                                                         {formatRupiah(a.selisih)}
                                                     </td>
-                                                    <td className="p-1 font-mono text-muted-foreground">
+                                                    <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
                                                         {a.kode_anggaran_lama ?? '—'}
                                                     </td>
                                                 </tr>
