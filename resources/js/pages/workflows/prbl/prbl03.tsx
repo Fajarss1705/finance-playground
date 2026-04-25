@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
@@ -14,7 +15,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -144,9 +145,38 @@ function StepStatusBadge({ status }: { status: string }) {
 
 // ─── Realisasi Summary Table ────────────────────────
 
+const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
+
+function anggaranToRow(a: AnggaranRealisasiItem): string[] {
+    return [
+        a.kode_anggaran_baru ?? '',
+        a.mata_anggaran,
+        String(a.nominal_dicairkan),
+        String(a.nominal_realisasi),
+        String(a.selisih),
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildSectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, ...anggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
+
 function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
     return (
         <div className="space-y-3">
+            <div className="flex justify-end">
+                <CopyButton variant="button" label="Salin Semua Realisasi" value={() => buildSectionTSV(programs)} />
+            </div>
             {programs.map((program) => (
                 <div key={program.program_id} className="rounded border p-3">
                     <h5 className="text-xs font-semibold">
@@ -159,9 +189,12 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
 
                         return (
                             <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
-                                <p className="text-xs font-medium text-muted-foreground">
-                                    {kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}
-                                </p>
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-medium text-muted-foreground">
+                                        {kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}
+                                    </p>
+                                    <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(REALISASI_HEADERS, kegiatan.anggaran.map(anggaranToRow))} />
+                                </div>
                                 <div className="mt-1 overflow-x-auto">
                                     <table className="w-full min-w-180 border-collapse border text-xs">
                                         <thead>
@@ -172,6 +205,7 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                 <th className="border p-1.5 text-right">Realisasi (Rp)</th>
                                                 <th className="border p-1.5 text-right">Selisih (Rp)</th>
                                                 <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
+                                                <th className="w-8 border p-1.5"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -181,11 +215,14 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                     className={a.selisih < 0 ? 'text-muted-foreground' : ''}
                                                 >
                                                     <td className="border p-1.5 whitespace-nowrap">
-                                                        {a.kode_anggaran_baru ? (
-                                                            <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
-                                                        ) : (
-                                                            '—'
-                                                        )}
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {a.kode_anggaran_baru ? (
+                                                                <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
+                                                            ) : (
+                                                                '—'
+                                                            )}
+                                                            {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                        </span>
                                                     </td>
                                                     <td className="border p-1.5">{a.mata_anggaran}</td>
                                                     <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_dicairkan)}</td>
@@ -194,17 +231,25 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                         {formatRupiah(a.selisih)}
                                                     </td>
                                                     <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
-                                                        {a.kode_anggaran_lama ?? '—'}
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {a.kode_anggaran_lama ?? '—'}
+                                                            {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                        </span>
+                                                    </td>
+                                                    <td className="border p-1.5 text-center">
+                                                        <CopyButton value={() => rowToTSV(anggaranToRow(a))} label="Salin Baris" />
                                                     </td>
                                                 </tr>
                                             ))}
-                                            <tr className="border-t font-medium">
-                                                <td className="p-1" colSpan={2}>
+                                            <tr className="bg-muted/30 font-medium">
+                                                <td className="border p-1.5" colSpan={2}>
                                                     Subtotal
                                                 </td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(subtotalSelisih)}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalSelisih)}</td>
+                                                <td className="border p-1.5" />
+                                                <td className="border p-1.5" />
                                             </tr>
                                         </tbody>
                                     </table>

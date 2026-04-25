@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
@@ -11,7 +12,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -163,6 +164,33 @@ type Props = {
 };
 
 // ─── Helpers ──────────────────────────────────────────
+
+const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Komentar', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
+
+function realisasiToRow(a: RealisasiAnggaranEntry): string[] {
+    return [
+        a.kode_anggaran_baru ?? '',
+        a.mata_anggaran,
+        String(a.nominal_anggaran),
+        String(a.nominal_realisasi),
+        String(a.selisih),
+        a.komentar_realisasi ?? '',
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildAllRealisasiTSV(programs: RealisasiProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, ...realisasiToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
 
 function formatDate(iso: string | null): string {
     return iso ? formatDateTime(iso) : '-';
@@ -358,6 +386,9 @@ export default function Prbl05Show({
                         <p className="text-sm text-gray-500">Tidak ada data realisasi.</p>
                     ) : (
                         <div className="space-y-6">
+                            <div className="flex justify-end">
+                                <CopyButton variant="button" label="Salin Semua Realisasi" value={() => buildAllRealisasiTSV(realisasiItems)} />
+                            </div>
                             {realisasiItems.map((program) => (
                                 <div key={program.program_id}>
                                     <h4 className="mb-3 text-sm font-semibold text-gray-700">
@@ -366,9 +397,12 @@ export default function Prbl05Show({
                                     </h4>
                                     {program.kegiatan.map((kegiatan) => (
                                         <div key={kegiatan.kegiatan_id} className="mb-4 ml-2">
-                                            <h5 className="mb-2 text-sm font-medium text-gray-600">
-                                                {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
-                                            </h5>
+                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                <h5 className="text-sm font-medium text-gray-600">
+                                                    {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
+                                                </h5>
+                                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(REALISASI_HEADERS, kegiatan.anggaran.map(realisasiToRow))} />
+                                            </div>
                                             <div className="overflow-x-auto">
                                                 <table className="w-full min-w-180 border-collapse border text-sm">
                                                     <thead>
@@ -380,17 +414,21 @@ export default function Prbl05Show({
                                                             <th className="border p-1.5 text-right font-medium">Selisih (Rp)</th>
                                                             <th className="border p-1.5 font-medium">Komentar</th>
                                                             <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
+                                                            <th className="w-8 border p-1.5"></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((a) => (
                                                             <tr key={a.prbl05_item_realisasi_id}>
                                                                 <td className="border p-1.5 whitespace-nowrap">
-                                                                    {a.kode_anggaran_baru ? (
-                                                                        <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
-                                                                    ) : (
-                                                                        <span className="text-gray-400">-</span>
-                                                                    )}
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {a.kode_anggaran_baru ? (
+                                                                            <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
+                                                                        ) : (
+                                                                            <span className="text-gray-400">-</span>
+                                                                        )}
+                                                                        {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                                    </span>
                                                                 </td>
                                                                 <td className="border p-1.5">{a.mata_anggaran}</td>
                                                                 <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_anggaran)}</td>
@@ -399,7 +437,15 @@ export default function Prbl05Show({
                                                                     {formatRupiah(a.selisih)}
                                                                 </td>
                                                                 <td className="border p-1.5 text-sm text-gray-600">{a.komentar_realisasi || '-'}</td>
-                                                                <td className="border p-1.5 whitespace-nowrap font-mono text-gray-500">{a.kode_anggaran_lama ?? '—'}</td>
+                                                                <td className="border p-1.5 whitespace-nowrap font-mono text-gray-500">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {a.kode_anggaran_lama ?? '—'}
+                                                                        {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border p-1.5 text-center">
+                                                                    <CopyButton value={() => rowToTSV(realisasiToRow(a))} label="Salin Baris" />
+                                                                </td>
                                                             </tr>
                                                         ))}
                                                     </tbody>

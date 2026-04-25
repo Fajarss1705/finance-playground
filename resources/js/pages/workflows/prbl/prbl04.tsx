@@ -5,6 +5,7 @@ import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import CopyButton from '@/components/ui/copy-button';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
@@ -16,7 +17,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -244,6 +245,22 @@ function NotaFileList({ items }: { items: NotaItem[] }) {
     );
 }
 
+// ─── Realisasi copy helpers ─────────────────────────
+
+const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
+
+function realisasiRow(r: RealisasiItem): string[] {
+    const selisih = r.nominal_anggaran - r.nominal_realisasi;
+    return [
+        r.kode_anggaran_baru ?? '',
+        r.mata_anggaran,
+        String(r.nominal_anggaran),
+        String(r.nominal_realisasi),
+        String(selisih),
+        r.kode_anggaran_lama ?? '',
+    ];
+}
+
 // ─── Kegiatan Card (PRBL04: realisasi-first, same as PRBL02B) ──────
 
 function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; index: number; total: number }) {
@@ -264,7 +281,10 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                     {/* Realisasi — PRIMARY for PRBL04 (BU financial focus) */}
                     {kegiatan.realisasi.length > 0 && (
                         <div>
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-primary">Realisasi Anggaran</p>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Realisasi Anggaran</p>
+                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(REALISASI_HEADERS, kegiatan.realisasi.map(realisasiRow))} />
+                            </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full min-w-180 border-collapse border text-xs">
                                     <thead>
@@ -275,6 +295,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                             <th className="border p-1.5 text-right">Realisasi</th>
                                             <th className="border p-1.5 text-right">Selisih</th>
                                             <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
+                                            <th className="w-8 border p-1.5"></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -282,12 +303,25 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                             const selisih = r.nominal_anggaran - r.nominal_realisasi;
                                             return (
                                                 <tr key={r.pk04_anggaran_id}>
-                                                    <td className="border p-1.5 whitespace-nowrap">{r.kode_anggaran_baru ? <KodeAnggaranFromString kode={r.kode_anggaran_baru} /> : '—'}</td>
+                                                    <td className="border p-1.5 whitespace-nowrap">
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {r.kode_anggaran_baru ? <KodeAnggaranFromString kode={r.kode_anggaran_baru} /> : '—'}
+                                                            {r.kode_anggaran_baru && <CopyButton value={r.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                        </span>
+                                                    </td>
                                                     <td className="border p-1.5">{r.mata_anggaran}</td>
                                                     <td className="border p-1.5 text-right font-mono">{formatRupiah(r.nominal_anggaran)}</td>
                                                     <td className="border p-1.5 text-right font-mono">{formatRupiah(r.nominal_realisasi)}</td>
                                                     <td className={`border p-1.5 text-right font-mono ${selisih < 0 ? 'text-amber-600 font-semibold' : ''}`}>{formatRupiah(selisih)}</td>
-                                                    <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">{r.kode_anggaran_lama ?? '—'}</td>
+                                                    <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {r.kode_anggaran_lama ?? '—'}
+                                                            {r.kode_anggaran_lama && <CopyButton value={r.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                        </span>
+                                                    </td>
+                                                    <td className="border p-1.5 text-center">
+                                                        <CopyButton value={() => rowToTSV(realisasiRow(r))} label="Salin Baris" />
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
@@ -298,6 +332,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                             <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
                                             <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
                                             <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan - subtotalRealisasi)}</td>
+                                            <td className="border p-1.5" />
                                             <td className="border p-1.5" />
                                         </tr>
                                     </tfoot>
