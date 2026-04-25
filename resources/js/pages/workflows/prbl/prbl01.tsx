@@ -233,26 +233,11 @@ export default function Prbl01({
         return map;
     });
 
-    // Foto and nota state (for immediate upload/delete)
-    const [fotosMap, setFotosMap] = useState<Record<number, FotoItem[]>>(() => {
-        const map: Record<number, FotoItem[]> = {};
-        for (const program of kegiatanItems) {
-            for (const k of program.kegiatan) {
-                map[k.prbl01_item_kegiatan_id] = [...k.fotos];
-            }
-        }
-        return map;
-    });
-
-    const [notaMap, setNotaMap] = useState<Record<number, NotaItem[]>>(() => {
-        const map: Record<number, NotaItem[]> = {};
-        for (const program of kegiatanItems) {
-            for (const k of program.kegiatan) {
-                map[k.prbl01_item_kegiatan_id] = [...k.nota];
-            }
-        }
-        return map;
-    });
+    // Foto/nota staged changes (applied on draft/submit, mirrors PRBL03 pattern)
+    const [newFotoFiles, setNewFotoFiles] = useState<Record<number, File[]>>({});
+    const [removeFotoIds, setRemoveFotoIds] = useState<number[]>([]);
+    const [newNotaFiles, setNewNotaFiles] = useState<Record<number, File[]>>({});
+    const [removeNotaIds, setRemoveNotaIds] = useState<number[]>([]);
 
     // Collapsed sections (keyed by prbl01_item_kegiatan_id)
     const [collapsed, setCollapsed] = useState<Record<number, boolean>>(() => {
@@ -290,209 +275,118 @@ export default function Prbl01({
         return { totalRealisasi, realisasiCount, dicairkanCount, selisih, overBudget };
     }, [kegiatanItems, realisasiMap, totalDicairkan]);
 
-    // ─── File upload handlers ───────────────────────────
+    // ─── File upload handlers (staged — applied on draft/submit) ─
 
     const fotoInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
     const notaInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-    const [uploadingFoto, setUploadingFoto] = useState<Record<number, boolean>>({});
-    const [uploadingNota, setUploadingNota] = useState<Record<number, boolean>>({});
-    const [uploadError, setUploadError] = useState<string | null>(null);
 
-    function getCsrfToken(): string {
-        const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-        if (!token) {
-            console.error('CSRF token not found in meta tag');
-        }
-        return token ?? '';
-    }
+    const addFotoFiles = useCallback((kegiatanId: number, files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        setNewFotoFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...Array.from(files)],
+        }));
+    }, []);
 
-    const handleFotoUpload = useCallback((kegiatanId: number, files: FileList | null) => {
-        if (!files) return;
-        setUploadError(null);
-        setUploadingFoto((prev) => ({ ...prev, [kegiatanId]: true }));
+    const removeNewFoto = useCallback((kegiatanId: number, index: number) => {
+        setNewFotoFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: (prev[kegiatanId] ?? []).filter((_, i) => i !== index),
+        }));
+    }, []);
 
-        const uploads = Array.from(files).map((file) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('prbl01_item_kegiatan_id', String(kegiatanId));
+    const markFotoForRemoval = useCallback((fotoId: number) => {
+        setRemoveFotoIds((prev) => (prev.includes(fotoId) ? prev : [...prev, fotoId]));
+    }, []);
 
-            return fetch(`${basePath}/prbl01/${prbl01.id}/foto-upload`, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                    Accept: 'application/json',
-                },
-            }).then(async (res) => {
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.message || `Upload gagal (${res.status})`);
-                }
-                return res.json();
-            }).then((data) => {
-                setFotosMap((prev) => ({
-                    ...prev,
-                    [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
-                }));
-            });
-        });
+    const addNotaFiles = useCallback((kegiatanId: number, files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        setNewNotaFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...Array.from(files)],
+        }));
+    }, []);
 
-        Promise.allSettled(uploads).then((results) => {
-            setUploadingFoto((prev) => ({ ...prev, [kegiatanId]: false }));
-            const failed = results.filter((r) => r.status === 'rejected');
-            if (failed.length > 0) {
-                const reason = (failed[0] as PromiseRejectedResult).reason;
-                setUploadError(`Foto upload gagal: ${reason?.message || 'Terjadi kesalahan'}`);
-            }
-        });
-    }, [basePath, prbl01.id]);
+    const removeNewNota = useCallback((kegiatanId: number, index: number) => {
+        setNewNotaFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: (prev[kegiatanId] ?? []).filter((_, i) => i !== index),
+        }));
+    }, []);
 
-    const handleFotoDelete = useCallback((kegiatanId: number, fotoId: number) => {
-        setUploadError(null);
-        fetch(`${basePath}/prbl01/${prbl01.id}/foto-delete`, {
-            method: 'POST',
-            body: JSON.stringify({ prbl01_foto_kegiatan_id: fotoId }),
-            headers: {
-                'X-CSRF-TOKEN': getCsrfToken(),
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-        }).then(async (res) => {
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `Hapus gagal (${res.status})`);
-            }
-            setFotosMap((prev) => ({
-                ...prev,
-                [kegiatanId]: (prev[kegiatanId] ?? []).filter((f) => f.id !== fotoId),
-            }));
-        }).catch((err) => {
-            setUploadError(`Hapus foto gagal: ${err?.message || 'Terjadi kesalahan'}`);
-        });
-    }, [basePath, prbl01.id]);
-
-    const handleNotaUpload = useCallback((kegiatanId: number, files: FileList | null) => {
-        if (!files) return;
-        setUploadError(null);
-        setUploadingNota((prev) => ({ ...prev, [kegiatanId]: true }));
-
-        const uploads = Array.from(files).map((file) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('prbl01_item_kegiatan_id', String(kegiatanId));
-
-            return fetch(`${basePath}/prbl01/${prbl01.id}/nota-upload`, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                    Accept: 'application/json',
-                },
-            }).then(async (res) => {
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.message || `Upload gagal (${res.status})`);
-                }
-                return res.json();
-            }).then((data) => {
-                setNotaMap((prev) => ({
-                    ...prev,
-                    [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
-                }));
-            });
-        });
-
-        Promise.allSettled(uploads).then((results) => {
-            setUploadingNota((prev) => ({ ...prev, [kegiatanId]: false }));
-            const failed = results.filter((r) => r.status === 'rejected');
-            if (failed.length > 0) {
-                const reason = (failed[0] as PromiseRejectedResult).reason;
-                setUploadError(`Nota upload gagal: ${reason?.message || 'Terjadi kesalahan'}`);
-            }
-        });
-    }, [basePath, prbl01.id]);
-
-    const handleNotaDelete = useCallback((kegiatanId: number, notaId: number) => {
-        setUploadError(null);
-        fetch(`${basePath}/prbl01/${prbl01.id}/nota-delete`, {
-            method: 'POST',
-            body: JSON.stringify({ prbl01_nota_pengeluaran_id: notaId }),
-            headers: {
-                'X-CSRF-TOKEN': getCsrfToken(),
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-        }).then(async (res) => {
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `Hapus gagal (${res.status})`);
-            }
-            setNotaMap((prev) => ({
-                ...prev,
-                [kegiatanId]: (prev[kegiatanId] ?? []).filter((n) => n.id !== notaId),
-            }));
-        }).catch((err) => {
-            setUploadError(`Hapus nota gagal: ${err?.message || 'Terjadi kesalahan'}`);
-        });
-    }, [basePath, prbl01.id]);
+    const markNotaForRemoval = useCallback((notaId: number) => {
+        setRemoveNotaIds((prev) => (prev.includes(notaId) ? prev : [...prev, notaId]));
+    }, []);
 
     // ─── Form submission ────────────────────────────────
 
-    function buildFormData(notes: string, files: File[]) {
-        const items = [];
+    function buildFormData(notes: string, files: File[]): FormData {
+        const formData = new FormData();
+
+        let itemIdx = 0;
         for (const program of kegiatanItems) {
             for (const k of program.kegiatan) {
-                const narr = narratives[k.prbl01_item_kegiatan_id] ?? {};
-                items.push({
-                    prbl01_item_kegiatan_id: k.prbl01_item_kegiatan_id,
-                    masalah: narr.masalah || null,
-                    langkah_penanganan: narr.langkah_penanganan || null,
-                    harapan: narr.harapan || null,
-                    catatan_tim: narr.catatan_tim || null,
-                    kuisioner: k.kuisioner.map((q) => ({
-                        prbl01_item_kuisioner_id: q.prbl01_item_kuisioner_id,
-                        jawaban: kuisionerAnswers[q.prbl01_item_kuisioner_id] || null,
-                    })),
+                const kId = k.prbl01_item_kegiatan_id;
+                const narr = narratives[kId] ?? {};
+                formData.append(`items[${itemIdx}][prbl01_item_kegiatan_id]`, String(kId));
+                if (narr.masalah) formData.append(`items[${itemIdx}][masalah]`, narr.masalah);
+                if (narr.langkah_penanganan) formData.append(`items[${itemIdx}][langkah_penanganan]`, narr.langkah_penanganan);
+                if (narr.harapan) formData.append(`items[${itemIdx}][harapan]`, narr.harapan);
+                if (narr.catatan_tim) formData.append(`items[${itemIdx}][catatan_tim]`, narr.catatan_tim);
+
+                k.kuisioner.forEach((q, qIdx) => {
+                    formData.append(`items[${itemIdx}][kuisioner][${qIdx}][prbl01_item_kuisioner_id]`, String(q.prbl01_item_kuisioner_id));
+                    const jawaban = kuisionerAnswers[q.prbl01_item_kuisioner_id];
+                    if (jawaban) formData.append(`items[${itemIdx}][kuisioner][${qIdx}][jawaban]`, jawaban);
                 });
+                itemIdx++;
             }
         }
 
-        const realisasi = [];
+        let realIdx = 0;
         for (const program of kegiatanItems) {
             for (const k of program.kegiatan) {
                 for (const r of k.realisasi) {
                     if (r.prbl01_item_realisasi_id) {
                         const val = realisasiMap[r.prbl01_item_realisasi_id];
-                        realisasi.push({
-                            prbl01_item_realisasi_id: r.prbl01_item_realisasi_id,
-                            nominal_realisasi: val?.nominal ?? 0,
-                            komentar_realisasi: val?.komentar || null,
-                        });
+                        formData.append(`realisasi[${realIdx}][prbl01_item_realisasi_id]`, String(r.prbl01_item_realisasi_id));
+                        formData.append(`realisasi[${realIdx}][nominal_realisasi]`, String(val?.nominal ?? 0));
+                        if (val?.komentar) formData.append(`realisasi[${realIdx}][komentar_realisasi]`, val.komentar);
+                        realIdx++;
                     }
                 }
             }
         }
 
-        const data: Record<string, unknown> = {
-            items,
-            realisasi,
-            expected_updated_at: prbl01.updated_at,
-            notes: notes || undefined,
-        };
+        formData.append('expected_updated_at', prbl01.updated_at);
+        if (notes) formData.append('notes', notes);
+        files.forEach((file) => formData.append('files[]', file));
 
-        if (files.length > 0) {
-            data['files'] = files;
+        // Staged foto/nota uploads, grouped by kegiatan id
+        for (const [kId, fileList] of Object.entries(newFotoFiles)) {
+            fileList.forEach((file) => formData.append(`foto_files[${kId}][]`, file));
         }
+        for (const [kId, fileList] of Object.entries(newNotaFiles)) {
+            fileList.forEach((file) => formData.append(`nota_files[${kId}][]`, file));
+        }
+        removeFotoIds.forEach((id) => formData.append('remove_foto_ids[]', String(id)));
+        removeNotaIds.forEach((id) => formData.append('remove_nota_ids[]', String(id)));
 
-        return data;
+        return formData;
     }
 
     function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
         setProcessing(true);
         const url = `${basePath}/prbl01/${prbl01.id}/${action}`;
-        router.post(url, buildFormData(notes, files) as Record<string, unknown>, {
+        router.post(url, buildFormData(notes, files), {
             forceFormData: true,
             onFinish: () => setProcessing(false),
+            onSuccess: () => {
+                setNewFotoFiles({});
+                setRemoveFotoIds([]);
+                setNewNotaFiles({});
+                setRemoveNotaIds([]);
+            },
         });
     }
 
@@ -507,9 +401,20 @@ export default function Prbl01({
 
     const hasNoItems = kegiatanItems.length === 0 || kegiatanItems.every((p) => p.kegiatan.length === 0);
 
-    // Submit is blocked if any kegiatan is missing foto or nota
-    const missingFoto = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (fotosMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
-    const missingNota = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (notaMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
+    // Submit is blocked if any kegiatan would end up without foto or nota
+    function visibleFotoCount(k: KegiatanItem): number {
+        const existing = k.fotos.filter((f) => !removeFotoIds.includes(f.id)).length;
+        const staged = (newFotoFiles[k.prbl01_item_kegiatan_id] ?? []).length;
+        return existing + staged;
+    }
+    function visibleNotaCount(k: KegiatanItem): number {
+        const existing = k.nota.filter((n) => !removeNotaIds.includes(n.id)).length;
+        const staged = (newNotaFiles[k.prbl01_item_kegiatan_id] ?? []).length;
+        return existing + staged;
+    }
+
+    const missingFoto = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => visibleFotoCount(k) === 0));
+    const missingNota = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => visibleNotaCount(k) === 0));
     const hasFilesError = missingFoto || missingNota;
 
     // Kegiatan counter
@@ -613,17 +518,6 @@ export default function Prbl01({
                     </dl>
                 </SectionCard>
 
-                {/* Upload error banner */}
-                {uploadError && (
-                    <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
-                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
-                        <div className="flex-1 text-sm text-red-800 dark:text-red-200">{uploadError}</div>
-                        <button type="button" onClick={() => setUploadError(null)} className="shrink-0 text-red-600 hover:text-red-800 dark:text-red-400">
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-                )}
-
                 {/* Empty state */}
                 {hasNoItems && (
                     <SectionCard title="Kegiatan">
@@ -639,8 +533,12 @@ export default function Prbl01({
                         kegiatanIndex++;
                         const kId = kegiatan.prbl01_item_kegiatan_id;
                         const isCollapsed = collapsed[kId] ?? false;
-                        const fotos = fotosMap[kId] ?? [];
-                        const notaFiles = notaMap[kId] ?? [];
+                        const visibleFotos = kegiatan.fotos.filter((f) => !removeFotoIds.includes(f.id));
+                        const visibleNotaExisting = kegiatan.nota.filter((n) => !removeNotaIds.includes(n.id));
+                        const stagedFotos = newFotoFiles[kId] ?? [];
+                        const stagedNota = newNotaFiles[kId] ?? [];
+                        const totalFotoCount = visibleFotos.length + stagedFotos.length;
+                        const totalNotaCount = visibleNotaExisting.length + stagedNota.length;
 
                         // Per-kegiatan subtotals
                         let subDicairkan = 0;
@@ -749,30 +647,26 @@ export default function Prbl01({
                                                         multiple
                                                         className="hidden"
                                                         onChange={(e) => {
-                                                            handleFotoUpload(kId, e.target.files);
+                                                            addFotoFiles(kId, e.target.files);
                                                             e.target.value = '';
                                                         }}
                                                     />
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={uploadingFoto[kId]}
+                                                        disabled={processing}
                                                         onClick={() => fotoInputRefs.current[kId]?.click()}
                                                     >
-                                                        {uploadingFoto[kId] ? (
-                                                            <span className="mr-1 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                                                        ) : (
-                                                            <Upload className="mr-1 h-3.5 w-3.5" />
-                                                        )}
-                                                        {uploadingFoto[kId] ? 'Mengupload...' : 'Upload Foto'}
+                                                        <Upload className="mr-1 h-3.5 w-3.5" />
+                                                        Tambah Foto
                                                     </Button>
-                                                    <span className="ml-2 text-xs text-muted-foreground">JPG, PNG, WEBP</span>
+                                                    <span className="ml-2 text-xs text-muted-foreground">JPG, PNG, WEBP. Tersimpan saat klik Simpan Draft / Submit.</span>
                                                 </div>
                                             )}
-                                            {fotos.length > 0 ? (
+                                            {totalFotoCount > 0 ? (
                                                 <div className="flex flex-wrap gap-2">
-                                                    {fotos.map((foto) => (
-                                                        <div key={foto.id} className="group relative">
+                                                    {visibleFotos.map((foto) => (
+                                                        <div key={`existing-${foto.id}`} className="group relative">
                                                             {foto.thumbnail_url ? (
                                                                 <a href={foto.thumbnail_url} target="_blank" rel="noopener noreferrer">
                                                                     <img
@@ -790,7 +684,24 @@ export default function Prbl01({
                                                                 <button
                                                                     type="button"
                                                                     className="absolute -right-1 -top-1 rounded-full bg-red-500 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                                                                    onClick={() => handleFotoDelete(kId, foto.id)}
+                                                                    onClick={() => markFotoForRemoval(foto.id)}
+                                                                >
+                                                                    <X className="h-3 w-3" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    {stagedFotos.map((file, idx) => (
+                                                        <div key={`new-${idx}`} className="group relative">
+                                                            <div className="flex h-20 w-20 flex-col items-center justify-center rounded border border-dashed border-blue-400 bg-blue-50 p-1 text-center dark:bg-blue-950">
+                                                                <FileIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                                                                <span className="mt-1 line-clamp-2 text-[10px] text-blue-700 dark:text-blue-300">{file.name}</span>
+                                                            </div>
+                                                            {!isReadonly && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="absolute -right-1 -top-1 rounded-full bg-red-500 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                                                                    onClick={() => removeNewFoto(kId, idx)}
                                                                 >
                                                                     <X className="h-3 w-3" />
                                                                 </button>
@@ -819,29 +730,26 @@ export default function Prbl01({
                                                         multiple
                                                         className="hidden"
                                                         onChange={(e) => {
-                                                            handleNotaUpload(kId, e.target.files);
+                                                            addNotaFiles(kId, e.target.files);
                                                             e.target.value = '';
                                                         }}
                                                     />
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={uploadingNota[kId]}
+                                                        disabled={processing}
                                                         onClick={() => notaInputRefs.current[kId]?.click()}
                                                     >
-                                                        {uploadingNota[kId] ? (
-                                                            <span className="mr-1 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                                                        ) : (
-                                                            <Upload className="mr-1 h-3.5 w-3.5" />
-                                                        )}
-                                                        {uploadingNota[kId] ? 'Mengupload...' : 'Tambah File'}
+                                                        <Upload className="mr-1 h-3.5 w-3.5" />
+                                                        Tambah File
                                                     </Button>
+                                                    <span className="ml-2 text-xs text-muted-foreground">Tersimpan saat klik Simpan Draft / Submit.</span>
                                                 </div>
                                             )}
-                                            {notaFiles.length > 0 ? (
+                                            {totalNotaCount > 0 ? (
                                                 <div className="space-y-1">
-                                                    {notaFiles.map((nota) => (
-                                                        <div key={nota.id} className="flex items-center gap-2 text-sm">
+                                                    {visibleNotaExisting.map((nota) => (
+                                                        <div key={`existing-${nota.id}`} className="flex items-center gap-2 text-sm">
                                                             <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                                                             {nota.download_url ? (
                                                                 <a href={nota.download_url} className="truncate text-blue-600 hover:underline dark:text-blue-400">
@@ -854,7 +762,23 @@ export default function Prbl01({
                                                                 <button
                                                                     type="button"
                                                                     className="shrink-0 text-red-500 hover:text-red-700"
-                                                                    onClick={() => handleNotaDelete(kId, nota.id)}
+                                                                    onClick={() => markNotaForRemoval(nota.id)}
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    {stagedNota.map((file, idx) => (
+                                                        <div key={`new-${idx}`} className="flex items-center gap-2 text-sm">
+                                                            <FileIcon className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                                                            <span className="truncate text-blue-700 dark:text-blue-300">{file.name}</span>
+                                                            <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900 dark:text-blue-300">baru</span>
+                                                            {!isReadonly && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="shrink-0 text-red-500 hover:text-red-700"
+                                                                    onClick={() => removeNewNota(kId, idx)}
                                                                 >
                                                                     <Trash2 className="h-3.5 w-3.5" />
                                                                 </button>
