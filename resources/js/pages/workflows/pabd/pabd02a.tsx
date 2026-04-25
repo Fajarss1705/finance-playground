@@ -339,7 +339,12 @@ function TarikMajuPicker({
                                                                 <input type="radio" disabled={isUsed} checked={false} readOnly className="h-3.5 w-3.5" />
                                                             </td>
                                                             <td className="border px-2 py-1">
-                                                                <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
+                                                                <KodeAnggaranFromString
+                                                                    kode={a.kode_anggaran_baru}
+                                                                    programName={program.program_name}
+                                                                    kegiatanName={kegiatan.nama_kegiatan}
+                                                                    mataAnggaran={a.mata_anggaran}
+                                                                />
                                                             </td>
                                                             <td className="border px-2 py-1 text-xs">{a.mata_anggaran}</td>
                                                             <td className="border px-2 py-1 text-right text-xs tabular-nums">{formatRupiah(a.nominal)}</td>
@@ -1017,7 +1022,12 @@ export default function Pabd02a({
                                                             </td>
                                                             <td className="border px-3 py-1 whitespace-nowrap">
                                                                 <span className="inline-flex items-center gap-1">
-                                                                    <KodeAnggaranFromString kode={item.kode_anggaran_baru} />
+                                                                    <KodeAnggaranFromString
+                                                                        kode={item.kode_anggaran_baru}
+                                                                        programName={program.program_name}
+                                                                        kegiatanName={kegiatan.nama_kegiatan}
+                                                                        mataAnggaran={item.mata_anggaran}
+                                                                    />
                                                                     {item.kode_anggaran_baru && <CopyButton value={item.kode_anggaran_baru} label="Salin Kode Baru" />}
                                                                 </span>
                                                             </td>
@@ -1145,7 +1155,12 @@ export default function Pabd02a({
                                                     <div className="mt-1 rounded-md border bg-muted/30 p-2 text-xs">
                                                         <p><span className="text-muted-foreground">Program:</span> {item.anggaran_detail.program_name}</p>
                                                         <p><span className="text-muted-foreground">Kegiatan:</span> {item.anggaran_detail.kegiatan_name} — {item.anggaran_detail.bulan_label}</p>
-                                                        <p><span className="text-muted-foreground">Kode:</span> <KodeAnggaranFromString kode={item.anggaran_detail.kode_anggaran_baru} /></p>
+                                                        <p><span className="text-muted-foreground">Kode:</span> <KodeAnggaranFromString
+                                                            kode={item.anggaran_detail.kode_anggaran_baru}
+                                                            programName={item.anggaran_detail.program_name}
+                                                            kegiatanName={item.anggaran_detail.kegiatan_name}
+                                                            mataAnggaran={item.anggaran_detail.mata_anggaran}
+                                                        /></p>
                                                         <p><span className="text-muted-foreground">Mata Anggaran:</span> {item.anggaran_detail.mata_anggaran}</p>
                                                         <p><span className="text-muted-foreground">Nominal:</span> {formatRupiah(item.anggaran_detail.nominal)}</p>
                                                         {!isReadonly && (

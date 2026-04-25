@@ -266,7 +266,7 @@ function realisasiRow(r: RealisasiItem): string[] {
 
 // ─── Kegiatan Card (PRBL04: realisasi-first, same as PRBL02B) ──────
 
-function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; index: number; total: number }) {
+function KegiatanCard({ kegiatan, index, total, programName }: { kegiatan: KegiatanItem; index: number; total: number; programName?: string }) {
     const [open, setOpen] = useState(true);
     const subtotalDicairkan = kegiatan.realisasi.reduce((s, r) => s + r.nominal_anggaran, 0);
     const subtotalRealisasi = kegiatan.realisasi.reduce((s, r) => s + r.nominal_realisasi, 0);
@@ -312,7 +312,14 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                                     </td>
                                                     <td className="border p-1.5 whitespace-nowrap">
                                                         <span className="inline-flex items-center gap-1">
-                                                            {r.kode_anggaran_baru ? <KodeAnggaranFromString kode={r.kode_anggaran_baru} /> : '—'}
+                                                            {r.kode_anggaran_baru ? (
+                                                                <KodeAnggaranFromString
+                                                                    kode={r.kode_anggaran_baru}
+                                                                    programName={programName}
+                                                                    kegiatanName={kegiatan.nama_kegiatan}
+                                                                    mataAnggaran={r.mata_anggaran}
+                                                                />
+                                                            ) : '—'}
                                                             {r.kode_anggaran_baru && <CopyButton value={r.kode_anggaran_baru} label="Salin Kode Baru" />}
                                                         </span>
                                                     </td>
@@ -712,6 +719,7 @@ export default function Prbl04({
                                             kegiatan={kegiatan}
                                             index={ki}
                                             total={program.kegiatan.length}
+                                            programName={program.program_name}
                                         />
                                     ))}
                                 </div>

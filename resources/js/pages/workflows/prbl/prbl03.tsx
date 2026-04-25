@@ -224,7 +224,12 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                     <td className="border p-1.5 whitespace-nowrap">
                                                         <span className="inline-flex items-center gap-1">
                                                             {a.kode_anggaran_baru ? (
-                                                                <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
+                                                                <KodeAnggaranFromString
+                                                                    kode={a.kode_anggaran_baru}
+                                                                    programName={program.program_name}
+                                                                    kegiatanName={kegiatan.nama_kegiatan}
+                                                                    mataAnggaran={a.mata_anggaran}
+                                                                />
                                                             ) : (
                                                                 '—'
                                                             )}

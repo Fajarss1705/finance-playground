@@ -455,7 +455,12 @@ export default function Pabd01({
                                                                 </td>
                                                                 <td className="border px-3 py-2 whitespace-nowrap">
                                                                     <span className="inline-flex items-center gap-1">
-                                                                        <KodeAnggaranFromString kode={item.kode_anggaran_baru} />
+                                                                        <KodeAnggaranFromString
+                                                                            kode={item.kode_anggaran_baru}
+                                                                            programName={program.program_name}
+                                                                            kegiatanName={kegiatan.nama_kegiatan}
+                                                                            mataAnggaran={item.mata_anggaran}
+                                                                        />
                                                                         {item.kode_anggaran_baru && <CopyButton value={item.kode_anggaran_baru} label="Salin Kode Baru" />}
                                                                     </span>
                                                                 </td>

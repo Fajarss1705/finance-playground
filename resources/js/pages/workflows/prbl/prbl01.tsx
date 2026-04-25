@@ -919,7 +919,12 @@ export default function Prbl01({
                                                                     </td>
                                                                     <td className="border p-1.5 whitespace-nowrap">
                                                                         <span className="inline-flex items-center gap-1">
-                                                                            <KodeAnggaranFromString kode={r.kode_anggaran_baru} />
+                                                                            <KodeAnggaranFromString
+                                                                                kode={r.kode_anggaran_baru}
+                                                                                programName={program.program_name}
+                                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                                mataAnggaran={r.mata_anggaran}
+                                                                            />
                                                                             {r.kode_anggaran_baru && <CopyButton value={r.kode_anggaran_baru} label="Salin Kode Baru" />}
                                                                         </span>
                                                                     </td>

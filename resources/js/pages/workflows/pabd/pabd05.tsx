@@ -357,7 +357,12 @@ export default function Pabd05Show({
                                                                 <td className="border px-3 py-2 whitespace-nowrap">
                                                                     <span className="inline-flex items-center gap-1">
                                                                         {anggaran.kode_anggaran_baru ? (
-                                                                            <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
+                                                                            <KodeAnggaranFromString
+                                                                                kode={anggaran.kode_anggaran_baru}
+                                                                                programName={program.program_name}
+                                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                                mataAnggaran={anggaran.mata_anggaran}
+                                                                            />
                                                                         ) : (
                                                                             <span className="text-gray-400">-</span>
                                                                         )}

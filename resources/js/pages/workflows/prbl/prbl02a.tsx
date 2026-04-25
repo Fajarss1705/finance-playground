@@ -209,7 +209,7 @@ function NotaFileList({ items }: { items: NotaItem[] }) {
 
 // ─── Kegiatan Card (PRBL02A: narasi-first) ──────────
 
-function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; index: number; total: number }) {
+function KegiatanCard({ kegiatan, index, total, programName }: { kegiatan: KegiatanItem; index: number; total: number; programName?: string }) {
     const [open, setOpen] = useState(true);
     const subtotalDicairkan = kegiatan.realisasi.reduce((s, r) => s + r.nominal_anggaran, 0);
     const subtotalRealisasi = kegiatan.realisasi.reduce((s, r) => s + r.nominal_realisasi, 0);
@@ -294,7 +294,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                     <tbody>
                                         {kegiatan.realisasi.map((r) => (
                                             <tr key={r.pk04_anggaran_id} className="border-b last:border-0">
-                                                <td className="p-1">{r.kode_anggaran_baru ? <KodeAnggaranFromString kode={r.kode_anggaran_baru} /> : '—'}</td>
+                                                <td className="p-1">{r.kode_anggaran_baru ? <KodeAnggaranFromString kode={r.kode_anggaran_baru} programName={programName} kegiatanName={kegiatan.nama_kegiatan} mataAnggaran={r.mata_anggaran} /> : '—'}</td>
                                                 <td className="p-1">{r.mata_anggaran}</td>
                                                 <td className="p-1 text-right font-mono">{formatRupiah(r.nominal_anggaran)}</td>
                                                 <td className="p-1 text-right font-mono">{formatRupiah(r.nominal_realisasi)}</td>
@@ -459,6 +459,7 @@ export default function Prbl02a({
                                             kegiatan={kegiatan}
                                             index={ki}
                                             total={program.kegiatan.length}
+                                            programName={program.program_name}
                                         />
                                     ))}
                                 </div>
