@@ -52,6 +52,7 @@ type RealisasiItem = {
     prbl01_item_realisasi_id: number | null;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     nominal_realisasi: number;
@@ -268,11 +269,12 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                 <table className="w-full text-xs">
                                     <thead>
                                         <tr className="border-b text-left text-muted-foreground">
-                                            <th className="p-1">Kode Anggaran</th>
+                                            <th className="p-1">Kode Anggaran Baru</th>
                                             <th className="p-1">Mata Anggaran</th>
                                             <th className="p-1 text-right">Dicairkan</th>
                                             <th className="p-1 text-right">Realisasi</th>
                                             <th className="p-1 text-right">Selisih</th>
+                                            <th className="p-1">Kode Anggaran Lama</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -285,6 +287,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                                     <td className="p-1 text-right font-mono">{formatRupiah(r.nominal_anggaran)}</td>
                                                     <td className="p-1 text-right font-mono">{formatRupiah(r.nominal_realisasi)}</td>
                                                     <td className={`p-1 text-right font-mono ${selisih < 0 ? 'text-amber-600 font-semibold' : ''}`}>{formatRupiah(selisih)}</td>
+                                                    <td className="p-1 font-mono text-muted-foreground">{r.kode_anggaran_lama ?? '—'}</td>
                                                 </tr>
                                             );
                                         })}
@@ -295,6 +298,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                             <td className="p-1 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
                                             <td className="p-1 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
                                             <td className="p-1 text-right font-mono">{formatRupiah(subtotalDicairkan - subtotalRealisasi)}</td>
+                                            <td />
                                         </tr>
                                     </tfoot>
                                 </table>

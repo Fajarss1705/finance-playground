@@ -27,6 +27,7 @@ import type { BreadcrumbItem } from '@/types';
 type AnggaranRealisasiItem = {
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_dicairkan: number;
     nominal_realisasi: number;
@@ -165,11 +166,12 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                     <table className="w-full text-xs">
                                         <thead>
                                             <tr className="border-b text-left text-muted-foreground">
-                                                <th className="p-1">Kode Anggaran</th>
+                                                <th className="p-1">Kode Anggaran Baru</th>
                                                 <th className="p-1">Mata Anggaran</th>
                                                 <th className="p-1 text-right">Dicairkan (Rp)</th>
                                                 <th className="p-1 text-right">Realisasi (Rp)</th>
                                                 <th className="p-1 text-right">Selisih (Rp)</th>
+                                                <th className="p-1">Kode Anggaran Lama</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -190,6 +192,9 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                     <td className="p-1 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
                                                     <td className={`p-1 text-right font-mono ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}>
                                                         {formatRupiah(a.selisih)}
+                                                    </td>
+                                                    <td className="p-1 font-mono text-muted-foreground">
+                                                        {a.kode_anggaran_lama ?? '—'}
                                                     </td>
                                                 </tr>
                                             ))}

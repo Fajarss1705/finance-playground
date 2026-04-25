@@ -2006,6 +2006,7 @@ class PrblWorkflowController extends Controller
             $programMap[$programId]['kegiatan'][$kegiatanId]['anggaran'][] = [
                 'pk04_anggaran_id' => $anggaran->id,
                 'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $anggaran->mata_anggaran,
                 'nominal_dicairkan' => $nominalDicairkan,
                 'nominal_realisasi' => $nominalRealisasi,
@@ -2291,6 +2292,7 @@ class PrblWorkflowController extends Controller
                     'prbl01_item_realisasi_id' => $realisasi?->id,
                     'pk04_anggaran_id' => $anggaran->id,
                     'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                    'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
                     'mata_anggaran' => $anggaran->mata_anggaran,
                     'nominal_anggaran' => (float) $anggaran->nominal_anggaran,
                     'nominal_realisasi' => $realisasi ? (float) $realisasi->nominal_realisasi : 0,
@@ -2980,6 +2982,7 @@ class PrblWorkflowController extends Controller
                 'prbl05_item_realisasi_id' => $item->id,
                 'pk04_anggaran_id' => $pk04Anggaran->id,
                 'kode_anggaran_baru' => $pk04Anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $pk04Anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $pk04Anggaran->mata_anggaran,
                 'nominal_anggaran' => (float) $item->nominal_anggaran,
                 'nominal_realisasi' => (float) $item->nominal_realisasi,

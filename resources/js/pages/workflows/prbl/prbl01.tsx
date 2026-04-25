@@ -49,6 +49,7 @@ type RealisasiItem = {
     prbl01_item_realisasi_id: number | null;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     nominal_realisasi: number;
@@ -843,13 +844,14 @@ export default function Prbl01({
                                                 <table className="w-full text-sm">
                                                     <thead>
                                                         <tr className="border-b bg-muted/50">
-                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran</th>
+                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran Baru</th>
                                                             <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
                                                             <th className="px-3 py-2 text-right font-medium">Dicairkan (Rp)</th>
                                                             <th className="w-40 px-3 py-2 text-right font-medium">
                                                                 Realisasi (Rp) <span className="text-red-500">*</span>
                                                             </th>
                                                             <th className="w-40 px-3 py-2 text-left font-medium">Komentar</th>
+                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran Lama</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -898,6 +900,9 @@ export default function Prbl01({
                                                                             />
                                                                         ) : null}
                                                                     </td>
+                                                                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                                                                        {r.kode_anggaran_lama ?? '—'}
+                                                                    </td>
                                                                 </tr>
                                                             );
                                                         })}
@@ -910,6 +915,7 @@ export default function Prbl01({
                                                             <td className="px-3 py-2 text-sm text-muted-foreground">
                                                                 Selisih: {formatRupiah(subDicairkan - subRealisasi)}
                                                             </td>
+                                                            <td />
                                                         </tr>
                                                     </tfoot>
                                                 </table>

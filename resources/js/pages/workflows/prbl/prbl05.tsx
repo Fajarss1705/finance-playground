@@ -63,6 +63,7 @@ type RealisasiAnggaranEntry = {
     prbl05_item_realisasi_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     nominal_realisasi: number;
@@ -372,12 +373,13 @@ export default function Prbl05Show({
                                                 <table className="w-full text-sm">
                                                     <thead>
                                                         <tr className="border-b text-left text-xs text-gray-500">
-                                                            <th className="pb-2 pr-3 font-medium">Kode Anggaran</th>
+                                                            <th className="pb-2 pr-3 font-medium">Kode Anggaran Baru</th>
                                                             <th className="pb-2 pr-3 font-medium">Mata Anggaran</th>
                                                             <th className="pb-2 pr-3 text-right font-medium">Dicairkan (Rp)</th>
                                                             <th className="pb-2 pr-3 text-right font-medium">Realisasi (Rp)</th>
                                                             <th className="pb-2 pr-3 text-right font-medium">Selisih (Rp)</th>
-                                                            <th className="pb-2 font-medium">Komentar</th>
+                                                            <th className="pb-2 pr-3 font-medium">Komentar</th>
+                                                            <th className="pb-2 font-medium">Kode Anggaran Lama</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -396,7 +398,8 @@ export default function Prbl05Show({
                                                                 <td className={`py-2 pr-3 text-right font-mono ${a.selisih < 0 ? 'text-amber-600 font-semibold' : ''}`}>
                                                                     {formatRupiah(a.selisih)}
                                                                 </td>
-                                                                <td className="py-2 text-sm text-gray-600">{a.komentar_realisasi || '-'}</td>
+                                                                <td className="py-2 pr-3 text-sm text-gray-600">{a.komentar_realisasi || '-'}</td>
+                                                                <td className="py-2 font-mono text-gray-500">{a.kode_anggaran_lama ?? '—'}</td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
