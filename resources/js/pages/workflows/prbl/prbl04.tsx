@@ -122,7 +122,7 @@ type RejectionInfo = {
 } | null;
 
 type Props = {
-    scope: 'admin' | 'team';
+    scope: 'team' | 'admin';
     mode: 'review' | 'readonly';
     canApprove: boolean;
     canReject: boolean;
