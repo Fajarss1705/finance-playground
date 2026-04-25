@@ -219,7 +219,7 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                     className={a.selisih < 0 ? 'text-muted-foreground' : ''}
                                                 >
                                                     <td className="border p-1.5">
-                                                        <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>
+                                                        <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label ?? "—"}</Badge>
                                                     </td>
                                                     <td className="border p-1.5 whitespace-nowrap">
                                                         <span className="inline-flex items-center gap-1">

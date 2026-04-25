@@ -308,7 +308,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                             return (
                                                 <tr key={r.pk04_anggaran_id}>
                                                     <td className="border p-1.5">
-                                                        <Badge className={`text-[10px] ${statusBadgeClass(r.status_label)}`}>{r.status_label}</Badge>
+                                                        <Badge className={`text-[10px] ${statusBadgeClass(r.status_label)}`}>{r.status_label ?? "—"}</Badge>
                                                     </td>
                                                     <td className="border p-1.5 whitespace-nowrap">
                                                         <span className="inline-flex items-center gap-1">

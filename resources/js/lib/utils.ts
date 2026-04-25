@@ -94,7 +94,10 @@ export function formatDateShort(iso: string | null | undefined): string {
  * "Tarik Maju …" / "Ditarik Maju …" → amber; "Di Luar Plafon" → purple;
  * "Normal" and anything else → slate.
  */
-export function statusBadgeClass(label: string): string {
+export function statusBadgeClass(label: string | null | undefined): string {
+    if (!label) {
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+    }
     if (label.startsWith('Tarik Maju') || label.startsWith('Ditarik Maju')) {
         return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
     }
