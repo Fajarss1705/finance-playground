@@ -670,13 +670,13 @@ class PrblWorkflowController extends Controller
         $sessionContext = $this->getSessionContext();
 
         $this->commentService->store(
-            $prblWorkflow,
-            $validated['source'],
-            $validated['notes'],
-            $request->file('files', []),
-            $request->user()->id,
-            $sessionContext,
-            'prbl',
+            workflow: $prblWorkflow,
+            source: $validated['source'],
+            notes: $validated['notes'],
+            uploadedFiles: $request->file('files', []),
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            workflowPrefix: 'prbl',
         );
 
         return back()->with('success', 'Komentar berhasil ditambahkan.');
