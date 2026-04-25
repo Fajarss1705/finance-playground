@@ -1,10 +1,11 @@
 import { Head, router } from '@inertiajs/react';
-import { AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, FileIcon, Info, Trash2, Upload, X } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, FileText, Info, Upload, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { RupiahInput } from '@/components/ui/rupiah-input';
 import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
@@ -24,6 +25,7 @@ type FotoItem = {
     file_id: number;
     original_filename: string;
     thumbnail_url: string | null;
+    download_url: string | null;
 };
 
 type NotaItem = {
@@ -276,9 +278,6 @@ export default function Prbl01({
     }, [kegiatanItems, realisasiMap, totalDicairkan]);
 
     // ─── File upload handlers (staged — applied on draft/submit) ─
-
-    const fotoInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-    const notaInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
     const addFotoFiles = useCallback((kegiatanId: number, files: FileList | null) => {
         if (!files || files.length === 0) return;
@@ -638,80 +637,81 @@ export default function Prbl01({
                                             <h5 className="mb-2 text-sm font-semibold">
                                                 Foto Kegiatan <span className="text-red-500">*</span>
                                             </h5>
-                                            {!isReadonly && (
-                                                <div className="mb-2">
-                                                    <input
-                                                        ref={(el) => { fotoInputRefs.current[kId] = el; }}
-                                                        type="file"
-                                                        accept="image/jpeg,image/png,image/webp"
-                                                        multiple
-                                                        className="hidden"
-                                                        onChange={(e) => {
-                                                            addFotoFiles(kId, e.target.files);
-                                                            e.target.value = '';
-                                                        }}
-                                                    />
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={processing}
-                                                        onClick={() => fotoInputRefs.current[kId]?.click()}
-                                                    >
-                                                        <Upload className="mr-1 h-3.5 w-3.5" />
-                                                        Tambah Foto
-                                                    </Button>
-                                                    <span className="ml-2 text-xs text-muted-foreground">JPG, PNG, WEBP. Tersimpan saat klik Simpan Draft / Submit.</span>
-                                                </div>
-                                            )}
-                                            {totalFotoCount > 0 ? (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {visibleFotos.map((foto) => (
-                                                        <div key={`existing-${foto.id}`} className="group relative">
-                                                            {foto.thumbnail_url ? (
-                                                                <a href={foto.thumbnail_url} target="_blank" rel="noopener noreferrer">
-                                                                    <img
-                                                                        src={foto.thumbnail_url}
-                                                                        alt={foto.original_filename}
-                                                                        className="h-20 w-20 rounded border object-cover"
-                                                                    />
-                                                                </a>
-                                                            ) : (
-                                                                <div className="flex h-20 w-20 items-center justify-center rounded border bg-muted">
-                                                                    <FileIcon className="h-6 w-6 text-muted-foreground" />
-                                                                </div>
-                                                            )}
-                                                            {!isReadonly && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="absolute -right-1 -top-1 rounded-full bg-red-500 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                                                                    onClick={() => markFotoForRemoval(foto.id)}
-                                                                >
-                                                                    <X className="h-3 w-3" />
-                                                                </button>
-                                                            )}
+                                            <p className="text-xs text-muted-foreground">
+                                                Upload foto kegiatan (minimal 1). Format: JPG, PNG, WEBP — Maks 50MB/file.
+                                            </p>
+                                            <div className="mt-2 space-y-2">
+                                                {visibleFotos.map((foto) => (
+                                                    <div key={`existing-${foto.id}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                                                        {foto.thumbnail_url ? (
+                                                            <a href={foto.thumbnail_url} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Lihat foto">
+                                                                <img src={foto.thumbnail_url} alt={foto.original_filename} className="h-10 w-10 rounded border object-cover" />
+                                                            </a>
+                                                        ) : (
+                                                            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                        )}
+                                                        {foto.download_url ? (
+                                                            <a href={foto.download_url} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh">
+                                                                {foto.original_filename}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="flex-1 truncate">{foto.original_filename}</span>
+                                                        )}
+                                                        {!isReadonly && (
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => markFotoForRemoval(foto.id)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+
+                                                {stagedFotos.map((file, idx) => {
+                                                    const previewUrl = URL.createObjectURL(file);
+                                                    return (
+                                                        <div key={`new-${idx}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-sm dark:border-blue-700 dark:bg-blue-950/20">
+                                                            <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Pratinjau">
+                                                                <img src={previewUrl} alt={file.name} className="h-10 w-10 rounded border object-cover" />
+                                                            </a>
+                                                            <a href={previewUrl} download={file.name} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh pratinjau">
+                                                                {file.name}
+                                                            </a>
+                                                            <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => removeNewFoto(kId, idx)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
                                                         </div>
-                                                    ))}
-                                                    {stagedFotos.map((file, idx) => (
-                                                        <div key={`new-${idx}`} className="group relative">
-                                                            <div className="flex h-20 w-20 flex-col items-center justify-center rounded border border-dashed border-blue-400 bg-blue-50 p-1 text-center dark:bg-blue-950">
-                                                                <FileIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                                                                <span className="mt-1 line-clamp-2 text-[10px] text-blue-700 dark:text-blue-300">{file.name}</span>
-                                                            </div>
-                                                            {!isReadonly && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="absolute -right-1 -top-1 rounded-full bg-red-500 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                                                                    onClick={() => removeNewFoto(kId, idx)}
-                                                                >
-                                                                    <X className="h-3 w-3" />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-red-500">Belum ada foto. Minimal 1 foto wajib diupload.</p>
-                                            )}
+                                                    );
+                                                })}
+
+                                                {!isReadonly && (
+                                                    <label className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 px-6 py-6 text-center transition-colors hover:border-muted-foreground/50 hover:bg-muted/30">
+                                                        <Upload className="h-6 w-6 text-muted-foreground" />
+                                                        <p className="text-sm text-muted-foreground">Klik untuk memilih foto</p>
+                                                        <input
+                                                            type="file"
+                                                            accept="image/jpeg,image/png,image/webp"
+                                                            multiple
+                                                            className="sr-only"
+                                                            onChange={(e) => {
+                                                                addFotoFiles(kId, e.target.files);
+                                                                e.target.value = '';
+                                                            }}
+                                                        />
+                                                    </label>
+                                                )}
+
+                                                {totalFotoCount === 0 && !isReadonly && (
+                                                    <p className="text-xs text-red-500">Belum ada foto. Minimal 1 foto wajib diupload.</p>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Nota Pengeluaran */}
@@ -719,76 +719,72 @@ export default function Prbl01({
                                             <h5 className="mb-2 text-sm font-semibold">
                                                 Nota Pengeluaran <span className="text-red-500">*</span>
                                             </h5>
-                                            <p className="mb-2 text-xs text-muted-foreground">
-                                                Bukti pengeluaran (kuitansi, invoice). Semua tipe file kecuali executable. Maks 25MB/file.
+                                            <p className="text-xs text-muted-foreground">
+                                                Bukti pengeluaran (kuitansi, invoice). Semua tipe file kecuali executable — Maks 25MB/file.
                                             </p>
-                                            {!isReadonly && (
-                                                <div className="mb-2">
-                                                    <input
-                                                        ref={(el) => { notaInputRefs.current[kId] = el; }}
-                                                        type="file"
-                                                        multiple
-                                                        className="hidden"
-                                                        onChange={(e) => {
-                                                            addNotaFiles(kId, e.target.files);
-                                                            e.target.value = '';
-                                                        }}
-                                                    />
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={processing}
-                                                        onClick={() => notaInputRefs.current[kId]?.click()}
-                                                    >
-                                                        <Upload className="mr-1 h-3.5 w-3.5" />
-                                                        Tambah File
-                                                    </Button>
-                                                    <span className="ml-2 text-xs text-muted-foreground">Tersimpan saat klik Simpan Draft / Submit.</span>
-                                                </div>
-                                            )}
-                                            {totalNotaCount > 0 ? (
-                                                <div className="space-y-1">
-                                                    {visibleNotaExisting.map((nota) => (
-                                                        <div key={`existing-${nota.id}`} className="flex items-center gap-2 text-sm">
-                                                            <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                                            {nota.download_url ? (
-                                                                <a href={nota.download_url} className="truncate text-blue-600 hover:underline dark:text-blue-400">
-                                                                    {nota.original_filename}
-                                                                </a>
-                                                            ) : (
-                                                                <span className="truncate">{nota.original_filename}</span>
-                                                            )}
-                                                            {!isReadonly && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="shrink-0 text-red-500 hover:text-red-700"
-                                                                    onClick={() => markNotaForRemoval(nota.id)}
-                                                                >
-                                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                                </button>
-                                                            )}
+                                            <div className="mt-2 space-y-2">
+                                                {visibleNotaExisting.map((nota) => (
+                                                    <div key={`existing-${nota.id}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                                                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                        {nota.download_url ? (
+                                                            <a href={nota.download_url} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh">
+                                                                {nota.original_filename}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="flex-1 truncate">{nota.original_filename}</span>
+                                                        )}
+                                                        {!isReadonly && (
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => markNotaForRemoval(nota.id)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+
+                                                {stagedNota.map((file, idx) => {
+                                                    const previewUrl = URL.createObjectURL(file);
+                                                    return (
+                                                        <div key={`new-${idx}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-sm dark:border-blue-700 dark:bg-blue-950/20">
+                                                            <FileText className="h-4 w-4 shrink-0 text-blue-500" />
+                                                            <a href={previewUrl} download={file.name} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh pratinjau">
+                                                                {file.name}
+                                                            </a>
+                                                            <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => removeNewNota(kId, idx)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
                                                         </div>
-                                                    ))}
-                                                    {stagedNota.map((file, idx) => (
-                                                        <div key={`new-${idx}`} className="flex items-center gap-2 text-sm">
-                                                            <FileIcon className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
-                                                            <span className="truncate text-blue-700 dark:text-blue-300">{file.name}</span>
-                                                            <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900 dark:text-blue-300">baru</span>
-                                                            {!isReadonly && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="shrink-0 text-red-500 hover:text-red-700"
-                                                                    onClick={() => removeNewNota(kId, idx)}
-                                                                >
-                                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-red-500">Belum ada nota. Minimal 1 nota wajib diupload.</p>
-                                            )}
+                                                    );
+                                                })}
+
+                                                {!isReadonly && (
+                                                    <label className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 px-6 py-6 text-center transition-colors hover:border-muted-foreground/50 hover:bg-muted/30">
+                                                        <Upload className="h-6 w-6 text-muted-foreground" />
+                                                        <p className="text-sm text-muted-foreground">Klik untuk memilih file</p>
+                                                        <input
+                                                            type="file"
+                                                            multiple
+                                                            className="sr-only"
+                                                            onChange={(e) => {
+                                                                addNotaFiles(kId, e.target.files);
+                                                                e.target.value = '';
+                                                            }}
+                                                        />
+                                                    </label>
+                                                )}
+
+                                                {totalNotaCount === 0 && !isReadonly && (
+                                                    <p className="text-xs text-red-500">Belum ada nota. Minimal 1 nota wajib diupload.</p>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Kuisioner */}
@@ -870,18 +866,16 @@ export default function Prbl01({
                                                                         {isReadonly ? (
                                                                             <span className="tabular-nums">{formatRupiah(rId ? (realisasiMap[rId]?.nominal ?? 0) : 0)}</span>
                                                                         ) : rId ? (
-                                                                            <Input
-                                                                                type="number"
-                                                                                min={0}
-                                                                                step="any"
+                                                                            <RupiahInput
                                                                                 value={realisasiMap[rId]?.nominal ?? 0}
-                                                                                onChange={(e) =>
+                                                                                onChange={(v) =>
                                                                                     setRealisasiMap((prev) => ({
                                                                                         ...prev,
-                                                                                        [rId]: { ...prev[rId], nominal: parseFloat(e.target.value) || 0 },
+                                                                                        [rId]: { ...prev[rId], nominal: v },
                                                                                     }))
                                                                                 }
-                                                                                className="h-8 text-right text-sm tabular-nums border-red-200 focus:border-red-500 focus:ring-red-500"
+                                                                                min={0}
+                                                                                className="h-8 text-sm tabular-nums"
                                                                             />
                                                                         ) : (
                                                                             <span className="text-muted-foreground">—</span>
