@@ -12,7 +12,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -70,6 +70,8 @@ type RealisasiAnggaranEntry = {
     nominal_realisasi: number;
     selisih: number;
     komentar_realisasi: string | null;
+    status_item: string | null;
+    status_label: string;
 };
 
 type RealisasiKegiatanGroup = {
@@ -165,11 +167,12 @@ type Props = {
 
 // ─── Helpers ──────────────────────────────────────────
 
-const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Komentar', 'Kode Anggaran Lama'];
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Komentar', 'Kode Anggaran Lama'];
 const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
 
 function realisasiToRow(a: RealisasiAnggaranEntry): string[] {
     return [
+        a.status_label,
         a.kode_anggaran_baru ?? '',
         a.mata_anggaran,
         String(a.nominal_anggaran),
@@ -407,6 +410,7 @@ export default function Prbl05Show({
                                                 <table className="w-full min-w-180 border-collapse border text-sm">
                                                     <thead>
                                                         <tr className="bg-muted/50 text-left text-xs text-gray-500">
+                                                            <th className="border p-1.5 font-medium">Status</th>
                                                             <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
                                                             <th className="border p-1.5 font-medium">Mata Anggaran</th>
                                                             <th className="border p-1.5 text-right font-medium">Dicairkan (Rp)</th>
@@ -420,6 +424,9 @@ export default function Prbl05Show({
                                                     <tbody>
                                                         {kegiatan.anggaran.map((a) => (
                                                             <tr key={a.prbl05_item_realisasi_id}>
+                                                                <td className="border p-1.5">
+                                                                    <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>
+                                                                </td>
                                                                 <td className="border p-1.5 whitespace-nowrap">
                                                                     <span className="inline-flex items-center gap-1">
                                                                         {a.kode_anggaran_baru ? (

@@ -15,7 +15,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -33,6 +33,8 @@ type AnggaranRealisasiItem = {
     nominal_dicairkan: number;
     nominal_realisasi: number;
     selisih: number;
+    status_item: string | null;
+    status_label: string;
 };
 
 type KegiatanGroup = {
@@ -145,11 +147,12 @@ function StepStatusBadge({ status }: { status: string }) {
 
 // ─── Realisasi Summary Table ────────────────────────
 
-const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
 const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
 
 function anggaranToRow(a: AnggaranRealisasiItem): string[] {
     return [
+        a.status_label,
         a.kode_anggaran_baru ?? '',
         a.mata_anggaran,
         String(a.nominal_dicairkan),
@@ -199,6 +202,7 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                     <table className="w-full min-w-180 border-collapse border text-xs">
                                         <thead>
                                             <tr className="bg-muted/50 text-left text-muted-foreground">
+                                                <th className="border p-1.5">Status</th>
                                                 <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
                                                 <th className="border p-1.5">Mata Anggaran</th>
                                                 <th className="border p-1.5 text-right">Dicairkan (Rp)</th>
@@ -214,6 +218,9 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                     key={a.pk04_anggaran_id}
                                                     className={a.selisih < 0 ? 'text-muted-foreground' : ''}
                                                 >
+                                                    <td className="border p-1.5">
+                                                        <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>
+                                                    </td>
                                                     <td className="border p-1.5 whitespace-nowrap">
                                                         <span className="inline-flex items-center gap-1">
                                                             {a.kode_anggaran_baru ? (
@@ -242,7 +249,7 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
                                                 </tr>
                                             ))}
                                             <tr className="bg-muted/30 font-medium">
-                                                <td className="border p-1.5" colSpan={2}>
+                                                <td className="border p-1.5" colSpan={3}>
                                                     Subtotal
                                                 </td>
                                                 <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>

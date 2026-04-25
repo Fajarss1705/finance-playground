@@ -17,7 +17,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -58,6 +58,8 @@ type RealisasiItem = {
     nominal_anggaran: number;
     nominal_realisasi: number;
     komentar_realisasi: string | null;
+    status_item: string | null;
+    status_label: string;
 };
 
 type KegiatanItem = {
@@ -247,11 +249,12 @@ function NotaFileList({ items }: { items: NotaItem[] }) {
 
 // ─── Realisasi copy helpers ─────────────────────────
 
-const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
 
 function realisasiRow(r: RealisasiItem): string[] {
     const selisih = r.nominal_anggaran - r.nominal_realisasi;
     return [
+        r.status_label,
         r.kode_anggaran_baru ?? '',
         r.mata_anggaran,
         String(r.nominal_anggaran),
@@ -289,6 +292,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                 <table className="w-full min-w-180 border-collapse border text-xs">
                                     <thead>
                                         <tr className="bg-muted/50 text-left text-muted-foreground">
+                                            <th className="border p-1.5">Status</th>
                                             <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
                                             <th className="border p-1.5">Mata Anggaran</th>
                                             <th className="border p-1.5 text-right">Dicairkan</th>
@@ -303,6 +307,9 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                             const selisih = r.nominal_anggaran - r.nominal_realisasi;
                                             return (
                                                 <tr key={r.pk04_anggaran_id}>
+                                                    <td className="border p-1.5">
+                                                        <Badge className={`text-[10px] ${statusBadgeClass(r.status_label)}`}>{r.status_label}</Badge>
+                                                    </td>
                                                     <td className="border p-1.5 whitespace-nowrap">
                                                         <span className="inline-flex items-center gap-1">
                                                             {r.kode_anggaran_baru ? <KodeAnggaranFromString kode={r.kode_anggaran_baru} /> : '—'}
@@ -328,7 +335,7 @@ function KegiatanCard({ kegiatan, index, total }: { kegiatan: KegiatanItem; inde
                                     </tbody>
                                     <tfoot>
                                         <tr className="bg-muted/30 font-medium">
-                                            <td colSpan={2} className="border p-1.5">Subtotal</td>
+                                            <td colSpan={3} className="border p-1.5">Subtotal</td>
                                             <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
                                             <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
                                             <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan - subtotalRealisasi)}</td>

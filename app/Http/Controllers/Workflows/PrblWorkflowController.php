@@ -1963,7 +1963,7 @@ class PrblWorkflowController extends Controller
         $dicairkanAnggaran = Pk04Anggaran::where('pencairan_pabd_workflow_id', $prblWorkflow->pabd_workflow_id)
             ->where('status_pencairan', 'dicairkan')
             ->whereHas('pk04Kegiatan', fn ($q) => $q->where('bulan', $prblWorkflow->bulan_laporan))
-            ->with(['pk04Kegiatan.pk04ProgramTahunan'])
+            ->with(['pk04Kegiatan.pk04ProgramTahunan.pkWorkflow'])
             ->get();
 
         $programMap = [];
@@ -2002,6 +2002,7 @@ class PrblWorkflowController extends Controller
 
             $nominalDicairkan = (float) $anggaran->nominal_anggaran;
             $nominalRealisasi = $realisasiByAnggaran[$anggaran->id] ?? 0;
+            $status = $this->resolveStatusLabel($anggaran, $program->pkWorkflow?->tipe);
 
             $programMap[$programId]['kegiatan'][$kegiatanId]['anggaran'][] = [
                 'pk04_anggaran_id' => $anggaran->id,
@@ -2011,6 +2012,8 @@ class PrblWorkflowController extends Controller
                 'nominal_dicairkan' => $nominalDicairkan,
                 'nominal_realisasi' => $nominalRealisasi,
                 'selisih' => $nominalDicairkan - $nominalRealisasi,
+                'status_item' => $status['status_item'],
+                'status_label' => $status['status_label'],
             ];
         }
 
@@ -2239,7 +2242,7 @@ class PrblWorkflowController extends Controller
     private function resolveKegiatanItems(Prbl01Data $prbl01Data, PrblWorkflow $prblWorkflow): array
     {
         $prbl01Data->load([
-            'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan',
+            'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
             'itemKegiatan.fotoKegiatan.file',
             'itemKegiatan.notaPengeluaran.file',
             'itemKegiatan.itemKuisioner.pk04Kuisioner',
@@ -2288,6 +2291,7 @@ class PrblWorkflowController extends Controller
             $realisasiItems = [];
             foreach ($dicairkanAnggaran as $anggaran) {
                 $realisasi = $realisasiByAnggaran[$anggaran->id] ?? null;
+                $status = $this->resolveStatusLabel($anggaran, $program->pkWorkflow?->tipe);
                 $realisasiItems[] = [
                     'prbl01_item_realisasi_id' => $realisasi?->id,
                     'pk04_anggaran_id' => $anggaran->id,
@@ -2297,6 +2301,8 @@ class PrblWorkflowController extends Controller
                     'nominal_anggaran' => (float) $anggaran->nominal_anggaran,
                     'nominal_realisasi' => $realisasi ? (float) $realisasi->nominal_realisasi : 0,
                     'komentar_realisasi' => $realisasi?->komentar_realisasi,
+                    'status_item' => $status['status_item'],
+                    'status_label' => $status['status_label'],
                 ];
             }
 
@@ -2719,7 +2725,7 @@ class PrblWorkflowController extends Controller
             'itemKegiatan.notaPengeluaran.file',
             'itemKegiatan.itemKuisioner.pk04Kuisioner',
             'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
-            'itemRealisasi.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan',
+            'itemRealisasi.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
             'rekeningOrganisasi',
             'bukti.file',
         ]);
@@ -2978,6 +2984,7 @@ class PrblWorkflowController extends Controller
                 ];
             }
 
+            $status = $this->resolveStatusLabel($pk04Anggaran, $program?->pkWorkflow?->tipe);
             $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
                 'prbl05_item_realisasi_id' => $item->id,
                 'pk04_anggaran_id' => $pk04Anggaran->id,
@@ -2988,6 +2995,8 @@ class PrblWorkflowController extends Controller
                 'nominal_realisasi' => (float) $item->nominal_realisasi,
                 'selisih' => (float) $item->selisih,
                 'komentar_realisasi' => $item->komentar_realisasi,
+                'status_item' => $status['status_item'],
+                'status_label' => $status['status_label'],
             ];
         }
 
@@ -3365,6 +3374,35 @@ class PrblWorkflowController extends Controller
             1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
             5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+        ];
+    }
+
+    /**
+     * Compute the status badge for an anggaran row in PRBL realisasi tables.
+     *
+     * Mirrors the logic in PabdWorkflowController::resolveAnggaranItems so the
+     * same labels surface across both workflows. PRBL only contains items
+     * whose status_pencairan is 'dicairkan', so "Ditarik Maju" never appears
+     * here — only Normal, Tarik Maju from another month, or Di Luar Plafon.
+     *
+     * @return array{status_item: string|null, status_label: string}
+     */
+    private function resolveStatusLabel(Pk04Anggaran $anggaran, ?string $programTipe): array
+    {
+        if ($anggaran->source === 'tarik_maju') {
+            $sourceBulan = Pk04Anggaran::find($anggaran->previous_anggaran_id)?->pk04Kegiatan?->bulan;
+            $statusLabel = $sourceBulan
+                ? "Tarik Maju dari Bln {$sourceBulan}"
+                : 'Tarik Maju';
+        } elseif ($programTipe === 'proposal') {
+            $statusLabel = 'Di Luar Plafon';
+        } else {
+            $statusLabel = 'Normal';
+        }
+
+        return [
+            'status_item' => $anggaran->status_item,
+            'status_label' => $statusLabel,
         ];
     }
 

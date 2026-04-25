@@ -16,7 +16,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -55,6 +55,8 @@ type RealisasiItem = {
     nominal_anggaran: number;
     nominal_realisasi: number;
     komentar_realisasi: string | null;
+    status_item: string | null;
+    status_label: string;
 };
 
 type KegiatanItem = {
@@ -151,11 +153,12 @@ type Props = {
 
 // ─── Copy helpers ─────────────────────────────────────
 
-const REALISASI_HEADERS = ['Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Komentar', 'Kode Anggaran Lama'];
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Komentar', 'Kode Anggaran Lama'];
 const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
 
 function realisasiToRow(r: RealisasiItem, nominal: number, komentar: string): string[] {
     return [
+        r.status_label,
         r.kode_anggaran_baru ?? '',
         r.mata_anggaran,
         String(r.nominal_anggaran),
@@ -894,6 +897,7 @@ export default function Prbl01({
                                                 <table className="w-full min-w-180 border-collapse border text-sm">
                                                     <thead>
                                                         <tr className="bg-muted/50 text-left">
+                                                            <th className="border p-1.5 font-medium">Status</th>
                                                             <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
                                                             <th className="border p-1.5 font-medium">Mata Anggaran</th>
                                                             <th className="border p-1.5 text-right font-medium">Dicairkan (Rp)</th>
@@ -910,6 +914,9 @@ export default function Prbl01({
                                                             const rId = r.prbl01_item_realisasi_id;
                                                             return (
                                                                 <tr key={r.pk04_anggaran_id}>
+                                                                    <td className="border p-1.5">
+                                                                        <Badge className={`text-[10px] ${statusBadgeClass(r.status_label)}`}>{r.status_label}</Badge>
+                                                                    </td>
                                                                     <td className="border p-1.5 whitespace-nowrap">
                                                                         <span className="inline-flex items-center gap-1">
                                                                             <KodeAnggaranFromString kode={r.kode_anggaran_baru} />
@@ -969,7 +976,7 @@ export default function Prbl01({
                                                     </tbody>
                                                     <tfoot>
                                                         <tr className="bg-muted/30 font-medium">
-                                                            <td colSpan={2} className="border p-1.5 text-right">Subtotal</td>
+                                                            <td colSpan={3} className="border p-1.5 text-right">Subtotal</td>
                                                             <td className="border p-1.5 text-right tabular-nums">{formatRupiah(subDicairkan)}</td>
                                                             <td className="border p-1.5 text-right tabular-nums">{formatRupiah(subRealisasi)}</td>
                                                             <td className="border p-1.5 text-sm text-muted-foreground">
