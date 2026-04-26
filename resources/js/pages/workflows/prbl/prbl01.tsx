@@ -183,6 +183,33 @@ function StepStatusBadge({ mode, scope }: { mode: string; scope: string }) {
     return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">Menunggu Diisi</Badge>;
 }
 
+// ─── Field completion check pill ─────────────────────
+
+function FieldCheck({ done, label, optional = false }: { done: boolean; label: string; optional?: boolean }) {
+    if (done) {
+        return (
+            <span className="inline-flex items-center gap-0.5 text-xs text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-3 w-3" />
+                {label}
+            </span>
+        );
+    }
+    if (optional) {
+        return (
+            <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                <span className="inline-block h-3 w-3 rounded-full border border-muted-foreground/30" />
+                {label}
+            </span>
+        );
+    }
+    return (
+        <span className="inline-flex items-center gap-0.5 text-xs text-red-600 dark:text-red-400">
+            <X className="h-3 w-3" />
+            {label}
+        </span>
+    );
+}
+
 // ─── Main component ──────────────────────────────────
 
 export default function Prbl01({
@@ -298,6 +325,24 @@ export default function Prbl01({
         return { totalRealisasi, realisasiCount, dicairkanCount, selisih, overBudget };
     }, [kegiatanItems, realisasiMap, totalDicairkan]);
 
+    const hasNarrativeOrKuisionerError = useMemo(() => {
+        if (isReadonly) return false;
+        return kegiatanItems.some((program) =>
+            program.kegiatan.some((k) => {
+                const kId = k.prbl01_item_kegiatan_id;
+                const narr = narratives[kId] ?? { masalah: '', langkah_penanganan: '', harapan: '', catatan_tim: '' };
+                const narrativeOk =
+                    narr.masalah.trim().length > 0 &&
+                    narr.langkah_penanganan.trim().length > 0 &&
+                    narr.harapan.trim().length > 0;
+                const kuisionerOk =
+                    k.kuisioner.length === 0 ||
+                    k.kuisioner.every((q) => (kuisionerAnswers[q.prbl01_item_kuisioner_id] ?? '').trim().length > 0);
+                return !narrativeOk || !kuisionerOk;
+            }),
+        );
+    }, [isReadonly, kegiatanItems, narratives, kuisionerAnswers]);
+
     // ─── Realisasi copy helpers ─────────────────────────
 
     function rowFor(r: RealisasiItem): string[] {
@@ -373,17 +418,16 @@ export default function Prbl01({
         for (const program of kegiatanItems) {
             for (const k of program.kegiatan) {
                 const kId = k.prbl01_item_kegiatan_id;
-                const narr = narratives[kId] ?? {};
+                const narr = narratives[kId] ?? { masalah: '', langkah_penanganan: '', harapan: '', catatan_tim: '' };
                 formData.append(`items[${itemIdx}][prbl01_item_kegiatan_id]`, String(kId));
-                if (narr.masalah) formData.append(`items[${itemIdx}][masalah]`, narr.masalah);
-                if (narr.langkah_penanganan) formData.append(`items[${itemIdx}][langkah_penanganan]`, narr.langkah_penanganan);
-                if (narr.harapan) formData.append(`items[${itemIdx}][harapan]`, narr.harapan);
+                formData.append(`items[${itemIdx}][masalah]`, narr.masalah ?? '');
+                formData.append(`items[${itemIdx}][langkah_penanganan]`, narr.langkah_penanganan ?? '');
+                formData.append(`items[${itemIdx}][harapan]`, narr.harapan ?? '');
                 if (narr.catatan_tim) formData.append(`items[${itemIdx}][catatan_tim]`, narr.catatan_tim);
 
                 k.kuisioner.forEach((q, qIdx) => {
                     formData.append(`items[${itemIdx}][kuisioner][${qIdx}][prbl01_item_kuisioner_id]`, String(q.prbl01_item_kuisioner_id));
-                    const jawaban = kuisionerAnswers[q.prbl01_item_kuisioner_id];
-                    if (jawaban) formData.append(`items[${itemIdx}][kuisioner][${qIdx}][jawaban]`, jawaban);
+                    formData.append(`items[${itemIdx}][kuisioner][${qIdx}][jawaban]`, kuisionerAnswers[q.prbl01_item_kuisioner_id] ?? '');
                 });
                 itemIdx++;
             }
@@ -605,6 +649,20 @@ export default function Prbl01({
                             }
                         }
 
+                        const completionChecks = {
+                            masalah: (narratives[kId]?.masalah ?? '').trim().length > 0,
+                            langkah: (narratives[kId]?.langkah_penanganan ?? '').trim().length > 0,
+                            harapan: (narratives[kId]?.harapan ?? '').trim().length > 0,
+                            catatan_tim: (narratives[kId]?.catatan_tim ?? '').trim().length > 0,
+                            foto: totalFotoCount > 0,
+                            nota: totalNotaCount > 0,
+                            kuisioner:
+                                kegiatan.kuisioner.length === 0 ||
+                                kegiatan.kuisioner.every(
+                                    (q) => (kuisionerAnswers[q.prbl01_item_kuisioner_id] ?? '').trim().length > 0,
+                                ),
+                        };
+
                         return (
                             <SectionCard
                                 key={kId}
@@ -620,7 +678,7 @@ export default function Prbl01({
                                 }
                             >
                                 {/* Kegiatan header — always visible */}
-                                <div className="mb-3 text-sm">
+                                <div className="mb-2 text-sm">
                                     <p className="font-semibold">
                                         {program.program_name}{' '}
                                         <span className="text-muted-foreground">({program.kode_kategori})</span>
@@ -630,12 +688,33 @@ export default function Prbl01({
                                     </p>
                                 </div>
 
+                                {/* Completion checklist — visible even when collapsed */}
+                                {!isReadonly && (
+                                    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
+                                        <FieldCheck done={completionChecks.masalah} label="Masalah" />
+                                        <FieldCheck done={completionChecks.langkah} label="Langkah" />
+                                        <FieldCheck done={completionChecks.harapan} label="Harapan" />
+                                        {kegiatan.kuisioner.length > 0 && (
+                                            <FieldCheck done={completionChecks.kuisioner} label="Kuisioner" />
+                                        )}
+                                        <FieldCheck done={completionChecks.foto} label="Foto" />
+                                        <FieldCheck done={completionChecks.nota} label="Nota" />
+                                        <FieldCheck done={completionChecks.catatan_tim} label="Catatan Tim" optional />
+                                        {subRealisasi === 0 && subDicairkan > 0 && (
+                                            <span className="inline-flex items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400">
+                                                <AlertTriangle className="h-3 w-3" />
+                                                Realisasi 0
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
                                 {!isCollapsed && (
                                     <div className="space-y-5">
                                         {/* Narrative fields */}
                                         <div className="space-y-3">
                                             <div>
-                                                <label className="mb-1 block text-sm font-medium">Masalah/Kendala</label>
+                                                <label className="mb-1 block text-sm font-medium">Masalah/Kendala <span className="text-red-500">*</span></label>
                                                 {isReadonly ? (
                                                     <p className="whitespace-pre-line text-sm">{narratives[kId]?.masalah || <span className="text-muted-foreground">—</span>}</p>
                                                 ) : (
@@ -648,7 +727,7 @@ export default function Prbl01({
                                                 )}
                                             </div>
                                             <div>
-                                                <label className="mb-1 block text-sm font-medium">Langkah Penanganan</label>
+                                                <label className="mb-1 block text-sm font-medium">Langkah Penanganan <span className="text-red-500">*</span></label>
                                                 {isReadonly ? (
                                                     <p className="whitespace-pre-line text-sm">{narratives[kId]?.langkah_penanganan || <span className="text-muted-foreground">—</span>}</p>
                                                 ) : (
@@ -661,7 +740,7 @@ export default function Prbl01({
                                                 )}
                                             </div>
                                             <div>
-                                                <label className="mb-1 block text-sm font-medium">Harapan</label>
+                                                <label className="mb-1 block text-sm font-medium">Harapan <span className="text-red-500">*</span></label>
                                                 {isReadonly ? (
                                                     <p className="whitespace-pre-line text-sm">{narratives[kId]?.harapan || <span className="text-muted-foreground">—</span>}</p>
                                                 ) : (
@@ -995,6 +1074,16 @@ export default function Prbl01({
                                                             <td className="border p-1.5" />
                                                             <td className="border p-1.5" />
                                                         </tr>
+                                                        {!isReadonly && subRealisasi === 0 && subDicairkan > 0 && (
+                                                            <tr>
+                                                                <td colSpan={8} className="border-x border-b px-1.5 py-1">
+                                                                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                                                                        <AlertTriangle className="h-3 w-3" />
+                                                                        Realisasi masih Rp 0 — pastikan sudah diisi dengan benar.
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        )}
                                                     </tfoot>
                                                 </table>
                                             </div>
@@ -1043,6 +1132,21 @@ export default function Prbl01({
                 {/* Actions */}
                 {!isReadonly && (canDraft || canSubmit) && (
                     <>
+                        {hasNarrativeOrKuisionerError && (
+                            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+                                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+                                <div className="text-sm text-red-800 dark:text-red-200">
+                                    <p className="font-medium">Tidak dapat submit:</p>
+                                    <ul className="mt-1 list-disc pl-4">
+                                        <li>Masalah/Kendala, Langkah Penanganan, dan Harapan wajib diisi untuk setiap kegiatan</li>
+                                        <li>Semua jawaban kuisioner wajib diisi</li>
+                                    </ul>
+                                    <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                                        Lihat checklist di tiap kartu kegiatan untuk detail mana yang belum terisi.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {hasFilesError && (
                             <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
                                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
@@ -1073,7 +1177,7 @@ export default function Prbl01({
                         {canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
-                                    <Button disabled={processing || hasNoItems || summary.overBudget || hasFilesError}>
+                                    <Button disabled={processing || hasNoItems || summary.overBudget || hasFilesError || hasNarrativeOrKuisionerError}>
                                         Submit
                                     </Button>
                                 }
