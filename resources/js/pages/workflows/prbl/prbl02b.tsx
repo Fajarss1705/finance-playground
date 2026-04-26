@@ -355,7 +355,7 @@ export default function Prbl02b({
     mode, canApprove, canReject, canComment, workflow,
     kegiatanItems, totalDicairkan, totalRealisasi, submitterInfo,
     parallelTrackStatus, ppLabel, workflowMeta, stepStatus, cycle,
-    actionRoles, activeRoleName,
+    actionRoles, activeRoleName, basePath,
 }: Props) {
     const [processing, setProcessing] = useState(false);
 
