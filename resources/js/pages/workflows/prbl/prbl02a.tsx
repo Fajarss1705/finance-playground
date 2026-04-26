@@ -309,11 +309,11 @@ function KegiatanCard({ kegiatan, index, total, programName }: { kegiatan: Kegia
                         </div>
                     )}
 
-                    {/* Realisasi — CONTEXT ONLY for PRBL02A */}
+                    {/* Realisasi */}
                     {kegiatan.realisasi.length > 0 && (
-                        <div className="opacity-70">
+                        <div>
                             <div className="mb-1 flex items-center justify-between">
-                                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Realisasi Anggaran (konteks)</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Realisasi Anggaran</p>
                                 <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(REALISASI_HEADERS, kegiatan.realisasi.map(realisasiToRow))} />
                             </div>
                             <div className="overflow-x-auto">

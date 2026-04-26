@@ -354,9 +354,9 @@ function KegiatanCard({ kegiatan, index, total, programName }: { kegiatan: Kegia
                         <NotaFileList items={kegiatan.nota} />
                     </div>
 
-                    {/* Narasi — CONTEXT ONLY for PRBL02B */}
-                    <div className="opacity-70">
-                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Narasi (konteks)</p>
+                    {/* Narasi */}
+                    <div>
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Narasi</p>
                         <div className="space-y-2">
                             <NarasiField label="Masalah/Kendala" value={kegiatan.masalah} />
                             <NarasiField label="Langkah Penanganan" value={kegiatan.langkah_penanganan} />
@@ -365,16 +365,16 @@ function KegiatanCard({ kegiatan, index, total, programName }: { kegiatan: Kegia
                         </div>
                     </div>
 
-                    {/* Foto Kegiatan — CONTEXT ONLY */}
-                    <div className="opacity-70">
-                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Foto Kegiatan (konteks)</p>
+                    {/* Foto Kegiatan */}
+                    <div>
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Foto Kegiatan</p>
                         <FotoViewGrid photos={kegiatan.fotos} />
                     </div>
 
-                    {/* Kuisioner — CONTEXT ONLY */}
+                    {/* Kuisioner */}
                     {kegiatan.kuisioner.length > 0 && (
-                        <div className="opacity-70">
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Kuisioner (konteks)</p>
+                        <div>
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Kuisioner</p>
                             <div className="overflow-x-auto">
                                 <table className="w-full border-collapse border text-xs">
                                     <thead>
