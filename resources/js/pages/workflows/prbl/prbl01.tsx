@@ -326,9 +326,10 @@ export default function Prbl01({
 
     const addFotoFiles = useCallback((kegiatanId: number, files: FileList | null) => {
         if (!files || files.length === 0) return;
+        const fileArray = Array.from(files);
         setNewFotoFiles((prev) => ({
             ...prev,
-            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...Array.from(files)],
+            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...fileArray],
         }));
     }, []);
 
@@ -345,9 +346,10 @@ export default function Prbl01({
 
     const addNotaFiles = useCallback((kegiatanId: number, files: FileList | null) => {
         if (!files || files.length === 0) return;
+        const fileArray = Array.from(files);
         setNewNotaFiles((prev) => ({
             ...prev,
-            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...Array.from(files)],
+            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...fileArray],
         }));
     }, []);
 
@@ -430,6 +432,9 @@ export default function Prbl01({
                 setRemoveFotoIds([]);
                 setNewNotaFiles({});
                 setRemoveNotaIds([]);
+            },
+            onError: (errors) => {
+                console.error('[PRBL01] Server validation errors:', errors);
             },
         });
     }

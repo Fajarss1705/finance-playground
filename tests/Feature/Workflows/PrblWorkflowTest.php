@@ -889,6 +889,52 @@ it('deletes a nota pengeluaran via prbl01 draft', function () {
     expect(Prbl01NotaPengeluaran::find($nota->id))->toBeNull();
 });
 
+it('uploads fotos and notas for multiple kegiatan in a single draft', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl01.show',
+        'team.workflows.prbl.prbl01.draft',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan1] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Create a second kegiatan item for the same prbl01_data
+    $itemKegiatan2 = \App\Models\Prbl\Prbl01ItemKegiatan::create([
+        'prbl01_data_id' => $prbl01->id,
+        'pk04_kegiatan_id' => $kegiatan->id,
+    ]);
+
+    $foto1 = UploadedFile::fake()->image('foto-k1.jpg', 400, 300)->size(100);
+    $foto2 = UploadedFile::fake()->image('foto-k2.jpg', 400, 300)->size(100);
+    $nota1 = UploadedFile::fake()->create('nota-k1.pdf', 512, 'application/pdf');
+    $nota2 = UploadedFile::fake()->create('nota-k2.pdf', 512, 'application/pdf');
+
+    $response = $this->post(route('team.workflows.prbl.prbl01.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $prbl01->id,
+    ]), [
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'foto_files' => [
+            $itemKegiatan1->id => [$foto1],
+            $itemKegiatan2->id => [$foto2],
+        ],
+        'nota_files' => [
+            $itemKegiatan1->id => [$nota1],
+            $itemKegiatan2->id => [$nota2],
+        ],
+    ]);
+
+    $response->assertRedirect();
+    expect(\App\Models\Prbl\Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $itemKegiatan1->id)->count())->toBe(1);
+    expect(\App\Models\Prbl\Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $itemKegiatan2->id)->count())->toBe(1);
+    expect(\App\Models\Prbl\Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $itemKegiatan1->id)->count())->toBe(1);
+    expect(\App\Models\Prbl\Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $itemKegiatan2->id)->count())->toBe(1);
+});
+
 // ── Comment ──
 
 it('stores a comment on PRBL workflow (team scope)', function () {
