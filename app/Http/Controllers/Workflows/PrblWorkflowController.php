@@ -49,6 +49,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -1328,6 +1329,7 @@ class PrblWorkflowController extends Controller
                     'nama_bank' => $r->nama_bank,
                     'nama_rekening' => $r->nama_rekening,
                     'nomor_rekening' => $r->nomor_rekening,
+                    'catatan' => $r->catatan,
                 ])
                 ->values()
                 ->all();
@@ -1467,6 +1469,26 @@ class PrblWorkflowController extends Controller
         $validated = $request->validated();
         $this->checkOptimisticLock($prbl03Data, $validated['expected_updated_at']);
 
+        // Validate final file counts before touching the DB or disk
+        $nominalRefund = (float) $prbl03Data->nominal_refund;
+        $finalNotaCount = $prbl03Data->bukti()->where('tipe', 'foto_nota')->count()
+            - count($validated['remove_foto_nota_ids'] ?? [])
+            + count($request->file('foto_nota_files', []));
+        $finalBuktiCount = $prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count()
+            - count($validated['remove_bukti_transfer_ids'] ?? [])
+            + count($request->file('bukti_transfer_files', []));
+
+        $fileErrors = [];
+        if ($finalNotaCount <= 0) {
+            $fileErrors['foto_nota_files'] = ['Minimal 1 foto nota harus diupload.'];
+        }
+        if ($nominalRefund > 0 && $finalBuktiCount <= 0) {
+            $fileErrors['bukti_transfer_files'] = ['Minimal 1 bukti transfer harus diupload karena ada refund.'];
+        }
+        if (! empty($fileErrors)) {
+            throw ValidationException::withMessages($fileErrors);
+        }
+
         $sessionContext = $this->getSessionContext();
 
         DB::transaction(function () use ($prbl03Data, $validated, $request, $prblWorkflow, $sessionContext) {
@@ -1480,20 +1502,6 @@ class PrblWorkflowController extends Controller
 
             // Update keterangan
             $prbl03Data->update(['keterangan' => $validated['keterangan'] ?? null]);
-
-            // Validate file counts
-            $fotoNotaCount = $prbl03Data->bukti()->where('tipe', 'foto_nota')->count();
-            if ($fotoNotaCount === 0) {
-                abort(422, 'Minimal 1 foto nota harus diupload.');
-            }
-
-            $nominalRefund = (float) $prbl03Data->nominal_refund;
-            if ($nominalRefund > 0) {
-                $buktiTransferCount = $prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count();
-                if ($buktiTransferCount === 0) {
-                    abort(422, 'Minimal 1 bukti transfer harus diupload karena ada refund.');
-                }
-            }
 
             // Action-level files
             $fileIds = $this->commentService->storeFiles(
@@ -1644,6 +1652,7 @@ class PrblWorkflowController extends Controller
                     'nama_bank' => $r->nama_bank,
                     'nama_rekening' => $r->nama_rekening,
                     'nomor_rekening' => $r->nomor_rekening,
+                    'catatan' => $r->catatan,
                 ])
                 ->values()
                 ->all();
