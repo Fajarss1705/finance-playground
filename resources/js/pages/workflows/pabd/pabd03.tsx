@@ -372,6 +372,7 @@ export default function Pabd03({
                                 confirmLabel="Tolak"
                                 variant="destructive"
                                 requireNotes
+                                notesMinLength={10}
                                 processing={processing}
                                 onConfirm={({ notes, files }) => handleAction('reject', notes, files)}
                             />

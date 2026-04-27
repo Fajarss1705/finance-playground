@@ -594,6 +594,7 @@ export default function Prbl02b({
                                 confirmLabel="Tolak"
                                 variant="destructive"
                                 requireNotes
+                                notesMinLength={10}
                                 processing={processing}
                                 onConfirm={({ notes, files }) => handleAction('reject', notes, files)}
                             />
