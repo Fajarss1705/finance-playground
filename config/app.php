@@ -17,6 +17,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Version
+    |--------------------------------------------------------------------------
+    |
+    | The current released version of the application. Bump this on each
+    | tagged release and keep it in sync with the git tag and CHANGELOG.md.
+    |
+    */
+
+    'version' => '2.0.0',
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |
