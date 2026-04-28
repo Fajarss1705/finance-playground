@@ -1,10 +1,12 @@
 import { Head, router } from '@inertiajs/react';
-import { AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, FileIcon, Info, Trash2, Upload, X } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, CheckCircle2, FileText, Info, Upload, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import { Input } from '@/components/ui/input';
+import { RupiahInput } from '@/components/ui/rupiah-input';
 import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
@@ -14,7 +16,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -24,6 +26,7 @@ type FotoItem = {
     file_id: number;
     original_filename: string;
     thumbnail_url: string | null;
+    download_url: string | null;
 };
 
 type NotaItem = {
@@ -47,10 +50,13 @@ type RealisasiItem = {
     prbl01_item_realisasi_id: number | null;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     nominal_realisasi: number;
     komentar_realisasi: string | null;
+    status_item: string | null;
+    status_label: string;
 };
 
 type KegiatanItem = {
@@ -145,6 +151,23 @@ type Props = {
     basePath: string;
 };
 
+// ─── Copy helpers ─────────────────────────────────────
+
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Komentar', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
+
+function realisasiToRow(r: RealisasiItem, nominal: number, komentar: string): string[] {
+    return [
+        r.status_label,
+        r.kode_anggaran_baru ?? '',
+        r.mata_anggaran,
+        String(r.nominal_anggaran),
+        String(nominal),
+        komentar,
+        r.kode_anggaran_lama ?? '',
+    ];
+}
+
 // ─── Status badges ───────────────────────────────────
 
 function StepStatusBadge({ mode, scope }: { mode: string; scope: string }) {
@@ -158,6 +181,33 @@ function StepStatusBadge({ mode, scope }: { mode: string; scope: string }) {
         return <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">Draft</Badge>;
     }
     return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">Menunggu Diisi</Badge>;
+}
+
+// ─── Field completion check pill ─────────────────────
+
+function FieldCheck({ done, label, optional = false }: { done: boolean; label: string; optional?: boolean }) {
+    if (done) {
+        return (
+            <span className="inline-flex items-center gap-0.5 text-xs text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-3 w-3" />
+                {label}
+            </span>
+        );
+    }
+    if (optional) {
+        return (
+            <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                <span className="inline-block h-3 w-3 rounded-full border border-muted-foreground/30" />
+                {label}
+            </span>
+        );
+    }
+    return (
+        <span className="inline-flex items-center gap-0.5 text-xs text-red-600 dark:text-red-400">
+            <X className="h-3 w-3" />
+            {label}
+        </span>
+    );
 }
 
 // ─── Main component ──────────────────────────────────
@@ -233,26 +283,11 @@ export default function Prbl01({
         return map;
     });
 
-    // Foto and nota state (for immediate upload/delete)
-    const [fotosMap, setFotosMap] = useState<Record<number, FotoItem[]>>(() => {
-        const map: Record<number, FotoItem[]> = {};
-        for (const program of kegiatanItems) {
-            for (const k of program.kegiatan) {
-                map[k.prbl01_item_kegiatan_id] = [...k.fotos];
-            }
-        }
-        return map;
-    });
-
-    const [notaMap, setNotaMap] = useState<Record<number, NotaItem[]>>(() => {
-        const map: Record<number, NotaItem[]> = {};
-        for (const program of kegiatanItems) {
-            for (const k of program.kegiatan) {
-                map[k.prbl01_item_kegiatan_id] = [...k.nota];
-            }
-        }
-        return map;
-    });
+    // Foto/nota staged changes (applied on draft/submit, mirrors PRBL03 pattern)
+    const [newFotoFiles, setNewFotoFiles] = useState<Record<number, File[]>>({});
+    const [removeFotoIds, setRemoveFotoIds] = useState<number[]>([]);
+    const [newNotaFiles, setNewNotaFiles] = useState<Record<number, File[]>>({});
+    const [removeNotaIds, setRemoveNotaIds] = useState<number[]>([]);
 
     // Collapsed sections (keyed by prbl01_item_kegiatan_id)
     const [collapsed, setCollapsed] = useState<Record<number, boolean>>(() => {
@@ -290,209 +325,161 @@ export default function Prbl01({
         return { totalRealisasi, realisasiCount, dicairkanCount, selisih, overBudget };
     }, [kegiatanItems, realisasiMap, totalDicairkan]);
 
-    // ─── File upload handlers ───────────────────────────
+    const hasNarrativeOrKuisionerError = useMemo(() => {
+        if (isReadonly) return false;
+        return kegiatanItems.some((program) =>
+            program.kegiatan.some((k) => {
+                const kId = k.prbl01_item_kegiatan_id;
+                const narr = narratives[kId] ?? { masalah: '', langkah_penanganan: '', harapan: '', catatan_tim: '' };
+                const narrativeOk =
+                    narr.masalah.trim().length > 0 &&
+                    narr.langkah_penanganan.trim().length > 0 &&
+                    narr.harapan.trim().length > 0;
+                const kuisionerOk =
+                    k.kuisioner.length === 0 ||
+                    k.kuisioner.every((q) => (kuisionerAnswers[q.prbl01_item_kuisioner_id] ?? '').trim().length > 0);
+                return !narrativeOk || !kuisionerOk;
+            }),
+        );
+    }, [isReadonly, kegiatanItems, narratives, kuisionerAnswers]);
 
-    const fotoInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-    const notaInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-    const [uploadingFoto, setUploadingFoto] = useState<Record<number, boolean>>({});
-    const [uploadingNota, setUploadingNota] = useState<Record<number, boolean>>({});
-    const [uploadError, setUploadError] = useState<string | null>(null);
+    // ─── Realisasi copy helpers ─────────────────────────
 
-    function getCsrfToken(): string {
-        const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-        if (!token) {
-            console.error('CSRF token not found in meta tag');
-        }
-        return token ?? '';
+    function rowFor(r: RealisasiItem): string[] {
+        const rId = r.prbl01_item_realisasi_id;
+        const val = rId ? realisasiMap[rId] : undefined;
+        return realisasiToRow(r, val?.nominal ?? 0, val?.komentar ?? '');
     }
 
-    const handleFotoUpload = useCallback((kegiatanId: number, files: FileList | null) => {
-        if (!files) return;
-        setUploadError(null);
-        setUploadingFoto((prev) => ({ ...prev, [kegiatanId]: true }));
+    function buildKegiatanRealisasiTSV(kegiatan: KegiatanItem): string {
+        return tableToTSV(REALISASI_HEADERS, kegiatan.realisasi.map(rowFor));
+    }
 
-        const uploads = Array.from(files).map((file) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('prbl01_item_kegiatan_id', String(kegiatanId));
-
-            return fetch(`${basePath}/prbl01/${prbl01.id}/foto-upload`, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                    Accept: 'application/json',
-                },
-            }).then(async (res) => {
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.message || `Upload gagal (${res.status})`);
+    function buildAllRealisasiTSV(): string {
+        const rows: string[][] = [];
+        for (const program of kegiatanItems) {
+            for (const k of program.kegiatan) {
+                for (const r of k.realisasi) {
+                    rows.push([program.program_name, program.kode_kategori, k.nama_kegiatan, ...rowFor(r)]);
                 }
-                return res.json();
-            }).then((data) => {
-                setFotosMap((prev) => ({
-                    ...prev,
-                    [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
-                }));
-            });
-        });
-
-        Promise.allSettled(uploads).then((results) => {
-            setUploadingFoto((prev) => ({ ...prev, [kegiatanId]: false }));
-            const failed = results.filter((r) => r.status === 'rejected');
-            if (failed.length > 0) {
-                const reason = (failed[0] as PromiseRejectedResult).reason;
-                setUploadError(`Foto upload gagal: ${reason?.message || 'Terjadi kesalahan'}`);
             }
-        });
-    }, [basePath, prbl01.id]);
+        }
+        return tableToTSV(SECTION_HEADERS, rows);
+    }
 
-    const handleFotoDelete = useCallback((kegiatanId: number, fotoId: number) => {
-        setUploadError(null);
-        fetch(`${basePath}/prbl01/${prbl01.id}/foto-delete`, {
-            method: 'POST',
-            body: JSON.stringify({ prbl01_foto_kegiatan_id: fotoId }),
-            headers: {
-                'X-CSRF-TOKEN': getCsrfToken(),
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-        }).then(async (res) => {
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `Hapus gagal (${res.status})`);
-            }
-            setFotosMap((prev) => ({
-                ...prev,
-                [kegiatanId]: (prev[kegiatanId] ?? []).filter((f) => f.id !== fotoId),
-            }));
-        }).catch((err) => {
-            setUploadError(`Hapus foto gagal: ${err?.message || 'Terjadi kesalahan'}`);
-        });
-    }, [basePath, prbl01.id]);
+    // ─── File upload handlers (staged — applied on draft/submit) ─
 
-    const handleNotaUpload = useCallback((kegiatanId: number, files: FileList | null) => {
-        if (!files) return;
-        setUploadError(null);
-        setUploadingNota((prev) => ({ ...prev, [kegiatanId]: true }));
+    const addFotoFiles = useCallback((kegiatanId: number, files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const fileArray = Array.from(files);
+        setNewFotoFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...fileArray],
+        }));
+    }, []);
 
-        const uploads = Array.from(files).map((file) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('prbl01_item_kegiatan_id', String(kegiatanId));
+    const removeNewFoto = useCallback((kegiatanId: number, index: number) => {
+        setNewFotoFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: (prev[kegiatanId] ?? []).filter((_, i) => i !== index),
+        }));
+    }, []);
 
-            return fetch(`${basePath}/prbl01/${prbl01.id}/nota-upload`, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                    Accept: 'application/json',
-                },
-            }).then(async (res) => {
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.message || `Upload gagal (${res.status})`);
-                }
-                return res.json();
-            }).then((data) => {
-                setNotaMap((prev) => ({
-                    ...prev,
-                    [kegiatanId]: [...(prev[kegiatanId] ?? []), data],
-                }));
-            });
-        });
+    const markFotoForRemoval = useCallback((fotoId: number) => {
+        setRemoveFotoIds((prev) => (prev.includes(fotoId) ? prev : [...prev, fotoId]));
+    }, []);
 
-        Promise.allSettled(uploads).then((results) => {
-            setUploadingNota((prev) => ({ ...prev, [kegiatanId]: false }));
-            const failed = results.filter((r) => r.status === 'rejected');
-            if (failed.length > 0) {
-                const reason = (failed[0] as PromiseRejectedResult).reason;
-                setUploadError(`Nota upload gagal: ${reason?.message || 'Terjadi kesalahan'}`);
-            }
-        });
-    }, [basePath, prbl01.id]);
+    const addNotaFiles = useCallback((kegiatanId: number, files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const fileArray = Array.from(files);
+        setNewNotaFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: [...(prev[kegiatanId] ?? []), ...fileArray],
+        }));
+    }, []);
 
-    const handleNotaDelete = useCallback((kegiatanId: number, notaId: number) => {
-        setUploadError(null);
-        fetch(`${basePath}/prbl01/${prbl01.id}/nota-delete`, {
-            method: 'POST',
-            body: JSON.stringify({ prbl01_nota_pengeluaran_id: notaId }),
-            headers: {
-                'X-CSRF-TOKEN': getCsrfToken(),
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-        }).then(async (res) => {
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || `Hapus gagal (${res.status})`);
-            }
-            setNotaMap((prev) => ({
-                ...prev,
-                [kegiatanId]: (prev[kegiatanId] ?? []).filter((n) => n.id !== notaId),
-            }));
-        }).catch((err) => {
-            setUploadError(`Hapus nota gagal: ${err?.message || 'Terjadi kesalahan'}`);
-        });
-    }, [basePath, prbl01.id]);
+    const removeNewNota = useCallback((kegiatanId: number, index: number) => {
+        setNewNotaFiles((prev) => ({
+            ...prev,
+            [kegiatanId]: (prev[kegiatanId] ?? []).filter((_, i) => i !== index),
+        }));
+    }, []);
+
+    const markNotaForRemoval = useCallback((notaId: number) => {
+        setRemoveNotaIds((prev) => (prev.includes(notaId) ? prev : [...prev, notaId]));
+    }, []);
 
     // ─── Form submission ────────────────────────────────
 
-    function buildFormData(notes: string, files: File[]) {
-        const items = [];
+    function buildFormData(notes: string, files: File[]): FormData {
+        const formData = new FormData();
+
+        let itemIdx = 0;
         for (const program of kegiatanItems) {
             for (const k of program.kegiatan) {
-                const narr = narratives[k.prbl01_item_kegiatan_id] ?? {};
-                items.push({
-                    prbl01_item_kegiatan_id: k.prbl01_item_kegiatan_id,
-                    masalah: narr.masalah || null,
-                    langkah_penanganan: narr.langkah_penanganan || null,
-                    harapan: narr.harapan || null,
-                    catatan_tim: narr.catatan_tim || null,
-                    kuisioner: k.kuisioner.map((q) => ({
-                        prbl01_item_kuisioner_id: q.prbl01_item_kuisioner_id,
-                        jawaban: kuisionerAnswers[q.prbl01_item_kuisioner_id] || null,
-                    })),
+                const kId = k.prbl01_item_kegiatan_id;
+                const narr = narratives[kId] ?? { masalah: '', langkah_penanganan: '', harapan: '', catatan_tim: '' };
+                formData.append(`items[${itemIdx}][prbl01_item_kegiatan_id]`, String(kId));
+                formData.append(`items[${itemIdx}][masalah]`, narr.masalah ?? '');
+                formData.append(`items[${itemIdx}][langkah_penanganan]`, narr.langkah_penanganan ?? '');
+                formData.append(`items[${itemIdx}][harapan]`, narr.harapan ?? '');
+                if (narr.catatan_tim) formData.append(`items[${itemIdx}][catatan_tim]`, narr.catatan_tim);
+
+                k.kuisioner.forEach((q, qIdx) => {
+                    formData.append(`items[${itemIdx}][kuisioner][${qIdx}][prbl01_item_kuisioner_id]`, String(q.prbl01_item_kuisioner_id));
+                    formData.append(`items[${itemIdx}][kuisioner][${qIdx}][jawaban]`, kuisionerAnswers[q.prbl01_item_kuisioner_id] ?? '');
                 });
+                itemIdx++;
             }
         }
 
-        const realisasi = [];
+        let realIdx = 0;
         for (const program of kegiatanItems) {
             for (const k of program.kegiatan) {
                 for (const r of k.realisasi) {
                     if (r.prbl01_item_realisasi_id) {
                         const val = realisasiMap[r.prbl01_item_realisasi_id];
-                        realisasi.push({
-                            prbl01_item_realisasi_id: r.prbl01_item_realisasi_id,
-                            nominal_realisasi: val?.nominal ?? 0,
-                            komentar_realisasi: val?.komentar || null,
-                        });
+                        formData.append(`realisasi[${realIdx}][prbl01_item_realisasi_id]`, String(r.prbl01_item_realisasi_id));
+                        formData.append(`realisasi[${realIdx}][nominal_realisasi]`, String(val?.nominal ?? 0));
+                        if (val?.komentar) formData.append(`realisasi[${realIdx}][komentar_realisasi]`, val.komentar);
+                        realIdx++;
                     }
                 }
             }
         }
 
-        const data: Record<string, unknown> = {
-            items,
-            realisasi,
-            expected_updated_at: prbl01.updated_at,
-            notes: notes || undefined,
-        };
+        formData.append('expected_updated_at', prbl01.updated_at);
+        if (notes) formData.append('notes', notes);
+        files.forEach((file) => formData.append('files[]', file));
 
-        if (files.length > 0) {
-            data['files'] = files;
+        // Staged foto/nota uploads, grouped by kegiatan id
+        for (const [kId, fileList] of Object.entries(newFotoFiles)) {
+            fileList.forEach((file) => formData.append(`foto_files[${kId}][]`, file));
         }
+        for (const [kId, fileList] of Object.entries(newNotaFiles)) {
+            fileList.forEach((file) => formData.append(`nota_files[${kId}][]`, file));
+        }
+        removeFotoIds.forEach((id) => formData.append('remove_foto_ids[]', String(id)));
+        removeNotaIds.forEach((id) => formData.append('remove_nota_ids[]', String(id)));
 
-        return data;
+        return formData;
     }
 
     function handleAction(action: 'draft' | 'submit', notes: string, files: File[]) {
         setProcessing(true);
         const url = `${basePath}/prbl01/${prbl01.id}/${action}`;
-        router.post(url, buildFormData(notes, files) as Record<string, unknown>, {
+        router.post(url, buildFormData(notes, files), {
             forceFormData: true,
             onFinish: () => setProcessing(false),
+            onSuccess: () => {
+                setNewFotoFiles({});
+                setRemoveFotoIds([]);
+                setNewNotaFiles({});
+                setRemoveNotaIds([]);
+            },
+            onError: (errors) => {
+                console.error('[PRBL01] Server validation errors:', errors);
+            },
         });
     }
 
@@ -507,9 +494,20 @@ export default function Prbl01({
 
     const hasNoItems = kegiatanItems.length === 0 || kegiatanItems.every((p) => p.kegiatan.length === 0);
 
-    // Submit is blocked if any kegiatan is missing foto or nota
-    const missingFoto = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (fotosMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
-    const missingNota = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => (notaMap[k.prbl01_item_kegiatan_id] ?? []).length === 0));
+    // Submit is blocked if any kegiatan would end up without foto or nota
+    function visibleFotoCount(k: KegiatanItem): number {
+        const existing = k.fotos.filter((f) => !removeFotoIds.includes(f.id)).length;
+        const staged = (newFotoFiles[k.prbl01_item_kegiatan_id] ?? []).length;
+        return existing + staged;
+    }
+    function visibleNotaCount(k: KegiatanItem): number {
+        const existing = k.nota.filter((n) => !removeNotaIds.includes(n.id)).length;
+        const staged = (newNotaFiles[k.prbl01_item_kegiatan_id] ?? []).length;
+        return existing + staged;
+    }
+
+    const missingFoto = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => visibleFotoCount(k) === 0));
+    const missingNota = !hasNoItems && kegiatanItems.some((p) => p.kegiatan.some((k) => visibleNotaCount(k) === 0));
     const hasFilesError = missingFoto || missingNota;
 
     // Kegiatan counter
@@ -570,6 +568,17 @@ export default function Prbl01({
                     commentSource="prbl01"
                     canComment={canComment}
                     finalSteps={['PRBL05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PRBL01' && entry.id) return `${basePath}/prbl01/${entry.id}`;
+                        if (step === 'PRBL02A') return `${basePath}/prbl02a`;
+                        if (step === 'PRBL02B') return `${basePath}/prbl02b`;
+                        if (step === 'PRBL03' && entry.id) return `${basePath}/prbl03/${entry.id}`;
+                        if (step === 'PRBL04') return `${basePath}/prbl04`;
+                        if (step === 'PRBL05') return `${basePath}/prbl05`;
+                        return null;
+                    }}
                 />
 
                 {/* Info Laporan */}
@@ -602,17 +611,6 @@ export default function Prbl01({
                     </dl>
                 </SectionCard>
 
-                {/* Upload error banner */}
-                {uploadError && (
-                    <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
-                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
-                        <div className="flex-1 text-sm text-red-800 dark:text-red-200">{uploadError}</div>
-                        <button type="button" onClick={() => setUploadError(null)} className="shrink-0 text-red-600 hover:text-red-800 dark:text-red-400">
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-                )}
-
                 {/* Empty state */}
                 {hasNoItems && (
                     <SectionCard title="Kegiatan">
@@ -622,14 +620,24 @@ export default function Prbl01({
                     </SectionCard>
                 )}
 
+                {!hasNoItems && (
+                    <div className="flex justify-end">
+                        <CopyButton variant="button" label="Salin Semua Realisasi" value={buildAllRealisasiTSV} />
+                    </div>
+                )}
+
                 {/* Per-kegiatan sections */}
                 {kegiatanItems.flatMap((program) =>
                     program.kegiatan.map((kegiatan) => {
                         kegiatanIndex++;
                         const kId = kegiatan.prbl01_item_kegiatan_id;
                         const isCollapsed = collapsed[kId] ?? false;
-                        const fotos = fotosMap[kId] ?? [];
-                        const notaFiles = notaMap[kId] ?? [];
+                        const visibleFotos = kegiatan.fotos.filter((f) => !removeFotoIds.includes(f.id));
+                        const visibleNotaExisting = kegiatan.nota.filter((n) => !removeNotaIds.includes(n.id));
+                        const stagedFotos = newFotoFiles[kId] ?? [];
+                        const stagedNota = newNotaFiles[kId] ?? [];
+                        const totalFotoCount = visibleFotos.length + stagedFotos.length;
+                        const totalNotaCount = visibleNotaExisting.length + stagedNota.length;
 
                         // Per-kegiatan subtotals
                         let subDicairkan = 0;
@@ -640,6 +648,20 @@ export default function Prbl01({
                                 subRealisasi += realisasiMap[r.prbl01_item_realisasi_id]?.nominal ?? 0;
                             }
                         }
+
+                        const completionChecks = {
+                            masalah: (narratives[kId]?.masalah ?? '').trim().length > 0,
+                            langkah: (narratives[kId]?.langkah_penanganan ?? '').trim().length > 0,
+                            harapan: (narratives[kId]?.harapan ?? '').trim().length > 0,
+                            catatan_tim: (narratives[kId]?.catatan_tim ?? '').trim().length > 0,
+                            foto: totalFotoCount > 0,
+                            nota: totalNotaCount > 0,
+                            kuisioner:
+                                kegiatan.kuisioner.length === 0 ||
+                                kegiatan.kuisioner.every(
+                                    (q) => (kuisionerAnswers[q.prbl01_item_kuisioner_id] ?? '').trim().length > 0,
+                                ),
+                        };
 
                         return (
                             <SectionCard
@@ -656,7 +678,7 @@ export default function Prbl01({
                                 }
                             >
                                 {/* Kegiatan header — always visible */}
-                                <div className="mb-3 text-sm">
+                                <div className="mb-2 text-sm">
                                     <p className="font-semibold">
                                         {program.program_name}{' '}
                                         <span className="text-muted-foreground">({program.kode_kategori})</span>
@@ -666,12 +688,33 @@ export default function Prbl01({
                                     </p>
                                 </div>
 
+                                {/* Completion checklist — visible even when collapsed */}
+                                {!isReadonly && (
+                                    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
+                                        <FieldCheck done={completionChecks.masalah} label="Masalah" />
+                                        <FieldCheck done={completionChecks.langkah} label="Langkah" />
+                                        <FieldCheck done={completionChecks.harapan} label="Harapan" />
+                                        {kegiatan.kuisioner.length > 0 && (
+                                            <FieldCheck done={completionChecks.kuisioner} label="Kuisioner" />
+                                        )}
+                                        <FieldCheck done={completionChecks.foto} label="Foto" />
+                                        <FieldCheck done={completionChecks.nota} label="Nota" />
+                                        <FieldCheck done={completionChecks.catatan_tim} label="Catatan Tim" optional />
+                                        {subRealisasi === 0 && subDicairkan > 0 && (
+                                            <span className="inline-flex items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400">
+                                                <AlertTriangle className="h-3 w-3" />
+                                                Realisasi 0
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
                                 {!isCollapsed && (
                                     <div className="space-y-5">
                                         {/* Narrative fields */}
                                         <div className="space-y-3">
                                             <div>
-                                                <label className="mb-1 block text-sm font-medium">Masalah/Kendala</label>
+                                                <label className="mb-1 block text-sm font-medium">Masalah/Kendala <span className="text-red-500">*</span></label>
                                                 {isReadonly ? (
                                                     <p className="whitespace-pre-line text-sm">{narratives[kId]?.masalah || <span className="text-muted-foreground">—</span>}</p>
                                                 ) : (
@@ -684,7 +727,7 @@ export default function Prbl01({
                                                 )}
                                             </div>
                                             <div>
-                                                <label className="mb-1 block text-sm font-medium">Langkah Penanganan</label>
+                                                <label className="mb-1 block text-sm font-medium">Langkah Penanganan <span className="text-red-500">*</span></label>
                                                 {isReadonly ? (
                                                     <p className="whitespace-pre-line text-sm">{narratives[kId]?.langkah_penanganan || <span className="text-muted-foreground">—</span>}</p>
                                                 ) : (
@@ -697,7 +740,7 @@ export default function Prbl01({
                                                 )}
                                             </div>
                                             <div>
-                                                <label className="mb-1 block text-sm font-medium">Harapan</label>
+                                                <label className="mb-1 block text-sm font-medium">Harapan <span className="text-red-500">*</span></label>
                                                 {isReadonly ? (
                                                     <p className="whitespace-pre-line text-sm">{narratives[kId]?.harapan || <span className="text-muted-foreground">—</span>}</p>
                                                 ) : (
@@ -729,67 +772,81 @@ export default function Prbl01({
                                             <h5 className="mb-2 text-sm font-semibold">
                                                 Foto Kegiatan <span className="text-red-500">*</span>
                                             </h5>
-                                            {!isReadonly && (
-                                                <div className="mb-2">
-                                                    <input
-                                                        ref={(el) => { fotoInputRefs.current[kId] = el; }}
-                                                        type="file"
-                                                        accept="image/jpeg,image/png,image/webp"
-                                                        multiple
-                                                        className="hidden"
-                                                        onChange={(e) => {
-                                                            handleFotoUpload(kId, e.target.files);
-                                                            e.target.value = '';
-                                                        }}
-                                                    />
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={uploadingFoto[kId]}
-                                                        onClick={() => fotoInputRefs.current[kId]?.click()}
-                                                    >
-                                                        {uploadingFoto[kId] ? (
-                                                            <span className="mr-1 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                            <p className="text-xs text-muted-foreground">
+                                                Upload foto kegiatan (minimal 1). Format: JPG, PNG, WEBP — Maks 50MB/file.
+                                            </p>
+                                            <div className="mt-2 space-y-2">
+                                                {visibleFotos.map((foto) => (
+                                                    <div key={`existing-${foto.id}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                                                        {foto.thumbnail_url ? (
+                                                            <a href={foto.thumbnail_url} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Lihat foto">
+                                                                <img src={foto.thumbnail_url} alt={foto.original_filename} className="h-10 w-10 rounded border object-cover" />
+                                                            </a>
                                                         ) : (
-                                                            <Upload className="mr-1 h-3.5 w-3.5" />
+                                                            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                                                         )}
-                                                        {uploadingFoto[kId] ? 'Mengupload...' : 'Upload Foto'}
-                                                    </Button>
-                                                    <span className="ml-2 text-xs text-muted-foreground">JPG, PNG, WEBP</span>
-                                                </div>
-                                            )}
-                                            {fotos.length > 0 ? (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {fotos.map((foto) => (
-                                                        <div key={foto.id} className="group relative">
-                                                            {foto.thumbnail_url ? (
-                                                                <a href={foto.thumbnail_url} target="_blank" rel="noopener noreferrer">
-                                                                    <img
-                                                                        src={foto.thumbnail_url}
-                                                                        alt={foto.original_filename}
-                                                                        className="h-20 w-20 rounded border object-cover"
-                                                                    />
-                                                                </a>
-                                                            ) : (
-                                                                <div className="flex h-20 w-20 items-center justify-center rounded border bg-muted">
-                                                                    <FileIcon className="h-6 w-6 text-muted-foreground" />
-                                                                </div>
-                                                            )}
-                                                            {!isReadonly && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="absolute -right-1 -top-1 rounded-full bg-red-500 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                                                                    onClick={() => handleFotoDelete(kId, foto.id)}
-                                                                >
-                                                                    <X className="h-3 w-3" />
-                                                                </button>
-                                                            )}
+                                                        {foto.download_url ? (
+                                                            <a href={foto.download_url} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh">
+                                                                {foto.original_filename}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="flex-1 truncate">{foto.original_filename}</span>
+                                                        )}
+                                                        {!isReadonly && (
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => markFotoForRemoval(foto.id)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+
+                                                {stagedFotos.map((file, idx) => {
+                                                    const previewUrl = URL.createObjectURL(file);
+                                                    return (
+                                                        <div key={`new-${idx}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-sm dark:border-blue-700 dark:bg-blue-950/20">
+                                                            <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Pratinjau">
+                                                                <img src={previewUrl} alt={file.name} className="h-10 w-10 rounded border object-cover" />
+                                                            </a>
+                                                            <a href={previewUrl} download={file.name} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh pratinjau">
+                                                                {file.name}
+                                                            </a>
+                                                            <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => removeNewFoto(kId, idx)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-red-500">Belum ada foto. Minimal 1 foto wajib diupload.</p>
-                                            )}
+                                                    );
+                                                })}
+
+                                                {!isReadonly && (
+                                                    <label className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 px-6 py-6 text-center transition-colors hover:border-muted-foreground/50 hover:bg-muted/30">
+                                                        <Upload className="h-6 w-6 text-muted-foreground" />
+                                                        <p className="text-sm text-muted-foreground">Klik untuk memilih foto</p>
+                                                        <input
+                                                            type="file"
+                                                            accept="image/jpeg,image/png,image/webp"
+                                                            multiple
+                                                            className="sr-only"
+                                                            onChange={(e) => {
+                                                                addFotoFiles(kId, e.target.files);
+                                                                e.target.value = '';
+                                                            }}
+                                                        />
+                                                    </label>
+                                                )}
+
+                                                {totalFotoCount === 0 && !isReadonly && (
+                                                    <p className="text-xs text-red-500">Belum ada foto. Minimal 1 foto wajib diupload.</p>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Nota Pengeluaran */}
@@ -797,63 +854,72 @@ export default function Prbl01({
                                             <h5 className="mb-2 text-sm font-semibold">
                                                 Nota Pengeluaran <span className="text-red-500">*</span>
                                             </h5>
-                                            <p className="mb-2 text-xs text-muted-foreground">
-                                                Bukti pengeluaran (kuitansi, invoice). Semua tipe file kecuali executable. Maks 25MB/file.
+                                            <p className="text-xs text-muted-foreground">
+                                                Bukti pengeluaran (kuitansi, invoice). Semua tipe file kecuali executable — Maks 25MB/file.
                                             </p>
-                                            {!isReadonly && (
-                                                <div className="mb-2">
-                                                    <input
-                                                        ref={(el) => { notaInputRefs.current[kId] = el; }}
-                                                        type="file"
-                                                        multiple
-                                                        className="hidden"
-                                                        onChange={(e) => {
-                                                            handleNotaUpload(kId, e.target.files);
-                                                            e.target.value = '';
-                                                        }}
-                                                    />
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={uploadingNota[kId]}
-                                                        onClick={() => notaInputRefs.current[kId]?.click()}
-                                                    >
-                                                        {uploadingNota[kId] ? (
-                                                            <span className="mr-1 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                            <div className="mt-2 space-y-2">
+                                                {visibleNotaExisting.map((nota) => (
+                                                    <div key={`existing-${nota.id}`} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                                                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                        {nota.download_url ? (
+                                                            <a href={nota.download_url} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh">
+                                                                {nota.original_filename}
+                                                            </a>
                                                         ) : (
-                                                            <Upload className="mr-1 h-3.5 w-3.5" />
+                                                            <span className="flex-1 truncate">{nota.original_filename}</span>
                                                         )}
-                                                        {uploadingNota[kId] ? 'Mengupload...' : 'Tambah File'}
-                                                    </Button>
-                                                </div>
-                                            )}
-                                            {notaFiles.length > 0 ? (
-                                                <div className="space-y-1">
-                                                    {notaFiles.map((nota) => (
-                                                        <div key={nota.id} className="flex items-center gap-2 text-sm">
-                                                            <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                                            {nota.download_url ? (
-                                                                <a href={nota.download_url} className="truncate text-blue-600 hover:underline dark:text-blue-400">
-                                                                    {nota.original_filename}
-                                                                </a>
-                                                            ) : (
-                                                                <span className="truncate">{nota.original_filename}</span>
-                                                            )}
-                                                            {!isReadonly && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="shrink-0 text-red-500 hover:text-red-700"
-                                                                    onClick={() => handleNotaDelete(kId, nota.id)}
-                                                                >
-                                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                                </button>
-                                                            )}
+                                                        {!isReadonly && (
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => markNotaForRemoval(nota.id)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+
+                                                {stagedNota.map((file, idx) => {
+                                                    const previewUrl = URL.createObjectURL(file);
+                                                    return (
+                                                        <div key={`new-${idx}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-300 bg-blue-50/50 px-3 py-2 text-sm dark:border-blue-700 dark:bg-blue-950/20">
+                                                            <FileText className="h-4 w-4 shrink-0 text-blue-500" />
+                                                            <a href={previewUrl} download={file.name} className="flex-1 truncate text-blue-600 hover:underline dark:text-blue-400" title="Unduh pratinjau">
+                                                                {file.name}
+                                                            </a>
+                                                            <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                                                onClick={() => removeNewNota(kId, idx)}
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-red-500">Belum ada nota. Minimal 1 nota wajib diupload.</p>
-                                            )}
+                                                    );
+                                                })}
+
+                                                {!isReadonly && (
+                                                    <label className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 px-6 py-6 text-center transition-colors hover:border-muted-foreground/50 hover:bg-muted/30">
+                                                        <Upload className="h-6 w-6 text-muted-foreground" />
+                                                        <p className="text-sm text-muted-foreground">Klik untuk memilih file</p>
+                                                        <input
+                                                            type="file"
+                                                            multiple
+                                                            className="sr-only"
+                                                            onChange={(e) => {
+                                                                addNotaFiles(kId, e.target.files);
+                                                                e.target.value = '';
+                                                            }}
+                                                        />
+                                                    </label>
+                                                )}
+
+                                                {totalNotaCount === 0 && !isReadonly && (
+                                                    <p className="text-xs text-red-500">Belum ada nota. Minimal 1 nota wajib diupload.</p>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Kuisioner */}
@@ -861,26 +927,26 @@ export default function Prbl01({
                                             <div>
                                                 <h5 className="mb-2 text-sm font-semibold">Kuisioner</h5>
                                                 <div className="overflow-x-auto">
-                                                    <table className="w-full text-sm">
+                                                    <table className="w-full border-collapse border text-sm">
                                                         <thead>
-                                                            <tr className="border-b bg-muted/50">
-                                                                <th className="w-10 px-3 py-2 text-center font-medium">#</th>
-                                                                <th className="px-3 py-2 text-left font-medium">Pertanyaan</th>
-                                                                <th className="w-20 px-3 py-2 text-left font-medium">Tipe</th>
-                                                                <th className="w-20 px-3 py-2 text-left font-medium">Satuan</th>
-                                                                <th className="w-40 px-3 py-2 text-left font-medium">
+                                                            <tr className="bg-muted/50 text-left">
+                                                                <th className="w-10 border p-1.5 text-center font-medium">#</th>
+                                                                <th className="border p-1.5 font-medium">Pertanyaan</th>
+                                                                <th className="w-20 border p-1.5 font-medium">Tipe</th>
+                                                                <th className="w-20 border p-1.5 font-medium">Satuan</th>
+                                                                <th className="w-40 border p-1.5 font-medium">
                                                                     Jawaban <span className="text-red-500">*</span>
                                                                 </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             {kegiatan.kuisioner.map((q, idx) => (
-                                                                <tr key={q.prbl01_item_kuisioner_id} className="border-b last:border-0">
-                                                                    <td className="px-3 py-2 text-center">{idx + 1}</td>
-                                                                    <td className="px-3 py-2">{q.pertanyaan}</td>
-                                                                    <td className="px-3 py-2 text-muted-foreground">{q.tipe}</td>
-                                                                    <td className="px-3 py-2 text-muted-foreground">{q.satuan ?? '—'}</td>
-                                                                    <td className="px-3 py-2">
+                                                                <tr key={q.prbl01_item_kuisioner_id}>
+                                                                    <td className="border p-1.5 text-center">{idx + 1}</td>
+                                                                    <td className="border p-1.5">{q.pertanyaan}</td>
+                                                                    <td className="border p-1.5 text-muted-foreground">{q.tipe}</td>
+                                                                    <td className="border p-1.5 text-muted-foreground">{q.satuan ?? '—'}</td>
+                                                                    <td className="border p-1.5">
                                                                         {isReadonly ? (
                                                                             <span>{kuisionerAnswers[q.prbl01_item_kuisioner_id] || '—'}</span>
                                                                         ) : (
@@ -907,52 +973,67 @@ export default function Prbl01({
 
                                         {/* Realisasi Anggaran */}
                                         <div>
-                                            <h5 className="mb-2 text-sm font-semibold">Realisasi Anggaran</h5>
+                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                <h5 className="text-sm font-semibold">Realisasi Anggaran</h5>
+                                                <CopyButton variant="button" label="Salin Tabel" value={() => buildKegiatanRealisasiTSV(kegiatan)} />
+                                            </div>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full min-w-180 border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b bg-muted/50">
-                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
-                                                            <th className="px-3 py-2 text-right font-medium">Dicairkan (Rp)</th>
-                                                            <th className="w-40 px-3 py-2 text-right font-medium">
+                                                        <tr className="bg-muted/50 text-left">
+                                                            <th className="border p-1.5 font-medium">Status</th>
+                                                            <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                            <th className="border p-1.5 font-medium">Mata Anggaran</th>
+                                                            <th className="border p-1.5 text-right font-medium">Dicairkan (Rp)</th>
+                                                            <th className="w-40 border p-1.5 text-right font-medium">
                                                                 Realisasi (Rp) <span className="text-red-500">*</span>
                                                             </th>
-                                                            <th className="w-40 px-3 py-2 text-left font-medium">Komentar</th>
+                                                            <th className="w-40 border p-1.5 font-medium">Komentar</th>
+                                                            <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
+                                                            <th className="w-8 border p-1.5"></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.realisasi.map((r) => {
                                                             const rId = r.prbl01_item_realisasi_id;
                                                             return (
-                                                                <tr key={r.pk04_anggaran_id} className="border-b last:border-0">
-                                                                    <td className="px-3 py-2">
-                                                                        <KodeAnggaranFromString kode={r.kode_anggaran_baru} />
+                                                                <tr key={r.pk04_anggaran_id}>
+                                                                    <td className="border p-1.5">
+                                                                        <Badge className={`text-[10px] ${statusBadgeClass(r.status_label)}`}>{r.status_label ?? "—"}</Badge>
                                                                     </td>
-                                                                    <td className="px-3 py-2">{r.mata_anggaran}</td>
-                                                                    <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(r.nominal_anggaran)}</td>
-                                                                    <td className="px-3 py-2 text-right">
+                                                                    <td className="border p-1.5 whitespace-nowrap">
+                                                                        <span className="inline-flex items-center gap-1">
+                                                                            <KodeAnggaranFromString
+                                                                                kode={r.kode_anggaran_baru}
+                                                                                programName={program.program_name}
+                                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                                mataAnggaran={r.mata_anggaran}
+                                                                            />
+                                                                            {r.kode_anggaran_baru && <CopyButton value={r.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="border p-1.5">{r.mata_anggaran}</td>
+                                                                    <td className="border p-1.5 text-right tabular-nums">{formatRupiah(r.nominal_anggaran)}</td>
+                                                                    <td className="border p-1.5 text-right">
                                                                         {isReadonly ? (
                                                                             <span className="tabular-nums">{formatRupiah(rId ? (realisasiMap[rId]?.nominal ?? 0) : 0)}</span>
                                                                         ) : rId ? (
-                                                                            <Input
-                                                                                type="number"
-                                                                                min={0}
-                                                                                step="any"
+                                                                            <RupiahInput
                                                                                 value={realisasiMap[rId]?.nominal ?? 0}
-                                                                                onChange={(e) =>
+                                                                                onChange={(v) =>
                                                                                     setRealisasiMap((prev) => ({
                                                                                         ...prev,
-                                                                                        [rId]: { ...prev[rId], nominal: parseFloat(e.target.value) || 0 },
+                                                                                        [rId]: { ...prev[rId], nominal: v },
                                                                                     }))
                                                                                 }
-                                                                                className="h-8 text-right text-sm tabular-nums border-red-200 focus:border-red-500 focus:ring-red-500"
+                                                                                min={0}
+                                                                                className="h-8 text-sm tabular-nums"
                                                                             />
                                                                         ) : (
                                                                             <span className="text-muted-foreground">—</span>
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-3 py-2">
+                                                                    <td className="border p-1.5">
                                                                         {isReadonly ? (
                                                                             <span className="text-muted-foreground">{rId ? (realisasiMap[rId]?.komentar || '—') : '—'}</span>
                                                                         ) : rId ? (
@@ -969,19 +1050,40 @@ export default function Prbl01({
                                                                             />
                                                                         ) : null}
                                                                     </td>
+                                                                    <td className="border p-1.5 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                                                                        <span className="inline-flex items-center gap-1">
+                                                                            {r.kode_anggaran_lama ?? '—'}
+                                                                            {r.kode_anggaran_lama && <CopyButton value={r.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="border p-1.5 text-center">
+                                                                        <CopyButton value={() => rowToTSV(rowFor(r))} label="Salin Baris" />
+                                                                    </td>
                                                                 </tr>
                                                             );
                                                         })}
                                                     </tbody>
                                                     <tfoot>
-                                                        <tr className="border-t bg-muted/30 font-medium">
-                                                            <td colSpan={2} className="px-3 py-2 text-right">Subtotal</td>
-                                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(subDicairkan)}</td>
-                                                            <td className="px-3 py-2 text-right tabular-nums">{formatRupiah(subRealisasi)}</td>
-                                                            <td className="px-3 py-2 text-sm text-muted-foreground">
+                                                        <tr className="bg-muted/30 font-medium">
+                                                            <td colSpan={3} className="border p-1.5 text-right">Subtotal</td>
+                                                            <td className="border p-1.5 text-right tabular-nums">{formatRupiah(subDicairkan)}</td>
+                                                            <td className="border p-1.5 text-right tabular-nums">{formatRupiah(subRealisasi)}</td>
+                                                            <td className="border p-1.5 text-sm text-muted-foreground">
                                                                 Selisih: {formatRupiah(subDicairkan - subRealisasi)}
                                                             </td>
+                                                            <td className="border p-1.5" />
+                                                            <td className="border p-1.5" />
                                                         </tr>
+                                                        {!isReadonly && subRealisasi === 0 && subDicairkan > 0 && (
+                                                            <tr>
+                                                                <td colSpan={8} className="border-x border-b px-1.5 py-1">
+                                                                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                                                                        <AlertTriangle className="h-3 w-3" />
+                                                                        Realisasi masih Rp 0 — pastikan sudah diisi dengan benar.
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        )}
                                                     </tfoot>
                                                 </table>
                                             </div>
@@ -1030,6 +1132,21 @@ export default function Prbl01({
                 {/* Actions */}
                 {!isReadonly && (canDraft || canSubmit) && (
                     <>
+                        {hasNarrativeOrKuisionerError && (
+                            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+                                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+                                <div className="text-sm text-red-800 dark:text-red-200">
+                                    <p className="font-medium">Tidak dapat submit:</p>
+                                    <ul className="mt-1 list-disc pl-4">
+                                        <li>Masalah/Kendala, Langkah Penanganan, dan Harapan wajib diisi untuk setiap kegiatan</li>
+                                        <li>Semua jawaban kuisioner wajib diisi</li>
+                                    </ul>
+                                    <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                                        Lihat checklist di tiap kartu kegiatan untuk detail mana yang belum terisi.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {hasFilesError && (
                             <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
                                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
@@ -1060,7 +1177,7 @@ export default function Prbl01({
                         {canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
-                                    <Button disabled={processing || hasNoItems || summary.overBudget || hasFilesError}>
+                                    <Button disabled={processing || hasNoItems || summary.overBudget || hasFilesError || hasNarrativeOrKuisionerError}>
                                         Submit
                                     </Button>
                                 }
@@ -1094,7 +1211,7 @@ function CycleBackBanner({ cycleBackNotes }: { cycleBackNotes: CycleBackNotes })
                     {info && (
                         <>
                             <p className="text-amber-700 dark:text-amber-300">
-                                Oleh: {info.by_name} ({info.role_name}{info.team_name ? ` \u00B7 ${info.team_name}` : ''}) — {info.at}
+                                Oleh: {info.by_name} ({info.role_name}{info.team_name ? ` \u00B7 ${info.team_name}` : ''}) — {formatDateTime(info.at)}
                             </p>
                             {info.notes && (
                                 <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
@@ -1125,7 +1242,7 @@ function CycleBackBanner({ cycleBackNotes }: { cycleBackNotes: CycleBackNotes })
                             Status: {prbl02a.status}
                         </p>
                         <p className="text-amber-700 dark:text-amber-300">
-                            Oleh: {prbl02a.by_name} ({prbl02a.role_name}{prbl02a.team_name ? ` \u00B7 ${prbl02a.team_name}` : ''}) — {prbl02a.at}
+                            Oleh: {prbl02a.by_name} ({prbl02a.role_name}{prbl02a.team_name ? ` \u00B7 ${prbl02a.team_name}` : ''}) — {formatDateTime(prbl02a.at)}
                         </p>
                         {prbl02a.notes && (
                             <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
@@ -1142,7 +1259,7 @@ function CycleBackBanner({ cycleBackNotes }: { cycleBackNotes: CycleBackNotes })
                             Status: {prbl02b.status}
                         </p>
                         <p className="text-amber-700 dark:text-amber-300">
-                            Oleh: {prbl02b.by_name} ({prbl02b.role_name}{prbl02b.team_name ? ` \u00B7 ${prbl02b.team_name}` : ''}) — {prbl02b.at}
+                            Oleh: {prbl02b.by_name} ({prbl02b.role_name}{prbl02b.team_name ? ` \u00B7 ${prbl02b.team_name}` : ''}) — {formatDateTime(prbl02b.at)}
                         </p>
                         {prbl02b.notes && (
                             <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">

@@ -6,6 +6,7 @@ import Heading from '@/components/heading';
 import Pagination from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTimeShort } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import { index as teamsIndex } from '@/routes/admin/teams';
 import type { BreadcrumbItem } from '@/types';
@@ -94,15 +95,7 @@ export default function TeamsTrash({ teams }: Props) {
                                             {team.organization?.name || '—'}
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">
-                                            {new Date(
-                                                team.deleted_at,
-                                            ).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric',
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                            })}
+                                            {formatDateTimeShort(team.deleted_at)}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <Can permission="admin.teams.restore">

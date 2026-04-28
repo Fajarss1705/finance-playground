@@ -18,7 +18,8 @@ import KodeDiffDisplay from '@/components/workflow/kode-diff-display';
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import CopyButton from '@/components/ui/copy-button';
+import { formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -27,6 +28,7 @@ type AnggaranItem = {
     pabd01_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal: number;
     status_item: string;
@@ -172,6 +174,32 @@ function StepStatusBadge({ status }: { status: string }) {
 
 // ─── Checklist Table (readonly) ─────────────────────
 
+const TABLE_HEADERS = ['Dicairkan', 'Status', 'Kode Anggaran Baru', 'Nominal (Rp)', 'Mata Anggaran', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', 'Bulan', ...TABLE_HEADERS];
+
+function anggaranToRow(a: AnggaranItem): string[] {
+    return [
+        a.dicairkan ? 'Ya' : 'Tidak',
+        a.status_label ?? '',
+        a.kode_anggaran_baru ?? '',
+        String(a.nominal),
+        a.mata_anggaran,
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildSectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, kegiatan.bulan_label, ...anggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
+
 function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
     const totalAll = programs.flatMap(p => p.kegiatan.flatMap(k => k.anggaran));
     const totalAnggaran = totalAll.reduce((sum, a) => sum + a.nominal, 0);
@@ -180,31 +208,60 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
 
     return (
         <div className="space-y-3">
+            <div className="flex justify-end">
+                <CopyButton variant="button" label="Salin Seluruh Checklist" value={() => buildSectionTSV(programs)} />
+            </div>
             {programs.map((program) => (
                 <div key={program.program_id} className="rounded border p-3">
                     <h5 className="text-xs font-semibold">{program.program_name} ({program.kode_kategori})</h5>
                     {program.kegiatan.map((kegiatan) => (
                         <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
-                            <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
+                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(TABLE_HEADERS, kegiatan.anggaran.map(anggaranToRow))} />
+                            </div>
                             <div className="mt-1 overflow-x-auto">
-                                <table className="w-full text-xs">
+                                <table className="w-full min-w-180 border-collapse border text-xs">
                                     <thead>
-                                        <tr className="border-b text-left text-muted-foreground">
-                                            <th className="w-8 p-1"></th>
-                                            <th className="p-1">Kode Anggaran</th>
-                                            <th className="p-1">Mata Anggaran</th>
-                                            <th className="p-1 text-right">Nominal (Rp)</th>
-                                            <th className="p-1">Status</th>
+                                        <tr className="bg-muted/50 text-left text-muted-foreground">
+                                            <th className="w-8 border p-1.5"></th>
+                                            <th className="border p-1.5">Status</th>
+                                            <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
+                                            <th className="border p-1.5 text-right">Nominal (Rp)</th>
+                                            <th className="border p-1.5">Mata Anggaran</th>
+                                            <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
+                                            <th className="w-8 border p-1.5"></th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {kegiatan.anggaran.map((a) => (
-                                            <tr key={a.pk04_anggaran_id} className="border-b last:border-0">
-                                                <td className="p-1 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
-                                                <td className="p-1">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
-                                                <td className="p-1">{a.mata_anggaran}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(a.nominal)}</td>
-                                                <td className="p-1">{a.status_label && <Badge variant="outline" className="text-[10px]">{a.status_label}</Badge>}</td>
+                                            <tr key={a.pk04_anggaran_id}>
+                                                <td className="border p-1.5 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
+                                                <td className="border p-1.5">{a.status_label && <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>}</td>
+                                                <td className="border p-1.5 whitespace-nowrap">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {a.kode_anggaran_baru ? (
+                                                            <KodeAnggaranFromString
+                                                                kode={a.kode_anggaran_baru}
+                                                                programName={program.program_name}
+                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                mataAnggaran={a.mata_anggaran}
+                                                            />
+                                                        ) : '—'}
+                                                        {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                    </span>
+                                                </td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal)}</td>
+                                                <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {a.kode_anggaran_lama || '—'}
+                                                        {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                    </span>
+                                                </td>
+                                                <td className="border p-1.5 text-center">
+                                                    <CopyButton value={() => rowToTSV(anggaranToRow(a))} label="Salin Baris" />
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -240,24 +297,24 @@ function ProposalReadonly({ proposal }: { proposal: ProposalData }) {
                 <div key={ki} className="rounded border p-2">
                     <p className="text-xs font-semibold">{k.nama_kegiatan} &mdash; {BULAN_NAMES[k.bulan] || k.bulan}</p>
                     <div className="mt-1 overflow-x-auto">
-                        <table className="w-full text-xs">
+                        <table className="w-full border-collapse border text-xs">
                             <thead>
-                                <tr className="border-b text-left text-muted-foreground">
-                                    <th className="p-1">Bidang</th>
-                                    <th className="p-1">Sub Bidang</th>
-                                    <th className="p-1">Jenis</th>
-                                    <th className="p-1">Mata Anggaran</th>
-                                    <th className="p-1 text-right">Nominal (Rp)</th>
+                                <tr className="bg-muted/50 text-left text-muted-foreground">
+                                    <th className="border p-1.5">Bidang</th>
+                                    <th className="border p-1.5">Sub Bidang</th>
+                                    <th className="border p-1.5">Jenis</th>
+                                    <th className="border p-1.5">Mata Anggaran</th>
+                                    <th className="border p-1.5 text-right">Nominal (Rp)</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {k.anggaran.map((a, ai) => (
-                                    <tr key={ai} className="border-b last:border-0">
-                                        <td className="p-1">{a.kode_bidang}</td>
-                                        <td className="p-1">{a.kode_sub_bidang}</td>
-                                        <td className="p-1">{a.kode_jenis}</td>
-                                        <td className="p-1">{a.mata_anggaran}</td>
-                                        <td className="p-1 text-right font-mono">{formatRupiah(a.nominal_anggaran)}</td>
+                                    <tr key={ai}>
+                                        <td className="border p-1.5">{a.kode_bidang}</td>
+                                        <td className="border p-1.5">{a.kode_sub_bidang}</td>
+                                        <td className="border p-1.5">{a.kode_jenis}</td>
+                                        <td className="border p-1.5">{a.mata_anggaran}</td>
+                                        <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_anggaran)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -267,15 +324,15 @@ function ProposalReadonly({ proposal }: { proposal: ProposalData }) {
                     {k.kuisioner.length > 0 && (
                         <div className="mt-2">
                             <p className="text-[10px] font-semibold text-muted-foreground">Kuisioner</p>
-                            <table className="mt-0.5 w-full text-xs">
-                                <thead><tr className="border-b text-left text-muted-foreground"><th className="p-1">Pertanyaan</th><th className="p-1">Tipe</th><th className="p-1">Satuan</th><th className="p-1">Sumber</th></tr></thead>
+                            <table className="mt-0.5 w-full border-collapse border text-xs">
+                                <thead><tr className="bg-muted/50 text-left text-muted-foreground"><th className="border p-1.5">Pertanyaan</th><th className="border p-1.5">Tipe</th><th className="border p-1.5">Satuan</th><th className="border p-1.5">Sumber</th></tr></thead>
                                 <tbody>
                                     {k.kuisioner.map((q, qi) => (
-                                        <tr key={qi} className="border-b last:border-0">
-                                            <td className="p-1">{q.pertanyaan}</td>
-                                            <td className="p-1">{q.tipe}</td>
-                                            <td className="p-1">{q.satuan || '—'}</td>
-                                            <td className="p-1"><Badge variant="outline" className="text-[10px]">{q.kode_kuisioner ? 'Template PP' : 'Custom'}</Badge></td>
+                                        <tr key={qi}>
+                                            <td className="border p-1.5">{q.pertanyaan}</td>
+                                            <td className="border p-1.5">{q.tipe}</td>
+                                            <td className="border p-1.5">{q.satuan || '—'}</td>
+                                            <td className="border p-1.5"><Badge variant="outline" className="text-[10px]">{q.kode_kuisioner ? 'Template PP' : 'Custom'}</Badge></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -384,6 +441,17 @@ export default function Pabd02b({
                     commentSource="pabd02b"
                     canComment={canComment}
                     finalSteps={['PABD05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PABD01' && entry.id) return `${basePath}/pabd01/${entry.id}`;
+                        if (step === 'PABD02A' && entry.id) return `${basePath}/pabd02a/${entry.id}`;
+                        if (step === 'PABD02B' && entry.id) return `${basePath}/pabd02b/${entry.id}`;
+                        if (step === 'PABD03') return `${basePath}/pabd03`;
+                        if (step === 'PABD04' && entry.id) return `${basePath}/pabd04/${entry.id}`;
+                        if (step === 'PABD05') return `${basePath}/pabd05`;
+                        return null;
+                    }}
                 />
 
                 {/* Budget Reference */}
@@ -391,7 +459,7 @@ export default function Pabd02b({
 
                 {/* PABD01 Checklist (readonly) */}
                 <SectionCard
-                    title={`PABD01 — Checklist Pencairan`}
+                    title={`PABD01 — Checklist Pencairan ${workflow.bulan_label} ${workflow.tahun_anggaran}`}
                     headerRight={
                         <div className="flex items-center gap-2">
                             {pabd01Cycle > 1 && <Badge variant="outline" className="text-[10px]">Pengisian ke-{pabd01Cycle}</Badge>}
@@ -410,7 +478,7 @@ export default function Pabd02b({
                         </div>
                     )}
                     {!pabd01Open && (
-                        <p className="text-xs text-muted-foreground">Klik untuk melihat checklist pencairan PABD01.</p>
+                        <p className="text-xs text-muted-foreground">Klik tombol dropdown di kanan atas untuk melihat checklist pencairan PABD01.</p>
                     )}
                 </SectionCard>
 
@@ -478,11 +546,12 @@ export default function Pabd02b({
 
                                 {/* Files */}
                                 {item.files.length > 0 && (
-                                    <div className="mb-3">
+                                    <div className="mb-3 text-xs">
+                                        <p className="mb-1 font-medium">Lampiran:</p>
                                         <div className="flex flex-wrap gap-1">
                                             {item.files.map((f) => (
                                                 <a key={f.id} href={f.url ?? '#'} target="_blank" rel="noopener noreferrer"
-                                                    className={`rounded px-2 py-0.5 text-[10px] ${f.url ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-muted text-muted-foreground'}`}>
+                                                    className={`rounded px-2 py-0.5 text-[11px] ${f.url ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-muted text-muted-foreground'}`}>
                                                     {f.name}
                                                 </a>
                                             ))}
@@ -538,6 +607,7 @@ export default function Pabd02b({
                                 confirmLabel="Tolak"
                                 variant="destructive"
                                 requireNotes
+                                notesMinLength={10}
                                 processing={processing}
                                 onConfirm={({ notes, files }) => handleAction('reject', notes, files)}
                             />

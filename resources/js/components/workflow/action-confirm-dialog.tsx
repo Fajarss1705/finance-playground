@@ -19,6 +19,7 @@ type ActionConfirmDialogProps = {
     confirmLabel?: string;
     variant?: 'default' | 'destructive';
     requireNotes?: boolean;
+    notesMinLength?: number;
     processing?: boolean;
     onConfirm?: (data: { notes: string; files: File[] }) => void;
 };
@@ -30,6 +31,7 @@ export default function ActionConfirmDialog({
     confirmLabel = 'Konfirmasi',
     variant = 'default',
     requireNotes = false,
+    notesMinLength,
     processing = false,
     onConfirm,
 }: ActionConfirmDialogProps) {
@@ -37,7 +39,9 @@ export default function ActionConfirmDialog({
     const [notes, setNotes] = useState('');
     const [files, setFiles] = useState<File[]>([]);
 
-    const canConfirm = !requireNotes || notes.trim().length > 0;
+    const effectiveMinLength = notesMinLength ?? (requireNotes ? 1 : 0);
+    const trimmedLength = notes.trim().length;
+    const canConfirm = trimmedLength >= effectiveMinLength;
 
     function handleConfirm() {
         if (!canConfirm) return;
@@ -56,13 +60,20 @@ export default function ActionConfirmDialog({
 
                 <div className="space-y-3">
                     <div className="space-y-1.5">
-                        <Label>
-                            Komentar {requireNotes ? '*' : '(opsional)'}
-                        </Label>
+                        <div className="flex items-center justify-between">
+                            <Label>
+                                Komentar {effectiveMinLength > 0 ? '*' : '(opsional)'}
+                            </Label>
+                            {effectiveMinLength > 1 && (
+                                <span className={`text-xs ${trimmedLength < effectiveMinLength ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                    {trimmedLength}/{effectiveMinLength} karakter
+                                </span>
+                            )}
+                        </div>
                         <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
-                            placeholder="Tulis komentar..."
+                            placeholder={effectiveMinLength > 1 ? `Tulis komentar (minimal ${effectiveMinLength} karakter)...` : 'Tulis komentar...'}
                             rows={3}
                             className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />

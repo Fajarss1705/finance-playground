@@ -77,6 +77,7 @@ class PpCompileService
                     'nama_bank' => $item->nama_bank,
                     'nama_rekening' => $item->nama_rekening,
                     'nomor_rekening' => $item->nomor_rekening,
+                    'catatan' => $item->catatan,
                 ]);
             }
 
@@ -165,6 +166,7 @@ class PpCompileService
                     'nama_bank' => $item['nama_bank'],
                     'nama_rekening' => $item['nama_rekening'],
                     'nomor_rekening' => $item['nomor_rekening'],
+                    'catatan' => $item['catatan'] ?? null,
                 ]);
             }
 
@@ -234,6 +236,7 @@ class PpCompileService
                     'nama_bank' => $item->nama_bank ?? '',
                     'nama_rekening' => $item->nama_rekening ?? '',
                     'nomor_rekening' => $item->nomor_rekening ?? '',
+                    'catatan' => $item->catatan ?? '',
                 ])->values()->all(),
         ];
     }
@@ -750,6 +753,7 @@ class PpCompileService
             'nama_bank' => $item->nama_bank,
             'nama_rekening' => $item->nama_rekening,
             'nomor_rekening' => $item->nomor_rekening,
+            'catatan' => $item->catatan,
         ])->values()->all();
 
         $newItems = $new['rekening_organisasi'] ?? [];
@@ -789,6 +793,9 @@ class PpCompileService
             }
             if (($oldItem['nama_rekening'] ?? '') !== ($newItem['nama_rekening'] ?? '')) {
                 $fieldChanges[] = "nama rekening ({$oldItem['nama_rekening']} → {$newItem['nama_rekening']})";
+            }
+            if (($oldItem['catatan'] ?? '') !== ($newItem['catatan'] ?? '')) {
+                $fieldChanges[] = 'catatan';
             }
 
             if (! empty($fieldChanges)) {

@@ -232,6 +232,11 @@ function pp03SubmitData(int $teamId): array
             'nomor_rekening' => '1234567890',
             'catatan' => null,
         ]],
+        'rekening_organisasi' => [[
+            'nama_bank' => 'BCA',
+            'nama_rekening' => 'Finance Playground Pusat',
+            'nomor_rekening' => '9876543210',
+        ]],
     ];
 }
 
@@ -414,7 +419,9 @@ it('completes full rejection cycle: reject → re-entry → resubmit all steps �
     ppActivateSession($this, $buUser, $buRole, $workspace);
     $workflow->refresh();
     $pp03v2 = $workflow->pp03Data()->latest('id')->first();
-    expect($pp03v2->id)->not->toBe($pp03v1->id);
+    expect($pp03v2->id)->not->toBe($pp03v1->id)
+        ->and($pp03v2->itemPlafonAnggaran)->toHaveCount(1)
+        ->and($pp03v2->rekeningOrganisasi)->toHaveCount(1);
     $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03v2]),
         array_merge(pp03SubmitData($buTeam->id), ['expected_updated_at' => $pp03v2->updated_at->toIso8601String()])
     )->assertRedirect();

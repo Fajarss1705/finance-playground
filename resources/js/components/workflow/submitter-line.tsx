@@ -1,3 +1,5 @@
+import { formatDateTime } from '@/lib/utils';
+
 /**
  * SubmitterLine — displays submitter info with role and date.
  * Used by PABD approval pages to show who submitted predecessor steps.
@@ -15,10 +17,8 @@ export default function SubmitterLine({
     team?: string;
     date: string;
 }) {
-    const roleDisplay = team ? `${role} \u00B7 ${team}` : role;
-    const dateDisplay = date
-        ? new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '';
+    const roleDisplay = team ? `${role} · ${team}` : role;
+    const dateDisplay = formatDateTime(date);
 
     return (
         <p className="text-xs text-muted-foreground">

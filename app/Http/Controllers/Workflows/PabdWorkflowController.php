@@ -1286,8 +1286,8 @@ class PabdWorkflowController extends Controller
             'komentar' => $item->komentar,
             'files' => $item->files->map(fn ($f) => [
                 'id' => $f->id,
-                'name' => $f->original_name ?? $f->name,
-                'url' => $f->path ? asset("storage/{$f->path}") : null,
+                'name' => $f->original_filename ?? $f->filename,
+                'url' => $f->path ? route('files.download', $f) : null,
             ])->values(),
         ];
 
@@ -2808,6 +2808,7 @@ class PabdWorkflowController extends Controller
                 'pabd05_item_id' => $item->id,
                 'pk04_anggaran_id' => $pk04Anggaran->id,
                 'kode_anggaran_baru' => $pk04Anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $pk04Anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $pk04Anggaran->mata_anggaran,
                 'nominal_anggaran' => (float) $item->nominal_anggaran,
                 'status' => $item->status,
@@ -3420,23 +3421,31 @@ class PabdWorkflowController extends Controller
             }
 
             // Determine status badge
-            $statusLabel = null;
             if ($anggaran->status_item === 'ditarik_maju') {
-                // Find which month it was pulled forward to
+                // Source item that was pulled forward to another month
                 $targetKegiatan = Pk04Anggaran::where('previous_anggaran_id', $anggaran->id)
                     ->first()?->pk04Kegiatan;
                 $targetBulan = $targetKegiatan?->bulan;
                 $statusLabel = $targetBulan
                     ? "Ditarik Maju ke Bln {$targetBulan}"
                     : 'Ditarik Maju';
-            } elseif ($tipe === 'proposal') {
+            } elseif ($anggaran->source === 'tarik_maju') {
+                // Item that was pulled forward INTO this month from a future month
+                $sourceBulan = Pk04Anggaran::find($anggaran->previous_anggaran_id)?->pk04Kegiatan?->bulan;
+                $statusLabel = $sourceBulan
+                    ? "Tarik Maju dari Bln {$sourceBulan}"
+                    : 'Tarik Maju';
+            } elseif ($grouped[$programKey]['tipe'] === 'proposal') {
                 $statusLabel = 'Di Luar Plafon';
+            } else {
+                $statusLabel = 'Normal';
             }
 
             $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
                 'pabd01_item_id' => $item->id,
                 'pk04_anggaran_id' => $anggaran->id,
                 'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $anggaran->mata_anggaran,
                 'nominal' => (float) $anggaran->nominal_anggaran,
                 'status_item' => $anggaran->status_item,
@@ -3592,6 +3601,7 @@ class PabdWorkflowController extends Controller
 
         $proposalDraft = 0.0;
         $proposalReview = 0.0;
+        $pabdDefinition = new \App\Workflows\PabdWorkflowDefinition;
 
         $activeProposalPkWorkflows = PkWorkflow::query()
             ->where('team_id', $teamId)
@@ -3617,11 +3627,19 @@ class PabdWorkflowController extends Controller
                 ->flatMap(fn ($k) => $k->anggaran)
                 ->sum('nominal_anggaran');
 
-            $currentSteps = $this->engine->getCurrentSteps($pkDefinition, $wf->history ?? []);
+            // Proposal PKs are auto-compiled to PK04 on PABD02B approve — they never run their own
+            // PK01/PK02A/PK02B review. Classify by the linking PABD's current step instead:
+            // PABD02A active => Bapel still drafting => proposalDraft.
+            // PABD02B (or later) active => BU reviewing => proposalReview.
+            $linkedItem = Pabd02aItemPerubahan::where('pk_workflow_id', $wf->id)->latest('id')->first();
+            $linkedPabd = $linkedItem ? PabdWorkflow::find($linkedItem->pabd_workflow_id) : null;
+            $pabdSteps = $linkedPabd
+                ? $this->engine->getCurrentSteps($pabdDefinition, $linkedPabd->history ?? [])
+                : [];
 
-            if (in_array('PK01', $currentSteps)) {
+            if (in_array('PABD02A', $pabdSteps)) {
                 $proposalDraft += $total;
-            } elseif (array_intersect(['PK02A', 'PK02B'], $currentSteps)) {
+            } else {
                 $proposalReview += $total;
             }
         }

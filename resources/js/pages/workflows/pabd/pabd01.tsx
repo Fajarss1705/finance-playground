@@ -15,7 +15,8 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import CopyButton from '@/components/ui/copy-button';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -24,6 +25,7 @@ type AnggaranItem = {
     pabd01_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal: number;
     status_item: string;
@@ -114,6 +116,47 @@ function StepStatusBadge({ mode, scope }: { mode: string; scope: string }) {
         return <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">Draft</Badge>;
     }
     return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">Menunggu Diisi</Badge>;
+}
+
+// ─── Copy helpers ─────────────────────────────────────
+
+const TABLE_HEADERS = ['Dicairkan', 'Status', 'Kode Anggaran Baru', 'Nominal (Rp)', 'Mata Anggaran', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', 'Bulan', ...TABLE_HEADERS];
+
+function itemToRowCells(item: AnggaranItem, checked: boolean): string[] {
+    return [
+        checked ? 'Ya' : 'Tidak',
+        item.status_label ?? '',
+        item.kode_anggaran_baru ?? '',
+        String(item.nominal),
+        item.mata_anggaran,
+        item.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildKegiatanTableTSV(kegiatan: KegiatanGroup, checkedMap: Record<number, boolean>): string {
+    return tableToTSV(
+        TABLE_HEADERS,
+        kegiatan.anggaran.map((a) => itemToRowCells(a, checkedMap[a.pabd01_item_id] ?? false)),
+    );
+}
+
+function buildChecklistSectionTSV(programs: ProgramGroup[], checkedMap: Record<number, boolean>): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([
+                    program.program_name,
+                    program.kode_kategori,
+                    kegiatan.nama_kegiatan,
+                    kegiatan.bulan_label,
+                    ...itemToRowCells(a, checkedMap[a.pabd01_item_id] ?? false),
+                ]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
 }
 
 // ─── Main component ──────────────────────────────────
@@ -269,11 +312,11 @@ export default function Pabd01({
                                     {cycleBackNotes.role_name && ` (${cycleBackNotes.role_name}`}
                                     {cycleBackNotes.team_name && ` \u00B7 ${cycleBackNotes.team_name}`}
                                     {cycleBackNotes.role_name && ')'}
-                                    {cycleBackNotes.at && ` — ${cycleBackNotes.at}`}
+                                    {cycleBackNotes.at && ` — ${formatDateTime(cycleBackNotes.at)}`}
                                 </p>
                             )}
                             {!cycleBackNotes.by_name && cycleBackNotes.at && (
-                                <p className="text-xs text-amber-600 dark:text-amber-400">— {cycleBackNotes.at}</p>
+                                <p className="text-xs text-amber-600 dark:text-amber-400">— {formatDateTime(cycleBackNotes.at)}</p>
                             )}
                             {cycleBackNotes.notes && (
                                 <p className="whitespace-pre-line text-amber-700 dark:text-amber-300">
@@ -321,6 +364,17 @@ export default function Pabd01({
                     commentSource="pabd01"
                     canComment={canComment}
                     finalSteps={['PABD05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PABD01' && entry.id) return `${basePath}/pabd01/${entry.id}`;
+                        if (step === 'PABD02A' && entry.id) return `${basePath}/pabd02a/${entry.id}`;
+                        if (step === 'PABD02B' && entry.id) return `${basePath}/pabd02b/${entry.id}`;
+                        if (step === 'PABD03') return `${basePath}/pabd03`;
+                        if (step === 'PABD04' && entry.id) return `${basePath}/pabd04/${entry.id}`;
+                        if (step === 'PABD05') return `${basePath}/pabd05`;
+                        return null;
+                    }}
                 />
 
                 {/* Budget Reference */}
@@ -330,11 +384,14 @@ export default function Pabd01({
                 <SectionCard
                     title="Checklist Anggaran"
                     headerRight={
-                        !isReadonly ? (
-                            <Button variant="ghost" size="sm" onClick={toggleSelectAll} className="text-xs">
-                                {allChecked ? 'Deselect All' : 'Select All'}
-                            </Button>
-                        ) : undefined
+                        <div className="flex items-center gap-2">
+                            {!isReadonly && (
+                                <Button variant="ghost" size="sm" onClick={toggleSelectAll} className="text-xs">
+                                    {allChecked ? 'Deselect All' : 'Select All'}
+                                </Button>
+                            )}
+                            <CopyButton variant="button" label="Salin Checklist" value={() => buildChecklistSectionTSV(anggaranItems, checkedMap)} />
+                        </div>
                     }
                 >
                     {hasNoItems ? (
@@ -354,24 +411,29 @@ export default function Pabd01({
                                     </h4>
                                     {program.kegiatan.map((kegiatan) => (
                                         <div key={kegiatan.kegiatan_id} className="mb-4 ml-2">
-                                            <p className="mb-1 text-xs font-medium text-muted-foreground">
-                                                {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
-                                            </p>
+                                            <div className="mb-1 flex items-center justify-between gap-2">
+                                                <p className="text-xs font-medium text-muted-foreground">
+                                                    {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
+                                                </p>
+                                                <CopyButton variant="button" label="Salin Tabel" value={() => buildKegiatanTableTSV(kegiatan, checkedMap)} />
+                                            </div>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full min-w-200 border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b bg-muted/50">
-                                                            <th className="w-10 px-3 py-2"></th>
-                                                            <th className="px-3 py-2 text-left font-medium">Kode Anggaran</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Mata Anggaran</th>
-                                                            <th className="px-3 py-2 text-right font-medium">Nominal (Rp)</th>
-                                                            <th className="px-3 py-2 text-left font-medium">Status</th>
+                                                        <tr className="bg-muted/50">
+                                                            <th className="w-10 border px-3 py-2"></th>
+                                                            <th className="border px-3 py-2 text-left font-medium">Status</th>
+                                                            <th className="border px-3 py-2 text-left font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                            <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
+                                                            <th className="border px-3 py-2 text-left font-medium">Mata Anggaran</th>
+                                                            <th className="border px-3 py-2 text-left font-medium whitespace-nowrap">Kode Anggaran Lama</th>
+                                                            <th className="w-10 border px-2 py-2"></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((item) => (
-                                                            <tr key={item.pabd01_item_id} className="border-b last:border-0">
-                                                                <td className="px-3 py-2 text-center">
+                                                            <tr key={item.pabd01_item_id}>
+                                                                <td className="border px-3 py-2 text-center">
                                                                     {isReadonly ? (
                                                                         <span className="text-sm">
                                                                             {checkedMap[item.pabd01_item_id] ? '✓' : '✗'}
@@ -388,25 +450,32 @@ export default function Pabd01({
                                                                         />
                                                                     )}
                                                                 </td>
-                                                                <td className="px-3 py-2">
-                                                                    <KodeAnggaranFromString kode={item.kode_anggaran_baru} />
+                                                                <td className="border px-3 py-2">
+                                                                    {item.status_label && <Badge className={statusBadgeClass(item.status_label)}>{item.status_label}</Badge>}
                                                                 </td>
-                                                                <td className="px-3 py-2">{item.mata_anggaran}</td>
-                                                                <td className="px-3 py-2 text-right tabular-nums">
+                                                                <td className="border px-3 py-2 whitespace-nowrap">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        <KodeAnggaranFromString
+                                                                            kode={item.kode_anggaran_baru}
+                                                                            programName={program.program_name}
+                                                                            kegiatanName={kegiatan.nama_kegiatan}
+                                                                            mataAnggaran={item.mata_anggaran}
+                                                                        />
+                                                                        {item.kode_anggaran_baru && <CopyButton value={item.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border px-3 py-2 text-right tabular-nums">
                                                                     {formatRupiah(item.nominal)}
                                                                 </td>
-                                                                <td className="px-3 py-2">
-                                                                    {item.status_label && (
-                                                                        <Badge
-                                                                            className={
-                                                                                item.status_item === 'ditarik_maju'
-                                                                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
-                                                                                    : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-                                                                            }
-                                                                        >
-                                                                            {item.status_label}
-                                                                        </Badge>
-                                                                    )}
+                                                                <td className="border px-3 py-2">{item.mata_anggaran}</td>
+                                                                <td className="border px-3 py-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {item.kode_anggaran_lama || '—'}
+                                                                        {item.kode_anggaran_lama && <CopyButton value={item.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border px-2 py-2 text-center">
+                                                                    <CopyButton value={() => rowToTSV(itemToRowCells(item, checkedMap[item.pabd01_item_id] ?? false))} label="Salin Baris" />
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -422,7 +491,7 @@ export default function Pabd01({
                 </SectionCard>
 
                 {/* Summary */}
-                <SectionCard title="Ringkasan Pencairan">
+                <SectionCard title={`Ringkasan Pencairan — ${workflowMeta.bulan_label} ${workflowMeta.tahun_anggaran}`}>
                     <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                         {ppLabel && (
                             <div className="sm:col-span-2">

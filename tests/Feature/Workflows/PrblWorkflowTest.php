@@ -729,15 +729,14 @@ it('rejects PRBL01 submit when step is no longer active', function () {
     $response->assertStatus(409);
 });
 
-// ── Foto Upload / Delete ──
+// ── Foto / Nota Upload + Delete (via prbl01.draft) ──
 
-it('uploads a foto for a kegiatan item', function () {
+it('uploads a foto for a kegiatan item via prbl01 draft', function () {
     Storage::fake('local');
 
     [$user, $role, $workspace, $team] = setupPrblUser(
         'team.workflows.prbl.prbl01.show',
         'team.workflows.prbl.prbl01.draft',
-        'team.workflows.prbl.prbl01.foto.upload',
     );
     activatePrblSession($this, $user, $role, $workspace);
 
@@ -747,28 +746,24 @@ it('uploads a foto for a kegiatan item', function () {
 
     $file = UploadedFile::fake()->image('foto-kegiatan.jpg', 800, 600)->size(500);
 
-    $response = $this->postJson(route('team.workflows.prbl.prbl01.foto.upload', [
+    $response = $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'file' => $file,
-        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'foto_files' => [$itemKegiatan->id => [$file]],
     ]);
 
-    $response->assertSuccessful()
-        ->assertJsonStructure(['id', 'file_id', 'original_filename', 'thumbnail_url']);
-
+    $response->assertRedirect();
     expect(Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $itemKegiatan->id)->count())->toBe(1);
 });
 
-it('deletes a foto for a kegiatan item', function () {
+it('deletes a foto for a kegiatan item via prbl01 draft', function () {
     Storage::fake('local');
 
     [$user, $role, $workspace, $team] = setupPrblUser(
         'team.workflows.prbl.prbl01.show',
         'team.workflows.prbl.prbl01.draft',
-        'team.workflows.prbl.prbl01.foto.upload',
-        'team.workflows.prbl.prbl01.foto.delete',
     );
     activatePrblSession($this, $user, $role, $workspace);
 
@@ -776,40 +771,38 @@ it('deletes a foto for a kegiatan item', function () {
     [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
     [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
 
-    // Upload first
+    // Upload first via draft
     $file = UploadedFile::fake()->image('foto.jpg', 400, 300)->size(100);
-    $uploadResponse = $this->postJson(route('team.workflows.prbl.prbl01.foto.upload', [
+    $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'file' => $file,
-        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
-    ]);
-    $fotoId = $uploadResponse->json('id');
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'foto_files' => [$itemKegiatan->id => [$file]],
+    ])->assertRedirect();
 
-    // Delete
-    $response = $this->postJson(route('team.workflows.prbl.prbl01.foto.delete', [
+    $foto = Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $itemKegiatan->id)->firstOrFail();
+    $prbl01->refresh();
+
+    // Delete via second draft
+    $response = $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'prbl01_foto_kegiatan_id' => $fotoId,
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'remove_foto_ids' => [$foto->id],
     ]);
 
-    $response->assertSuccessful()
-        ->assertJson(['success' => true]);
-
-    expect(Prbl01FotoKegiatan::find($fotoId))->toBeNull();
+    $response->assertRedirect();
+    expect(Prbl01FotoKegiatan::find($foto->id))->toBeNull();
 });
 
-// ── Nota Upload / Delete ──
-
-it('uploads a nota pengeluaran for a kegiatan item', function () {
+it('uploads a nota pengeluaran for a kegiatan item via prbl01 draft', function () {
     Storage::fake('local');
 
     [$user, $role, $workspace, $team] = setupPrblUser(
         'team.workflows.prbl.prbl01.show',
         'team.workflows.prbl.prbl01.draft',
-        'team.workflows.prbl.prbl01.nota.upload',
     );
     activatePrblSession($this, $user, $role, $workspace);
 
@@ -819,27 +812,24 @@ it('uploads a nota pengeluaran for a kegiatan item', function () {
 
     $file = UploadedFile::fake()->create('nota-001.pdf', 1024, 'application/pdf');
 
-    $response = $this->postJson(route('team.workflows.prbl.prbl01.nota.upload', [
+    $response = $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'file' => $file,
-        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'nota_files' => [$itemKegiatan->id => [$file]],
     ]);
 
-    $response->assertSuccessful()
-        ->assertJsonStructure(['id', 'file_id', 'original_filename', 'mime_type', 'download_url']);
-
+    $response->assertRedirect();
     expect(Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $itemKegiatan->id)->count())->toBe(1);
 });
 
-it('rejects nota upload with blocked extension', function () {
+it('rejects nota upload with blocked extension via prbl01 draft', function () {
     Storage::fake('local');
 
     [$user, $role, $workspace, $team] = setupPrblUser(
         'team.workflows.prbl.prbl01.show',
         'team.workflows.prbl.prbl01.draft',
-        'team.workflows.prbl.prbl01.nota.upload',
     );
     activatePrblSession($this, $user, $role, $workspace);
 
@@ -849,25 +839,23 @@ it('rejects nota upload with blocked extension', function () {
 
     $file = UploadedFile::fake()->create('malicious.exe', 100, 'application/octet-stream');
 
-    $response = $this->postJson(route('team.workflows.prbl.prbl01.nota.upload', [
+    $response = $this->postJson(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'file' => $file,
-        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'nota_files' => [$itemKegiatan->id => [$file]],
     ]);
 
     $response->assertStatus(422);
 });
 
-it('deletes a nota pengeluaran', function () {
+it('deletes a nota pengeluaran via prbl01 draft', function () {
     Storage::fake('local');
 
     [$user, $role, $workspace, $team] = setupPrblUser(
         'team.workflows.prbl.prbl01.show',
         'team.workflows.prbl.prbl01.draft',
-        'team.workflows.prbl.prbl01.nota.upload',
-        'team.workflows.prbl.prbl01.nota.delete',
     );
     activatePrblSession($this, $user, $role, $workspace);
 
@@ -877,27 +865,74 @@ it('deletes a nota pengeluaran', function () {
 
     // Upload first
     $file = UploadedFile::fake()->create('nota.pdf', 500, 'application/pdf');
-    $uploadResponse = $this->postJson(route('team.workflows.prbl.prbl01.nota.upload', [
+    $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'file' => $file,
-        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
-    ]);
-    $notaId = $uploadResponse->json('id');
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'nota_files' => [$itemKegiatan->id => [$file]],
+    ])->assertRedirect();
 
-    // Delete
-    $response = $this->postJson(route('team.workflows.prbl.prbl01.nota.delete', [
+    $nota = Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $itemKegiatan->id)->firstOrFail();
+    $prbl01->refresh();
+
+    // Delete via second draft
+    $response = $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'prbl01_nota_pengeluaran_id' => $notaId,
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'remove_nota_ids' => [$nota->id],
     ]);
 
-    $response->assertSuccessful()
-        ->assertJson(['success' => true]);
+    $response->assertRedirect();
+    expect(Prbl01NotaPengeluaran::find($nota->id))->toBeNull();
+});
 
-    expect(Prbl01NotaPengeluaran::find($notaId))->toBeNull();
+it('uploads fotos and notas for multiple kegiatan in a single draft', function () {
+    Storage::fake('local');
+
+    [$user, $role, $workspace, $team] = setupPrblUser(
+        'team.workflows.prbl.prbl01.show',
+        'team.workflows.prbl.prbl01.draft',
+    );
+    activatePrblSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPrbl($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan1] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
+
+    // Create a second kegiatan item for the same prbl01_data
+    $itemKegiatan2 = \App\Models\Prbl\Prbl01ItemKegiatan::create([
+        'prbl01_data_id' => $prbl01->id,
+        'pk04_kegiatan_id' => $kegiatan->id,
+    ]);
+
+    $foto1 = UploadedFile::fake()->image('foto-k1.jpg', 400, 300)->size(100);
+    $foto2 = UploadedFile::fake()->image('foto-k2.jpg', 400, 300)->size(100);
+    $nota1 = UploadedFile::fake()->create('nota-k1.pdf', 512, 'application/pdf');
+    $nota2 = UploadedFile::fake()->create('nota-k2.pdf', 512, 'application/pdf');
+
+    $response = $this->post(route('team.workflows.prbl.prbl01.draft', [
+        'prblWorkflow' => $prblWorkflow->id,
+        'prbl01Data' => $prbl01->id,
+    ]), [
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'foto_files' => [
+            $itemKegiatan1->id => [$foto1],
+            $itemKegiatan2->id => [$foto2],
+        ],
+        'nota_files' => [
+            $itemKegiatan1->id => [$nota1],
+            $itemKegiatan2->id => [$nota2],
+        ],
+    ]);
+
+    $response->assertRedirect();
+    expect(\App\Models\Prbl\Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $itemKegiatan1->id)->count())->toBe(1);
+    expect(\App\Models\Prbl\Prbl01FotoKegiatan::where('prbl01_item_kegiatan_id', $itemKegiatan2->id)->count())->toBe(1);
+    expect(\App\Models\Prbl\Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $itemKegiatan1->id)->count())->toBe(1);
+    expect(\App\Models\Prbl\Prbl01NotaPengeluaran::where('prbl01_item_kegiatan_id', $itemKegiatan2->id)->count())->toBe(1);
 });
 
 // ── Comment ──
@@ -2736,7 +2771,6 @@ it('prbl01 show returns nota with valid files.download url after upload', functi
     [$user, $role, $workspace, $team] = setupPrblUser(
         'team.workflows.prbl.prbl01.show',
         'team.workflows.prbl.prbl01.draft',
-        'team.workflows.prbl.prbl01.nota.upload',
     );
     activatePrblSession($this, $user, $role, $workspace);
 
@@ -2744,15 +2778,15 @@ it('prbl01 show returns nota with valid files.download url after upload', functi
     [$pkWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner] = setupPk04ForPrbl($workspace, $team, $ppWorkflow, 3, $user, $role);
     [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
 
-    // Upload a nota file
+    // Upload a nota file via draft
     $file = UploadedFile::fake()->create('kwitansi.pdf', 200, 'application/pdf');
-    $this->postJson(route('team.workflows.prbl.prbl01.nota.upload', [
+    $this->post(route('team.workflows.prbl.prbl01.draft', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl01Data' => $prbl01->id,
     ]), [
-        'file' => $file,
-        'prbl01_item_kegiatan_id' => $itemKegiatan->id,
-    ])->assertSuccessful();
+        'expected_updated_at' => $prbl01->updated_at->toIso8601String(),
+        'nota_files' => [$itemKegiatan->id => [$file]],
+    ])->assertRedirect();
 
     // Load the show page — nota download_url must use files.download (not the missing files.serve route)
     $response = $this->get(route('team.workflows.prbl.prbl01.show', [

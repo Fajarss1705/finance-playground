@@ -162,29 +162,29 @@ export default function PabdShow({
                             <div>
                                 <p className="mb-2 text-sm font-medium">Ringkasan Pencairan:</p>
                                 <div className="overflow-x-auto">
-                                    <table className="min-w-60 w-full text-sm">
+                                    <table className="min-w-60 w-full border-collapse border text-sm">
                                         <thead>
-                                            <tr className="border-b bg-muted/50">
-                                                <th className="px-3 py-2 text-left font-medium"></th>
-                                                <th className="px-3 py-2 text-right font-medium">Item</th>
-                                                <th className="px-3 py-2 text-right font-medium">Nominal</th>
+                                            <tr className="bg-muted/50">
+                                                <th className="border px-3 py-2 text-left font-medium"></th>
+                                                <th className="border px-3 py-2 text-right font-medium">Item</th>
+                                                <th className="border px-3 py-2 text-right font-medium">Nominal</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr className="border-b">
-                                                <td className="px-3 py-2">Dicairkan</td>
-                                                <td className="px-3 py-2 text-right tabular-nums">{dataTerbaru.total_item_dicairkan} item</td>
-                                                <td className="px-3 py-2 text-right tabular-nums">Rp {formatRupiah(dataTerbaru.total_anggaran_dicairkan)}</td>
+                                            <tr>
+                                                <td className="border px-3 py-2">Dicairkan</td>
+                                                <td className="border px-3 py-2 text-right tabular-nums">{dataTerbaru.total_item_dicairkan} item</td>
+                                                <td className="border px-3 py-2 text-right tabular-nums">Rp {formatRupiah(dataTerbaru.total_anggaran_dicairkan)}</td>
                                             </tr>
-                                            <tr className="border-b">
-                                                <td className="px-3 py-2">Hangus</td>
-                                                <td className="px-3 py-2 text-right tabular-nums">{dataTerbaru.total_item_hangus} item</td>
-                                                <td className="px-3 py-2 text-right tabular-nums">Rp {formatRupiah(dataTerbaru.total_anggaran_hangus)}</td>
+                                            <tr>
+                                                <td className="border px-3 py-2">Hangus</td>
+                                                <td className="border px-3 py-2 text-right tabular-nums">{dataTerbaru.total_item_hangus} item</td>
+                                                <td className="border px-3 py-2 text-right tabular-nums">Rp {formatRupiah(dataTerbaru.total_anggaran_hangus)}</td>
                                             </tr>
-                                            <tr className="border-t bg-muted/30 font-medium">
-                                                <td className="px-3 py-2">Total</td>
-                                                <td className="px-3 py-2 text-right tabular-nums">{dataTerbaru.total_items} item</td>
-                                                <td className="px-3 py-2 text-right tabular-nums">Rp {formatRupiah(dataTerbaru.grand_total)}</td>
+                                            <tr className="bg-muted/30 font-medium">
+                                                <td className="border px-3 py-2">Total</td>
+                                                <td className="border px-3 py-2 text-right tabular-nums">{dataTerbaru.total_items} item</td>
+                                                <td className="border px-3 py-2 text-right tabular-nums">Rp {formatRupiah(dataTerbaru.grand_total)}</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -221,7 +221,7 @@ export default function PabdShow({
 
                         if (step === 'PABD01' && entry.id) return `${base}/pabd01/${entry.id}`;
                         if (step === 'PABD02A' && entry.id) return `${base}/pabd02a/${entry.id}`;
-                        if (step === 'PABD02B') return `${base}/pabd02b`;
+                        if (step === 'PABD02B' && entry.id) return `${base}/pabd02b/${entry.id}`;
                         if (step === 'PABD03') return `${base}/pabd03`;
                         if (step === 'PABD04' && entry.id) return `${base}/pabd04/${entry.id}`;
                         if (step === 'PABD05') return `${base}/pabd05`;

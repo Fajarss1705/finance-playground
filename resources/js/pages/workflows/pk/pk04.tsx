@@ -11,7 +11,7 @@ import HistoryCommentSection from '@/components/workflow/history-comment-section
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDate, formatDateTime, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 type AnggaranItem = {
@@ -105,14 +105,6 @@ type Props = {
     teamName: string | null;
 };
 
-
-function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-function formatDateTime(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
 
 const BULAN_LABELS: Record<number, string> = {
     1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April',
@@ -478,7 +470,7 @@ export default function Pk04({
                                 Lanjutkan Revisi
                             </Button>
                         ) : (
-                            <Button variant="outline" onClick={() => router.post(`/admin/workflows/pk/${workflow.id}/pk05/create`)}>
+                            <Button variant="outline" onClick={() => router.post(`/admin/workflows/pk/${workflow.id}/pk05`)}>
                                 Revisi
                             </Button>
                         )}

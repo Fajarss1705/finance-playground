@@ -42,6 +42,7 @@ class ManualTestingSeeder extends Seeder
         $this->syncAllPermissions();
         $this->createUsers();
         $this->assignBasePermissions();
+        $this->assignAdminCrudPermissions();
         $this->assignPpPermissions();
         $this->assignPkPermissions();
         $this->assignPabdPermissions();
@@ -209,6 +210,56 @@ class ManualTestingSeeder extends Seeder
         foreach ($adminRoleKeys as $roleKey) {
             $this->syncPermissions($this->roles[$roleKey], $basePerms);
         }
+    }
+
+    // =========================================================================
+    // Admin CRUD Permission Assignments (users, roles, teams, orgs, workspaces)
+    // Koordinator MONEV: full CRUD
+    // Evaluator Narasi + Anggaran: view only (index, edit page, trash list)
+    // =========================================================================
+
+    private function assignAdminCrudPermissions(): void
+    {
+        $entities = ['users', 'roles', 'teams', 'organizations', 'workspaces'];
+
+        $fullCrud = ['admin.index', 'admin.notifications.index', 'admin.notifications.mark-all-read', 'admin.notifications.show'];
+        $viewOnly = ['admin.index', 'admin.notifications.index', 'admin.notifications.mark-all-read', 'admin.notifications.show'];
+
+        foreach ($entities as $entity) {
+            $fullCrud = array_merge($fullCrud, [
+                "admin.{$entity}.index",
+                "admin.{$entity}.create",
+                "admin.{$entity}.store",
+                "admin.{$entity}.edit",
+                "admin.{$entity}.update",
+                "admin.{$entity}.destroy",
+                "admin.{$entity}.trash",
+                "admin.{$entity}.restore",
+            ]);
+
+            $viewOnly = array_merge($viewOnly, [
+                "admin.{$entity}.index",
+                "admin.{$entity}.edit",
+                "admin.{$entity}.trash",
+            ]);
+        }
+
+        // Files use different verbs (upload/destroy, no create/edit/update)
+        $fullCrud = array_merge($fullCrud, [
+            'admin.files.index',
+            'admin.files.upload',
+            'admin.files.destroy',
+            'admin.files.trash',
+            'admin.files.restore',
+        ]);
+        $viewOnly = array_merge($viewOnly, [
+            'admin.files.index',
+            'admin.files.trash',
+        ]);
+
+        $this->syncPermissions($this->roles['monev_koordinator_monev'], $fullCrud);
+        $this->syncPermissions($this->roles['monev_evaluator_narasi'], $viewOnly);
+        $this->syncPermissions($this->roles['monev_evaluator_anggaran'], $viewOnly);
     }
 
     private function assignPpPermissions(): void

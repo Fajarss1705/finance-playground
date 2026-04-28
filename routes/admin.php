@@ -174,9 +174,10 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
         // PRBL Workflow (admin scope)
         Route::prefix('workflows/prbl')->name('workflows.prbl.')->group(function () {
             Route::get('/', [PrblWorkflowController::class, 'index'])->name('index');
-            Route::post('/admin-create', [PrblWorkflowController::class, 'adminCreate'])->name('admin_create');
             Route::get('/{prblWorkflow}', [PrblWorkflowController::class, 'show'])->name('show');
+            Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
             Route::post('/{prblWorkflow}/admin-reset', [PrblWorkflowController::class, 'adminReset'])->name('admin_reset');
+            Route::post('/admin-create', [PrblWorkflowController::class, 'adminCreate'])->name('admin_create');
 
             // PRBL01 (admin scope — read-only)
             Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
@@ -204,9 +205,6 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])
             Route::get('/{prblWorkflow}/prbl05/export/pdf', [PrblWorkflowController::class, 'prbl05ExportPdf'])->name('prbl05.export.pdf');
             Route::get('/{prblWorkflow}/prbl05/export/excel', [PrblWorkflowController::class, 'prbl05ExportExcel'])->name('prbl05.export.excel');
             Route::get('/{prblWorkflow}/prbl05/export/zip', [PrblWorkflowController::class, 'prbl05ExportZip'])->name('prbl05.export.zip');
-
-            // Comment
-            Route::post('/{prblWorkflow}/comment', [PrblWorkflowController::class, 'comment'])->name('comment');
         });
 
         // Resource routes

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import SectionCard from '@/components/workflow/section-card';
+import { formatDateTime } from '@/lib/utils';
 
 // ────────────────────────────────────────────────────────────
 // Types (exported for use by PK02A, PK02B, PK03)
@@ -118,9 +119,7 @@ function formatRupiah(value: number): string {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-function formatTanggal(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
+const formatTanggal = formatDateTime;
 
 function pad(val: string | number | null | undefined, len: number): string {
     return String(val ?? '0').padStart(len, '0');

@@ -19,7 +19,7 @@ import HistoryCommentSection from '@/components/workflow/history-comment-section
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDate, formatRupiah } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 import { buildKodeSegments, KodePreviewCell } from './_pk01-readonly-section';
 import type { KodeAnggaranContext } from './_pk01-readonly-section';
@@ -492,7 +492,7 @@ function RejectionBanner({ rejectionNotes }: { rejectionNotes: RejectionNotes })
             {rejectionNotes.by_name && (
                 <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
                     Oleh: {rejectionNotes.by_name}{rejectionNotes.role_name ? ` (${rejectionNotes.role_name})` : ''}
-                    {rejectionNotes.at && ` — ${new Date(rejectionNotes.at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`}
+                    {rejectionNotes.at && ` — ${formatDate(rejectionNotes.at)}`}
                 </p>
             )}
             {rejectionNotes.notes && (

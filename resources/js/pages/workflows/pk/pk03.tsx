@@ -14,6 +14,7 @@ import HistoryCommentSection from '@/components/workflow/history-comment-section
 import type { HistoryEntry } from '@/components/workflow/history-comment-section';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTime } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 import Pk01ReadonlySection from './_pk01-readonly-section';
 import type { Pk01ReadonlyData, PreviousCycle, Pk01Change, KodeAnggaranContext } from './_pk01-readonly-section';
@@ -56,9 +57,7 @@ type Props = {
     basePath: string;
 };
 
-function formatTanggal(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
+const formatTanggal = formatDateTime;
 
 export default function Pk03({
     workflow,

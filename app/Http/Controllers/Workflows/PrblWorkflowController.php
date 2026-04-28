@@ -49,6 +49,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -444,6 +445,8 @@ class PrblWorkflowController extends Controller
         $validated = $request->validated();
         $this->checkOptimisticLock($prbl01Data, $validated['expected_updated_at']);
 
+        $sessionContext = $this->getSessionContext();
+
         // Sync narrative fields
         $this->syncNarrativeFields($prbl01Data, $validated['items'] ?? []);
 
@@ -453,9 +456,11 @@ class PrblWorkflowController extends Controller
         // Sync realisasi amounts
         $this->syncRealisasiAmounts($prbl01Data, $validated['realisasi'] ?? []);
 
+        // Apply foto/nota uploads + deletions
+        $this->applyFotoNotaChanges($request, $prbl01Data, $prblWorkflow, $sessionContext, 'draft');
+
         $prbl01Data->touch();
 
-        $sessionContext = $this->getSessionContext();
         $fileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $prbl01Data,
@@ -492,6 +497,8 @@ class PrblWorkflowController extends Controller
         $validated = $request->validated();
         $this->checkOptimisticLock($prbl01Data, $validated['expected_updated_at']);
 
+        $sessionContext = $this->getSessionContext();
+
         // Sync narrative fields
         $this->syncNarrativeFields($prbl01Data, $validated['items']);
 
@@ -501,6 +508,9 @@ class PrblWorkflowController extends Controller
         // Sync realisasi amounts
         $this->syncRealisasiAmounts($prbl01Data, $validated['realisasi']);
 
+        // Apply foto/nota uploads + deletions before validation
+        $this->applyFotoNotaChanges($request, $prbl01Data, $prblWorkflow, $sessionContext, 'submit');
+
         // Validate realisasi constraint: sum(realisasi) <= sum(dicairkan)
         $this->validateRealisasiConstraint($prbl01Data, $prblWorkflow);
 
@@ -509,7 +519,6 @@ class PrblWorkflowController extends Controller
 
         $prbl01Data->touch();
 
-        $sessionContext = $this->getSessionContext();
         $fileIds = $this->commentService->storeFiles(
             $request->file('files', []),
             $prbl01Data,
@@ -560,139 +569,89 @@ class PrblWorkflowController extends Controller
     }
 
     // ──────────────────────────────────────
-    // PRBL01 — Foto Kegiatan Upload/Delete
-    // ──────────────────────────────────────
-
-    public function prbl01FotoUpload(Request $request, PrblWorkflow $prblWorkflow, Prbl01Data $prbl01Data): \Illuminate\Http\JsonResponse
-    {
-        $this->ensureWorkspaceOwnership($prblWorkflow);
-        $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.submit');
-        $this->ensureStepActive($prblWorkflow, 'PRBL01');
-        $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
-
-        $request->validate([
-            'file' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:51200'],
-            'prbl01_item_kegiatan_id' => ['required', 'integer', 'exists:prbl01_item_kegiatan,id'],
-        ]);
-
-        $itemKegiatan = Prbl01ItemKegiatan::where('id', $request->input('prbl01_item_kegiatan_id'))
-            ->where('prbl01_data_id', $prbl01Data->id)
-            ->firstOrFail();
-
-        $uploadedFile = $request->file('file');
-        $sessionContext = $this->getSessionContext();
-
-        // Upload and store file
-        $file = $this->storeUploadedFile($uploadedFile, $prblWorkflow, $request->user()->id, $sessionContext, 'prbl.prbl01.foto_upload');
-
-        // Auto-resize if > 10MB
-        if ($file->size > 10 * 1024 * 1024) {
-            $this->autoResizeImage($file);
-        }
-
-        // Create join row
-        $fotoRow = Prbl01FotoKegiatan::create([
-            'prbl01_item_kegiatan_id' => $itemKegiatan->id,
-            'file_id' => $file->id,
-        ]);
-
-        return response()->json([
-            'id' => $fotoRow->id,
-            'file_id' => $file->id,
-            'original_filename' => $file->original_filename,
-            'thumbnail_url' => route('files.download', ['file' => $file, 'inline' => 1]),
-        ]);
-    }
-
-    public function prbl01FotoDelete(Request $request, PrblWorkflow $prblWorkflow, Prbl01Data $prbl01Data): \Illuminate\Http\JsonResponse
-    {
-        $this->ensureWorkspaceOwnership($prblWorkflow);
-        $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.submit');
-        $this->ensureStepActive($prblWorkflow, 'PRBL01');
-        $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
-
-        $request->validate([
-            'prbl01_foto_kegiatan_id' => ['required', 'integer', 'exists:prbl01_foto_kegiatan,id'],
-        ]);
-
-        $foto = Prbl01FotoKegiatan::where('id', $request->input('prbl01_foto_kegiatan_id'))
-            ->whereHas('prbl01ItemKegiatan', fn ($q) => $q->where('prbl01_data_id', $prbl01Data->id))
-            ->firstOrFail();
-
-        $foto->delete();
-
-        return response()->json(['success' => true]);
-    }
-
-    // ──────────────────────────────────────
-    // PRBL01 — Nota Pengeluaran Upload/Delete
+    // PRBL01 — Foto/Nota apply changes (helper)
     // ──────────────────────────────────────
 
     /** Blocked file extensions for nota upload. */
-    private const BLOCKED_EXTENSIONS = ['exe', 'bat', 'sh', 'cmd', 'ps1', 'com', 'scr', 'msi', 'vbs', 'js', 'wsh', 'wsf'];
+    private const NOTA_BLOCKED_EXTENSIONS = ['exe', 'bat', 'sh', 'cmd', 'ps1', 'com', 'scr', 'msi', 'vbs', 'js', 'wsh', 'wsf'];
 
-    public function prbl01NotaUpload(Request $request, PrblWorkflow $prblWorkflow, Prbl01Data $prbl01Data): \Illuminate\Http\JsonResponse
-    {
-        $this->ensureWorkspaceOwnership($prblWorkflow);
-        $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.submit');
-        $this->ensureStepActive($prblWorkflow, 'PRBL01');
-        $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
+    /**
+     * Apply foto/nota uploads and deletions submitted alongside draft/submit.
+     *
+     * Request shape:
+     *   foto_files[<prbl01_item_kegiatan_id>][] = UploadedFile (image)
+     *   nota_files[<prbl01_item_kegiatan_id>][] = UploadedFile
+     *   remove_foto_ids[] = prbl01_foto_kegiatan.id
+     *   remove_nota_ids[] = prbl01_nota_pengeluaran.id
+     */
+    private function applyFotoNotaChanges(
+        Request $request,
+        Prbl01Data $prbl01Data,
+        PrblWorkflow $prblWorkflow,
+        array $sessionContext,
+        string $action,
+    ): void {
+        $userId = $request->user()->id;
 
-        $request->validate([
-            'file' => ['required', 'file', 'max:25600'],
-            'prbl01_item_kegiatan_id' => ['required', 'integer', 'exists:prbl01_item_kegiatan,id'],
-        ]);
-
-        $uploadedFile = $request->file('file');
-        $ext = strtolower($uploadedFile->getClientOriginalExtension());
-
-        if (in_array($ext, self::BLOCKED_EXTENSIONS)) {
-            abort(422, 'Tipe file ini tidak diperbolehkan.');
+        // 1. Soft-delete fotos requested for removal — scoped to this prbl01_data
+        $removeFotoIds = $request->input('remove_foto_ids', []);
+        if (! empty($removeFotoIds)) {
+            Prbl01FotoKegiatan::whereIn('id', $removeFotoIds)
+                ->whereHas('prbl01ItemKegiatan', fn ($q) => $q->where('prbl01_data_id', $prbl01Data->id))
+                ->get()
+                ->each(fn ($foto) => $foto->delete());
         }
 
-        $itemKegiatan = Prbl01ItemKegiatan::where('id', $request->input('prbl01_item_kegiatan_id'))
-            ->where('prbl01_data_id', $prbl01Data->id)
-            ->firstOrFail();
+        // 2. Soft-delete notas requested for removal — scoped to this prbl01_data
+        $removeNotaIds = $request->input('remove_nota_ids', []);
+        if (! empty($removeNotaIds)) {
+            Prbl01NotaPengeluaran::whereIn('id', $removeNotaIds)
+                ->whereHas('prbl01ItemKegiatan', fn ($q) => $q->where('prbl01_data_id', $prbl01Data->id))
+                ->get()
+                ->each(fn ($nota) => $nota->delete());
+        }
 
-        $sessionContext = $this->getSessionContext();
-        $file = $this->storeUploadedFile($uploadedFile, $prblWorkflow, $request->user()->id, $sessionContext, 'prbl.prbl01.nota_upload');
+        // 3. Resolve allowed kegiatan ids (defense-in-depth: ignore unknown keys)
+        $allowedKegiatanIds = Prbl01ItemKegiatan::where('prbl01_data_id', $prbl01Data->id)->pluck('id')->all();
 
-        $notaRow = Prbl01NotaPengeluaran::create([
-            'prbl01_item_kegiatan_id' => $itemKegiatan->id,
-            'file_id' => $file->id,
-        ]);
+        // 4. Process new foto uploads, grouped by kegiatan id
+        $fotoFiles = $request->file('foto_files', []);
+        foreach ($fotoFiles as $kegiatanId => $files) {
+            $kegiatanId = (int) $kegiatanId;
+            if (! in_array($kegiatanId, $allowedKegiatanIds, true)) {
+                continue;
+            }
+            foreach ((array) $files as $uploadedFile) {
+                $file = $this->storeUploadedFile($uploadedFile, $prblWorkflow, $userId, $sessionContext, "prbl.prbl01.{$action}.foto");
+                if ($file->size > 10 * 1024 * 1024) {
+                    $this->autoResizeImage($file);
+                }
+                Prbl01FotoKegiatan::create([
+                    'prbl01_item_kegiatan_id' => $kegiatanId,
+                    'file_id' => $file->id,
+                ]);
+            }
+        }
 
-        return response()->json([
-            'id' => $notaRow->id,
-            'file_id' => $file->id,
-            'original_filename' => $file->original_filename,
-            'mime_type' => $file->mime_type,
-            'download_url' => route('files.download', $file),
-        ]);
-    }
-
-    public function prbl01NotaDelete(Request $request, PrblWorkflow $prblWorkflow, Prbl01Data $prbl01Data): \Illuminate\Http\JsonResponse
-    {
-        $this->ensureWorkspaceOwnership($prblWorkflow);
-        $this->ensureTeamOwnership($prblWorkflow);
-        $this->checkPermission('team.workflows.prbl.prbl01.submit');
-        $this->ensureStepActive($prblWorkflow, 'PRBL01');
-        $this->ensureCurrentRecord($prblWorkflow, 'PRBL01', $prbl01Data->id);
-
-        $request->validate([
-            'prbl01_nota_pengeluaran_id' => ['required', 'integer', 'exists:prbl01_nota_pengeluaran,id'],
-        ]);
-
-        $nota = Prbl01NotaPengeluaran::where('id', $request->input('prbl01_nota_pengeluaran_id'))
-            ->whereHas('prbl01ItemKegiatan', fn ($q) => $q->where('prbl01_data_id', $prbl01Data->id))
-            ->firstOrFail();
-
-        $nota->delete();
-
-        return response()->json(['success' => true]);
+        // 5. Process new nota uploads, grouped by kegiatan id
+        $notaFiles = $request->file('nota_files', []);
+        foreach ($notaFiles as $kegiatanId => $files) {
+            $kegiatanId = (int) $kegiatanId;
+            if (! in_array($kegiatanId, $allowedKegiatanIds, true)) {
+                continue;
+            }
+            foreach ((array) $files as $uploadedFile) {
+                $ext = strtolower($uploadedFile->getClientOriginalExtension());
+                if (in_array($ext, self::NOTA_BLOCKED_EXTENSIONS, true)) {
+                    abort(422, "Tipe file '.{$ext}' tidak diperbolehkan untuk nota.");
+                }
+                $file = $this->storeUploadedFile($uploadedFile, $prblWorkflow, $userId, $sessionContext, "prbl.prbl01.{$action}.nota");
+                Prbl01NotaPengeluaran::create([
+                    'prbl01_item_kegiatan_id' => $kegiatanId,
+                    'file_id' => $file->id,
+                ]);
+            }
+        }
     }
 
     // ──────────────────────────────────────
@@ -712,13 +671,13 @@ class PrblWorkflowController extends Controller
         $sessionContext = $this->getSessionContext();
 
         $this->commentService->store(
-            $prblWorkflow,
-            $validated['source'],
-            $validated['notes'],
-            $request->file('files', []),
-            $request->user()->id,
-            $sessionContext,
-            'prbl',
+            workflow: $prblWorkflow,
+            source: $validated['source'],
+            notes: $validated['notes'],
+            uploadedFiles: $request->file('files', []),
+            userId: $request->user()->id,
+            sessionContext: $sessionContext,
+            workflowPrefix: 'prbl',
         );
 
         return back()->with('success', 'Komentar berhasil ditambahkan.');
@@ -1370,6 +1329,7 @@ class PrblWorkflowController extends Controller
                     'nama_bank' => $r->nama_bank,
                     'nama_rekening' => $r->nama_rekening,
                     'nomor_rekening' => $r->nomor_rekening,
+                    'catatan' => $r->catatan,
                 ])
                 ->values()
                 ->all();
@@ -1509,6 +1469,26 @@ class PrblWorkflowController extends Controller
         $validated = $request->validated();
         $this->checkOptimisticLock($prbl03Data, $validated['expected_updated_at']);
 
+        // Validate final file counts before touching the DB or disk
+        $nominalRefund = (float) $prbl03Data->nominal_refund;
+        $finalNotaCount = $prbl03Data->bukti()->where('tipe', 'foto_nota')->count()
+            - count($validated['remove_foto_nota_ids'] ?? [])
+            + count($request->file('foto_nota_files', []));
+        $finalBuktiCount = $prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count()
+            - count($validated['remove_bukti_transfer_ids'] ?? [])
+            + count($request->file('bukti_transfer_files', []));
+
+        $fileErrors = [];
+        if ($finalNotaCount <= 0) {
+            $fileErrors['foto_nota_files'] = ['Minimal 1 foto nota harus diupload.'];
+        }
+        if ($nominalRefund > 0 && $finalBuktiCount <= 0) {
+            $fileErrors['bukti_transfer_files'] = ['Minimal 1 bukti transfer harus diupload karena ada refund.'];
+        }
+        if (! empty($fileErrors)) {
+            throw ValidationException::withMessages($fileErrors);
+        }
+
         $sessionContext = $this->getSessionContext();
 
         DB::transaction(function () use ($prbl03Data, $validated, $request, $prblWorkflow, $sessionContext) {
@@ -1522,20 +1502,6 @@ class PrblWorkflowController extends Controller
 
             // Update keterangan
             $prbl03Data->update(['keterangan' => $validated['keterangan'] ?? null]);
-
-            // Validate file counts
-            $fotoNotaCount = $prbl03Data->bukti()->where('tipe', 'foto_nota')->count();
-            if ($fotoNotaCount === 0) {
-                abort(422, 'Minimal 1 foto nota harus diupload.');
-            }
-
-            $nominalRefund = (float) $prbl03Data->nominal_refund;
-            if ($nominalRefund > 0) {
-                $buktiTransferCount = $prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count();
-                if ($buktiTransferCount === 0) {
-                    abort(422, 'Minimal 1 bukti transfer harus diupload karena ada refund.');
-                }
-            }
 
             // Action-level files
             $fileIds = $this->commentService->storeFiles(
@@ -1686,6 +1652,7 @@ class PrblWorkflowController extends Controller
                     'nama_bank' => $r->nama_bank,
                     'nama_rekening' => $r->nama_rekening,
                     'nomor_rekening' => $r->nomor_rekening,
+                    'catatan' => $r->catatan,
                 ])
                 ->values()
                 ->all();
@@ -2005,7 +1972,7 @@ class PrblWorkflowController extends Controller
         $dicairkanAnggaran = Pk04Anggaran::where('pencairan_pabd_workflow_id', $prblWorkflow->pabd_workflow_id)
             ->where('status_pencairan', 'dicairkan')
             ->whereHas('pk04Kegiatan', fn ($q) => $q->where('bulan', $prblWorkflow->bulan_laporan))
-            ->with(['pk04Kegiatan.pk04ProgramTahunan'])
+            ->with(['pk04Kegiatan.pk04ProgramTahunan.pkWorkflow'])
             ->get();
 
         $programMap = [];
@@ -2044,14 +2011,18 @@ class PrblWorkflowController extends Controller
 
             $nominalDicairkan = (float) $anggaran->nominal_anggaran;
             $nominalRealisasi = $realisasiByAnggaran[$anggaran->id] ?? 0;
+            $status = $this->resolveStatusLabel($anggaran, $program->pkWorkflow?->tipe);
 
             $programMap[$programId]['kegiatan'][$kegiatanId]['anggaran'][] = [
                 'pk04_anggaran_id' => $anggaran->id,
                 'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $anggaran->mata_anggaran,
                 'nominal_dicairkan' => $nominalDicairkan,
                 'nominal_realisasi' => $nominalRealisasi,
                 'selisih' => $nominalDicairkan - $nominalRealisasi,
+                'status_item' => $status['status_item'],
+                'status_label' => $status['status_label'],
             ];
         }
 
@@ -2280,7 +2251,7 @@ class PrblWorkflowController extends Controller
     private function resolveKegiatanItems(Prbl01Data $prbl01Data, PrblWorkflow $prblWorkflow): array
     {
         $prbl01Data->load([
-            'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan',
+            'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
             'itemKegiatan.fotoKegiatan.file',
             'itemKegiatan.notaPengeluaran.file',
             'itemKegiatan.itemKuisioner.pk04Kuisioner',
@@ -2329,14 +2300,18 @@ class PrblWorkflowController extends Controller
             $realisasiItems = [];
             foreach ($dicairkanAnggaran as $anggaran) {
                 $realisasi = $realisasiByAnggaran[$anggaran->id] ?? null;
+                $status = $this->resolveStatusLabel($anggaran, $program->pkWorkflow?->tipe);
                 $realisasiItems[] = [
                     'prbl01_item_realisasi_id' => $realisasi?->id,
                     'pk04_anggaran_id' => $anggaran->id,
                     'kode_anggaran_baru' => $anggaran->kode_anggaran_baru,
+                    'kode_anggaran_lama' => $anggaran->kode_anggaran_lama,
                     'mata_anggaran' => $anggaran->mata_anggaran,
                     'nominal_anggaran' => (float) $anggaran->nominal_anggaran,
                     'nominal_realisasi' => $realisasi ? (float) $realisasi->nominal_realisasi : 0,
                     'komentar_realisasi' => $realisasi?->komentar_realisasi,
+                    'status_item' => $status['status_item'],
+                    'status_label' => $status['status_label'],
                 ];
             }
 
@@ -2759,7 +2734,7 @@ class PrblWorkflowController extends Controller
             'itemKegiatan.notaPengeluaran.file',
             'itemKegiatan.itemKuisioner.pk04Kuisioner',
             'itemKegiatan.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
-            'itemRealisasi.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan',
+            'itemRealisasi.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow',
             'rekeningOrganisasi',
             'bukti.file',
         ]);
@@ -3018,15 +2993,19 @@ class PrblWorkflowController extends Controller
                 ];
             }
 
+            $status = $this->resolveStatusLabel($pk04Anggaran, $program?->pkWorkflow?->tipe);
             $grouped[$programKey]['kegiatan'][$kegiatanKey]['anggaran'][] = [
                 'prbl05_item_realisasi_id' => $item->id,
                 'pk04_anggaran_id' => $pk04Anggaran->id,
                 'kode_anggaran_baru' => $pk04Anggaran->kode_anggaran_baru,
+                'kode_anggaran_lama' => $pk04Anggaran->kode_anggaran_lama,
                 'mata_anggaran' => $pk04Anggaran->mata_anggaran,
                 'nominal_anggaran' => (float) $item->nominal_anggaran,
                 'nominal_realisasi' => (float) $item->nominal_realisasi,
                 'selisih' => (float) $item->selisih,
                 'komentar_realisasi' => $item->komentar_realisasi,
+                'status_item' => $status['status_item'],
+                'status_label' => $status['status_label'],
             ];
         }
 
@@ -3404,6 +3383,35 @@ class PrblWorkflowController extends Controller
             1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
             5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
             9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+        ];
+    }
+
+    /**
+     * Compute the status badge for an anggaran row in PRBL realisasi tables.
+     *
+     * Mirrors the logic in PabdWorkflowController::resolveAnggaranItems so the
+     * same labels surface across both workflows. PRBL only contains items
+     * whose status_pencairan is 'dicairkan', so "Ditarik Maju" never appears
+     * here — only Normal, Tarik Maju from another month, or Di Luar Plafon.
+     *
+     * @return array{status_item: string|null, status_label: string}
+     */
+    private function resolveStatusLabel(Pk04Anggaran $anggaran, ?string $programTipe): array
+    {
+        if ($anggaran->source === 'tarik_maju') {
+            $sourceBulan = Pk04Anggaran::find($anggaran->previous_anggaran_id)?->pk04Kegiatan?->bulan;
+            $statusLabel = $sourceBulan
+                ? "Tarik Maju dari Bln {$sourceBulan}"
+                : 'Tarik Maju';
+        } elseif ($programTipe === 'proposal') {
+            $statusLabel = 'Di Luar Plafon';
+        } else {
+            $statusLabel = 'Normal';
+        }
+
+        return [
+            'status_item' => $anggaran->status_item,
+            'status_label' => $statusLabel,
         ];
     }
 

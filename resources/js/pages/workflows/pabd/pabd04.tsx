@@ -15,7 +15,8 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import CopyButton from '@/components/ui/copy-button';
+import { formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -24,6 +25,7 @@ type AnggaranItem = {
     pabd01_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal: number;
     status_item: string;
@@ -133,6 +135,32 @@ function StepStatusBadge({ status }: { status: string }) {
 
 // ─── Checklist Table (readonly) ─────────────────────
 
+const TABLE_HEADERS = ['Dicairkan', 'Status', 'Kode Anggaran Baru', 'Nominal (Rp)', 'Mata Anggaran', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', 'Bulan', ...TABLE_HEADERS];
+
+function anggaranToRow(a: AnggaranItem): string[] {
+    return [
+        a.dicairkan ? 'Ya' : 'Tidak',
+        a.status_label ?? '',
+        a.kode_anggaran_baru ?? '',
+        String(a.nominal),
+        a.mata_anggaran,
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildSectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, kegiatan.bulan_label, ...anggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
+
 function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
     const totalAll = programs.flatMap(p => p.kegiatan.flatMap(k => k.anggaran));
     const dicairkanItems = totalAll.filter(a => a.dicairkan);
@@ -140,31 +168,60 @@ function AnggaranChecklistReadonly({ programs }: { programs: ProgramGroup[] }) {
 
     return (
         <div className="space-y-3">
+            <div className="flex justify-end">
+                <CopyButton variant="button" label="Salin Seluruh Checklist" value={() => buildSectionTSV(programs)} />
+            </div>
             {programs.map((program) => (
                 <div key={program.program_id} className="rounded border p-3">
                     <h5 className="text-xs font-semibold">{program.program_name} ({program.kode_kategori})</h5>
                     {program.kegiatan.map((kegiatan) => (
                         <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
-                            <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-medium text-muted-foreground">{kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}</p>
+                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(TABLE_HEADERS, kegiatan.anggaran.map(anggaranToRow))} />
+                            </div>
                             <div className="mt-1 overflow-x-auto">
-                                <table className="w-full text-xs">
+                                <table className="w-full min-w-180 border-collapse border text-xs">
                                     <thead>
-                                        <tr className="border-b text-left text-muted-foreground">
-                                            <th className="w-8 p-1"></th>
-                                            <th className="p-1">Kode Anggaran</th>
-                                            <th className="p-1">Mata Anggaran</th>
-                                            <th className="p-1 text-right">Nominal (Rp)</th>
-                                            <th className="p-1">Status</th>
+                                        <tr className="bg-muted/50 text-left text-muted-foreground">
+                                            <th className="w-8 border p-1.5"></th>
+                                            <th className="border p-1.5">Status</th>
+                                            <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
+                                            <th className="border p-1.5 text-right">Nominal (Rp)</th>
+                                            <th className="border p-1.5">Mata Anggaran</th>
+                                            <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
+                                            <th className="w-8 border p-1.5"></th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {kegiatan.anggaran.map((a) => (
-                                            <tr key={a.pk04_anggaran_id} className="border-b last:border-0">
-                                                <td className="p-1 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
-                                                <td className="p-1">{a.kode_anggaran_baru ? <KodeAnggaranFromString kode={a.kode_anggaran_baru} /> : '—'}</td>
-                                                <td className="p-1">{a.mata_anggaran}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(a.nominal)}</td>
-                                                <td className="p-1">{a.status_label && <Badge variant="outline" className="text-[10px]">{a.status_label}</Badge>}</td>
+                                            <tr key={a.pk04_anggaran_id}>
+                                                <td className="border p-1.5 text-center">{a.dicairkan ? <CheckCircle2 className="inline h-3.5 w-3.5 text-green-600" /> : <span className="text-muted-foreground">&times;</span>}</td>
+                                                <td className="border p-1.5">{a.status_label && <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label}</Badge>}</td>
+                                                <td className="border p-1.5 whitespace-nowrap">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {a.kode_anggaran_baru ? (
+                                                            <KodeAnggaranFromString
+                                                                kode={a.kode_anggaran_baru}
+                                                                programName={program.program_name}
+                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                mataAnggaran={a.mata_anggaran}
+                                                            />
+                                                        ) : '—'}
+                                                        {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                    </span>
+                                                </td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal)}</td>
+                                                <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {a.kode_anggaran_lama || '—'}
+                                                        {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                    </span>
+                                                </td>
+                                                <td className="border p-1.5 text-center">
+                                                    <CopyButton value={() => rowToTSV(anggaranToRow(a))} label="Salin Baris" />
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -426,6 +483,17 @@ export default function Pabd04({
                     commentSource="pabd04"
                     canComment={canComment}
                     finalSteps={['PABD05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PABD01' && entry.id) return `${basePath}/pabd01/${entry.id}`;
+                        if (step === 'PABD02A' && entry.id) return `${basePath}/pabd02a/${entry.id}`;
+                        if (step === 'PABD02B' && entry.id) return `${basePath}/pabd02b/${entry.id}`;
+                        if (step === 'PABD03') return `${basePath}/pabd03`;
+                        if (step === 'PABD04' && entry.id) return `${basePath}/pabd04/${entry.id}`;
+                        if (step === 'PABD05') return `${basePath}/pabd05`;
+                        return null;
+                    }}
                 />
 
                 {/* Budget Reference */}
@@ -443,7 +511,7 @@ export default function Pabd04({
 
                 {/* PABD01 Checklist (readonly) */}
                 <SectionCard
-                    title="PABD01 — Checklist Pencairan"
+                    title={`PABD01 — Checklist Pencairan ${workflow.bulan_label} ${workflow.tahun_anggaran}`}
                     headerRight={
                         pabd01Cycle > 1 ? <Badge variant="outline" className="text-[10px]">Pengisian ke-{pabd01Cycle}</Badge> : undefined
                     }

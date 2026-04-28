@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
@@ -11,7 +12,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -63,11 +64,14 @@ type RealisasiAnggaranEntry = {
     prbl05_item_realisasi_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     nominal_realisasi: number;
     selisih: number;
     komentar_realisasi: string | null;
+    status_item: string | null;
+    status_label: string;
 };
 
 type RealisasiKegiatanGroup = {
@@ -163,15 +167,36 @@ type Props = {
 
 // ─── Helpers ──────────────────────────────────────────
 
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Komentar', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
+
+function realisasiToRow(a: RealisasiAnggaranEntry): string[] {
+    return [
+        a.status_label,
+        a.kode_anggaran_baru ?? '',
+        a.mata_anggaran,
+        String(a.nominal_anggaran),
+        String(a.nominal_realisasi),
+        String(a.selisih),
+        a.komentar_realisasi ?? '',
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildAllRealisasiTSV(programs: RealisasiProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, ...realisasiToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
+
 function formatDate(iso: string | null): string {
-    if (!iso) return '-';
-    return new Date(iso).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    return iso ? formatDateTime(iso) : '-';
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -256,6 +281,17 @@ export default function Prbl05Show({
                     canComment={canComment}
                     finalSteps={['PRBL05']}
                     defaultOpen={false}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PRBL01' && entry.id) return `${basePath}/prbl01/${entry.id}`;
+                        if (step === 'PRBL02A') return `${basePath}/prbl02a`;
+                        if (step === 'PRBL02B') return `${basePath}/prbl02b`;
+                        if (step === 'PRBL03' && entry.id) return `${basePath}/prbl03/${entry.id}`;
+                        if (step === 'PRBL04') return `${basePath}/prbl04`;
+                        if (step === 'PRBL05') return `${basePath}/prbl05`;
+                        return null;
+                    }}
                 />
 
                 {/* Informasi Umum */}
@@ -353,6 +389,9 @@ export default function Prbl05Show({
                         <p className="text-sm text-gray-500">Tidak ada data realisasi.</p>
                     ) : (
                         <div className="space-y-6">
+                            <div className="flex justify-end">
+                                <CopyButton variant="button" label="Salin Semua Realisasi" value={() => buildAllRealisasiTSV(realisasiItems)} />
+                            </div>
                             {realisasiItems.map((program) => (
                                 <div key={program.program_id}>
                                     <h4 className="mb-3 text-sm font-semibold text-gray-700">
@@ -361,38 +400,64 @@ export default function Prbl05Show({
                                     </h4>
                                     {program.kegiatan.map((kegiatan) => (
                                         <div key={kegiatan.kegiatan_id} className="mb-4 ml-2">
-                                            <h5 className="mb-2 text-sm font-medium text-gray-600">
-                                                {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
-                                            </h5>
+                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                <h5 className="text-sm font-medium text-gray-600">
+                                                    {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
+                                                </h5>
+                                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(REALISASI_HEADERS, kegiatan.anggaran.map(realisasiToRow))} />
+                                            </div>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full min-w-180 border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b text-left text-xs text-gray-500">
-                                                            <th className="pb-2 pr-3 font-medium">Kode Anggaran</th>
-                                                            <th className="pb-2 pr-3 font-medium">Mata Anggaran</th>
-                                                            <th className="pb-2 pr-3 text-right font-medium">Dicairkan (Rp)</th>
-                                                            <th className="pb-2 pr-3 text-right font-medium">Realisasi (Rp)</th>
-                                                            <th className="pb-2 pr-3 text-right font-medium">Selisih (Rp)</th>
-                                                            <th className="pb-2 font-medium">Komentar</th>
+                                                        <tr className="bg-muted/50 text-left text-xs text-gray-500">
+                                                            <th className="border p-1.5 font-medium">Status</th>
+                                                            <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                            <th className="border p-1.5 font-medium">Mata Anggaran</th>
+                                                            <th className="border p-1.5 text-right font-medium">Dicairkan (Rp)</th>
+                                                            <th className="border p-1.5 text-right font-medium">Realisasi (Rp)</th>
+                                                            <th className="border p-1.5 text-right font-medium">Selisih (Rp)</th>
+                                                            <th className="border p-1.5 font-medium">Komentar</th>
+                                                            <th className="border p-1.5 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
+                                                            <th className="w-8 border p-1.5"></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((a) => (
-                                                            <tr key={a.prbl05_item_realisasi_id} className="border-b border-gray-100">
-                                                                <td className="py-2 pr-3">
-                                                                    {a.kode_anggaran_baru ? (
-                                                                        <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
-                                                                    ) : (
-                                                                        <span className="text-gray-400">-</span>
-                                                                    )}
+                                                            <tr key={a.prbl05_item_realisasi_id}>
+                                                                <td className="border p-1.5">
+                                                                    <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label ?? "—"}</Badge>
                                                                 </td>
-                                                                <td className="py-2 pr-3">{a.mata_anggaran}</td>
-                                                                <td className="py-2 pr-3 text-right font-mono">{formatRupiah(a.nominal_anggaran)}</td>
-                                                                <td className="py-2 pr-3 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
-                                                                <td className={`py-2 pr-3 text-right font-mono ${a.selisih < 0 ? 'text-amber-600 font-semibold' : ''}`}>
+                                                                <td className="border p-1.5 whitespace-nowrap">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {a.kode_anggaran_baru ? (
+                                                                            <KodeAnggaranFromString
+                                                                                kode={a.kode_anggaran_baru}
+                                                                                programName={program.program_name}
+                                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                                mataAnggaran={a.mata_anggaran}
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="text-gray-400">-</span>
+                                                                        )}
+                                                                        {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_anggaran)}</td>
+                                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
+                                                                <td className={`border p-1.5 text-right font-mono ${a.selisih < 0 ? 'text-amber-600 font-semibold' : ''}`}>
                                                                     {formatRupiah(a.selisih)}
                                                                 </td>
-                                                                <td className="py-2 text-sm text-gray-600">{a.komentar_realisasi || '-'}</td>
+                                                                <td className="border p-1.5 text-sm text-gray-600">{a.komentar_realisasi || '-'}</td>
+                                                                <td className="border p-1.5 whitespace-nowrap font-mono text-gray-500">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {a.kode_anggaran_lama ?? '—'}
+                                                                        {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border p-1.5 text-center">
+                                                                    <CopyButton value={() => rowToTSV(realisasiToRow(a))} label="Salin Baris" />
+                                                                </td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
@@ -615,24 +680,24 @@ function KegiatanCard({ kegiatan }: { kegiatan: KegiatanEntry }) {
                 <div className="mt-4">
                     <h6 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Kuisioner</h6>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full border-collapse border text-sm">
                             <thead>
-                                <tr className="border-b text-left text-xs text-gray-500">
-                                    <th className="pb-2 pr-3 font-medium">#</th>
-                                    <th className="pb-2 pr-3 font-medium">Pertanyaan</th>
-                                    <th className="pb-2 pr-3 font-medium">Tipe</th>
-                                    <th className="pb-2 pr-3 font-medium">Satuan</th>
-                                    <th className="pb-2 font-medium">Jawaban</th>
+                                <tr className="bg-muted/50 text-left text-xs text-gray-500">
+                                    <th className="border p-1.5 font-medium">#</th>
+                                    <th className="border p-1.5 font-medium">Pertanyaan</th>
+                                    <th className="border p-1.5 font-medium">Tipe</th>
+                                    <th className="border p-1.5 font-medium">Satuan</th>
+                                    <th className="border p-1.5 font-medium">Jawaban</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {kegiatan.kuisioner.map((q, idx) => (
-                                    <tr key={q.id} className="border-b border-gray-100">
-                                        <td className="py-2 pr-3 text-gray-400">{idx + 1}</td>
-                                        <td className="py-2 pr-3">{q.pertanyaan}</td>
-                                        <td className="py-2 pr-3 text-gray-500">{q.tipe}</td>
-                                        <td className="py-2 pr-3 text-gray-500">{q.satuan || '-'}</td>
-                                        <td className="py-2 font-medium">{q.jawaban || '-'}</td>
+                                    <tr key={q.id}>
+                                        <td className="border p-1.5 text-gray-400">{idx + 1}</td>
+                                        <td className="border p-1.5">{q.pertanyaan}</td>
+                                        <td className="border p-1.5 text-gray-500">{q.tipe}</td>
+                                        <td className="border p-1.5 text-gray-500">{q.satuan || '-'}</td>
+                                        <td className="border p-1.5 font-medium">{q.jawaban || '-'}</td>
                                     </tr>
                                 ))}
                             </tbody>

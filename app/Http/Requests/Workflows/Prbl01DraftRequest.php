@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Workflows;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class Prbl01DraftRequest extends FormRequest
 {
@@ -34,6 +35,16 @@ class Prbl01DraftRequest extends FormRequest
             'notes' => ['nullable', 'string'],
             'files' => ['nullable', 'array'],
             'files.*' => ['file', 'max:51200'],
+            'foto_files' => ['nullable', 'array'],
+            'foto_files.*' => ['array'],
+            'foto_files.*.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:51200'],
+            'nota_files' => ['nullable', 'array'],
+            'nota_files.*' => ['array'],
+            'nota_files.*.*' => ['file', 'max:25600'],
+            'remove_foto_ids' => ['nullable', 'array'],
+            'remove_foto_ids.*' => ['integer', Rule::exists('prbl01_foto_kegiatan', 'id')],
+            'remove_nota_ids' => ['nullable', 'array'],
+            'remove_nota_ids.*' => ['integer', Rule::exists('prbl01_nota_pengeluaran', 'id')],
         ];
     }
 }

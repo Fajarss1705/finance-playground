@@ -125,10 +125,6 @@ Route::middleware(['auth', 'verified', 'role.selected', 'check.permission'])->gr
             Route::get('/{prblWorkflow}/prbl01/{prbl01Data}', [PrblWorkflowController::class, 'prbl01Show'])->name('prbl01.show');
             Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/draft', [PrblWorkflowController::class, 'prbl01Draft'])->name('prbl01.draft');
             Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/submit', [PrblWorkflowController::class, 'prbl01Submit'])->name('prbl01.submit');
-            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/foto-upload', [PrblWorkflowController::class, 'prbl01FotoUpload'])->name('prbl01.foto.upload');
-            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/foto-delete', [PrblWorkflowController::class, 'prbl01FotoDelete'])->name('prbl01.foto.delete');
-            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/nota-upload', [PrblWorkflowController::class, 'prbl01NotaUpload'])->name('prbl01.nota.upload');
-            Route::post('/{prblWorkflow}/prbl01/{prbl01Data}/nota-delete', [PrblWorkflowController::class, 'prbl01NotaDelete'])->name('prbl01.nota.delete');
 
             // PRBL02A (team scope — read-only)
             Route::get('/{prblWorkflow}/prbl02a', [PrblWorkflowController::class, 'prbl02aShow'])->name('prbl02a.show');

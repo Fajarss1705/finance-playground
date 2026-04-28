@@ -467,6 +467,24 @@ it('rejects PP03 submit with empty items', function () {
     expect(collect($workflow->history)->where('action', 'submitted')->where('step', 'PP03'))->toBeEmpty();
 });
 
+it('rejects PP03 submit with empty rekening_organisasi', function () {
+    [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.submit');
+    activatePpSession($this, $user, $role, $workspace);
+
+    [$workflow, $pp03, $team] = setupPp03Workflow($user, $role, $workspace);
+
+    $this->post(route('admin.workflows.pp.pp03.submit', ['ppWorkflow' => $workflow, 'pp03Data' => $pp03]), [
+        'item_plafon_anggaran' => [[
+            'team_id' => $team->id, 'kode_team' => 'KA', 'plafon_anggaran' => 50000000,
+            'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
+        ]],
+        'expected_updated_at' => $pp03->updated_at->toIso8601String(),
+    ])->assertSessionHasErrors(['rekening_organisasi']);
+
+    $workflow->refresh();
+    expect(collect($workflow->history)->where('action', 'submitted')->where('step', 'PP03'))->toBeEmpty();
+});
+
 it('rejects PP03 submit with negative plafon_anggaran', function () {
     [$user, $role, $workspace] = setupPpUser('admin.workflows.pp.pp03.show', 'admin.workflows.pp.pp03.submit');
     activatePpSession($this, $user, $role, $workspace);
@@ -853,6 +871,7 @@ it('completes full PP flow through approval and compile', function () {
             'nomor_rekening' => '1234567890',
             'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -935,6 +954,7 @@ it('handles PP05 rejection and re-entry', function () {
             'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -1002,6 +1022,7 @@ function runFlowToPp05(object $test, $user, $role, $workspace): PpWorkflow
             'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -1186,6 +1207,7 @@ function runFullPpFlowToCompletion(object $test, $user, $role, $workspace): arra
             'team_id' => $team->id, 'kode_team' => 'KT', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 
@@ -2072,6 +2094,7 @@ it('passes rejection notes to PP01 after PP05 rejection', function () {
             'team_id' => $team->id, 'kode_team' => 'T1', 'plafon_anggaran' => 50000000,
             'nama_bank' => 'BCA', 'nama_rekening' => 'Test', 'nomor_rekening' => '123', 'catatan' => null,
         ]],
+        'rekening_organisasi' => [['nama_bank' => 'BCA', 'nama_rekening' => 'Demo Pusat', 'nomor_rekening' => '9876543210']],
         'expected_updated_at' => $pp03->updated_at->toIso8601String(),
     ]);
 

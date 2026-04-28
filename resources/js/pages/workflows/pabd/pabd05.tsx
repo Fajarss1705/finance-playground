@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
 import HistoryCommentSection from '@/components/workflow/history-comment-section';
@@ -11,7 +12,7 @@ import type { HistoryEntry } from '@/components/workflow/history-comment-section
 import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-string';
 import SectionCard from '@/components/workflow/section-card';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, tableToTSV } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
 // ─── Types ───────────────────────────────────────────
@@ -20,6 +21,7 @@ type AnggaranItem = {
     pabd05_item_id: number;
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_anggaran: number;
     status: 'dicairkan' | 'hangus';
@@ -111,15 +113,33 @@ type Props = {
 
 // ─── Helpers ──────────────────────────────────────────
 
+const PABD05_TABLE_HEADERS = ['Status', 'Kode Anggaran Baru', 'Nominal (Rp)', 'Mata Anggaran', 'Kode Anggaran Lama'];
+const PABD05_SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', 'Bulan', ...PABD05_TABLE_HEADERS];
+
+function pabd05AnggaranToRow(a: AnggaranItem): string[] {
+    return [
+        a.status === 'dicairkan' ? 'Dicairkan' : 'Hangus',
+        a.kode_anggaran_baru ?? '',
+        String(a.nominal_anggaran),
+        a.mata_anggaran,
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildPabd05SectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, kegiatan.bulan_label, ...pabd05AnggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(PABD05_SECTION_HEADERS, rows);
+}
+
 function formatDate(iso: string | null): string {
-    if (!iso) return '-';
-    return new Date(iso).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    return iso ? formatDateTime(iso) : '-';
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -206,6 +226,17 @@ export default function Pabd05Show({
                     canComment={canComment}
                     finalSteps={['PABD05']}
                     defaultOpen={false}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PABD01' && entry.id) return `${basePath}/pabd01/${entry.id}`;
+                        if (step === 'PABD02A' && entry.id) return `${basePath}/pabd02a/${entry.id}`;
+                        if (step === 'PABD02B' && entry.id) return `${basePath}/pabd02b/${entry.id}`;
+                        if (step === 'PABD03') return `${basePath}/pabd03`;
+                        if (step === 'PABD04' && entry.id) return `${basePath}/pabd04/${entry.id}`;
+                        if (step === 'PABD05') return `${basePath}/pabd05`;
+                        return null;
+                    }}
                 />
 
                 {/* Informasi Umum */}
@@ -275,7 +306,10 @@ export default function Pabd05Show({
                 </SectionCard>
 
                 {/* Daftar Anggaran */}
-                <SectionCard title="Daftar Anggaran">
+                <SectionCard
+                    title="Daftar Anggaran"
+                    headerRight={items.length > 0 ? <CopyButton variant="button" label="Salin Daftar Anggaran" value={() => buildPabd05SectionTSV(items)} /> : undefined}
+                >
                     {items.length === 0 ? (
                         <p className="text-sm text-gray-500">Tidak ada item anggaran.</p>
                     ) : (
@@ -288,34 +322,28 @@ export default function Pabd05Show({
                                     </h4>
                                     {program.kegiatan.map((kegiatan) => (
                                         <div key={kegiatan.kegiatan_id} className="mb-4 ml-2">
-                                            <h5 className="mb-2 text-sm font-medium text-gray-600">
-                                                {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
-                                            </h5>
+                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                <h5 className="text-sm font-medium text-gray-600">
+                                                    {kegiatan.nama_kegiatan} — {kegiatan.bulan_label}
+                                                </h5>
+                                                <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(PABD05_TABLE_HEADERS, kegiatan.anggaran.map(pabd05AnggaranToRow))} />
+                                            </div>
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
+                                                <table className="w-full min-w-200 border-collapse border text-sm">
                                                     <thead>
-                                                        <tr className="border-b text-left text-xs text-gray-500">
-                                                            <th className="pb-2 pr-3 font-medium">Kode Anggaran</th>
-                                                            <th className="pb-2 pr-3 font-medium">Mata Anggaran</th>
-                                                            <th className="pb-2 pr-3 text-right font-medium">Nominal (Rp)</th>
-                                                            <th className="pb-2 font-medium">Status</th>
+                                                        <tr className="bg-muted/50 text-left text-xs text-gray-500">
+                                                            <th className="border px-3 py-2 font-medium">Status</th>
+                                                            <th className="border px-3 py-2 font-medium whitespace-nowrap">Kode Anggaran Baru</th>
+                                                            <th className="border px-3 py-2 text-right font-medium">Nominal (Rp)</th>
+                                                            <th className="border px-3 py-2 font-medium">Mata Anggaran</th>
+                                                            <th className="border px-3 py-2 font-medium whitespace-nowrap">Kode Anggaran Lama</th>
+                                                            <th className="w-8 border px-2 py-2"></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {kegiatan.anggaran.map((anggaran) => (
-                                                            <tr key={anggaran.pabd05_item_id} className="border-b border-gray-100">
-                                                                <td className="py-2 pr-3">
-                                                                    {anggaran.kode_anggaran_baru ? (
-                                                                        <KodeAnggaranFromString kode={anggaran.kode_anggaran_baru} />
-                                                                    ) : (
-                                                                        <span className="text-gray-400">-</span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="py-2 pr-3">{anggaran.mata_anggaran}</td>
-                                                                <td className="py-2 pr-3 text-right font-mono">
-                                                                    {formatRupiah(anggaran.nominal_anggaran)}
-                                                                </td>
-                                                                <td className="py-2">
+                                                            <tr key={anggaran.pabd05_item_id}>
+                                                                <td className="border px-3 py-2">
                                                                     {anggaran.status === 'dicairkan' ? (
                                                                         <Badge variant="default" className="bg-green-100 text-green-800 hover:bg-green-100">
                                                                             Dicairkan
@@ -325,6 +353,34 @@ export default function Pabd05Show({
                                                                             Hangus
                                                                         </Badge>
                                                                     )}
+                                                                </td>
+                                                                <td className="border px-3 py-2 whitespace-nowrap">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {anggaran.kode_anggaran_baru ? (
+                                                                            <KodeAnggaranFromString
+                                                                                kode={anggaran.kode_anggaran_baru}
+                                                                                programName={program.program_name}
+                                                                                kegiatanName={kegiatan.nama_kegiatan}
+                                                                                mataAnggaran={anggaran.mata_anggaran}
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="text-gray-400">-</span>
+                                                                        )}
+                                                                        {anggaran.kode_anggaran_baru && <CopyButton value={anggaran.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border px-3 py-2 text-right font-mono">
+                                                                    {formatRupiah(anggaran.nominal_anggaran)}
+                                                                </td>
+                                                                <td className="border px-3 py-2">{anggaran.mata_anggaran}</td>
+                                                                <td className="border px-3 py-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        {anggaran.kode_anggaran_lama || '—'}
+                                                                        {anggaran.kode_anggaran_lama && <CopyButton value={anggaran.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="border px-2 py-2 text-center">
+                                                                    <CopyButton value={() => rowToTSV(pabd05AnggaranToRow(anggaran))} label="Salin Baris" />
                                                                 </td>
                                                             </tr>
                                                         ))}

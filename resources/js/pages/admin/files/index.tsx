@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateShort } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import { index as adminFilesIndex } from '@/routes/admin/files';
 import type { BreadcrumbItem } from '@/types';
@@ -125,11 +126,7 @@ export default function AdminFilesIndex({ files }: Props) {
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{file.role?.name || '—'}</td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{file.team?.name || '—'}</td>
                                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                                            {new Date(file.created_at).toLocaleDateString('id-ID', {
-                                                day: 'numeric',
-                                                month: 'short',
-                                                year: 'numeric',
-                                            })}
+                                            {formatDateShort(file.created_at)}
                                         </td>
                                         <td className="px-4 py-3">
                                             <Badge variant="secondary">{file.mime_type.split('/').pop()}</Badge>

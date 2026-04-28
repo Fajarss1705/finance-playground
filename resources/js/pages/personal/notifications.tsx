@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTimeShort } from '@/lib/utils';
 import { show } from '@/routes/notifications';
 import { index as personalIndex, notifications as personalNotifications } from '@/routes/personal';
 import { markAllRead } from '@/routes/personal/notifications';
@@ -44,16 +45,6 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Personal', href: personalIndex() },
     { title: 'Notifikasi Saya', href: personalNotifications() },
 ];
-
-function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-}
 
 export default function NotificationsPersonal({ notifications, filters, activeRoleId }: Props) {
     const [search, setSearch] = useState(filters.search ?? '');
@@ -166,7 +157,7 @@ export default function NotificationsPersonal({ notifications, filters, activeRo
                                                 </Badge>
                                             </td>
                                             <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                                                {formatDate(notification.created_at)}
+                                                {formatDateTimeShort(notification.created_at)}
                                             </td>
                                         </tr>
                                     );

@@ -31,6 +31,7 @@ type RekeningOrganisasiItem = {
     nama_bank: string;
     nama_rekening: string;
     nomor_rekening: string;
+    catatan: string | null;
 };
 
 type Team = { id: number; name: string };
@@ -128,7 +129,7 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
     }
 
     function addRekeningRow() {
-        setRekeningOrganisasi([...rekeningOrganisasi, { nama_bank: '', nama_rekening: '', nomor_rekening: '' }]);
+        setRekeningOrganisasi([...rekeningOrganisasi, { nama_bank: '', nama_rekening: '', nomor_rekening: '', catatan: '' }]);
     }
 
     function removeRekeningRow(index: number) {
@@ -348,25 +349,33 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                     )}
                 </SectionCard>
 
-                <SectionCard title="Rekening Organisasi untuk Refund">
+                <SectionCard title={<>Rekening Organisasi untuk Refund <span className="text-destructive">*</span></>}>
                     <p className="mb-3 text-xs text-muted-foreground">
                         Rekening milik organisasi untuk penerimaan refund dari tim. Data ini akan ditampilkan ke tim saat pelaporan bulanan.
                     </p>
                     {errors.rekening_organisasi && <p className="mb-2 text-xs text-destructive">{errors.rekening_organisasi}</p>}
                     {rekeningOrganisasi.length > 0 && (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
+                            <table className="min-w-150 w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
+                                        {!isReadonly && <th className="px-3 py-2 w-12" />}
                                         <th className="px-3 py-2 text-left font-medium w-40">Nama Bank <span className="text-destructive">*</span></th>
                                         <th className="px-3 py-2 text-left font-medium w-56">Nama Rekening <span className="text-destructive">*</span></th>
                                         <th className="px-3 py-2 text-left font-medium w-44">Nomor Rekening <span className="text-destructive">*</span></th>
-                                        {!isReadonly && <th className="px-3 py-2 w-12" />}
+                                        <th className="px-3 py-2 text-left font-medium min-w-48">Catatan</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {rekeningOrganisasi.map((item, i) => (
                                         <tr key={i} className="border-b last:border-0">
+                                            {!isReadonly && (
+                                                <td className="px-3 py-1.5">
+                                                    <Button variant="ghost" size="sm" onClick={() => removeRekeningRow(i)} className="h-8 w-8 p-0">
+                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                                    </Button>
+                                                </td>
+                                            )}
                                             <td className="px-3 py-1.5">
                                                 <Input value={item.nama_bank} onChange={(e) => updateRekeningRow(i, 'nama_bank', e.target.value)} disabled={isReadonly} className="h-8" />
                                                 {errors[`rekening_organisasi.${i}.nama_bank`] && <p className="text-xs text-destructive">{errors[`rekening_organisasi.${i}.nama_bank`]}</p>}
@@ -379,13 +388,9 @@ export default function Pp03({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                 <Input value={item.nomor_rekening} onChange={(e) => updateRekeningRow(i, 'nomor_rekening', e.target.value)} disabled={isReadonly} className="h-8" />
                                                 {errors[`rekening_organisasi.${i}.nomor_rekening`] && <p className="text-xs text-destructive">{errors[`rekening_organisasi.${i}.nomor_rekening`]}</p>}
                                             </td>
-                                            {!isReadonly && (
-                                                <td className="px-3 py-1.5">
-                                                    <Button variant="ghost" size="sm" onClick={() => removeRekeningRow(i)} className="h-8 w-8 p-0">
-                                                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                                    </Button>
-                                                </td>
-                                            )}
+                                            <td className="px-3 py-1.5 align-top">
+                                                <Textarea value={item.catatan ?? ''} onChange={(e) => updateRekeningRow(i, 'catatan', e.target.value)} disabled={isReadonly} rows={1} className="min-h-8" />
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>

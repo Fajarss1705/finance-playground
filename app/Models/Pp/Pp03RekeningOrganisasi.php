@@ -14,6 +14,7 @@ class Pp03RekeningOrganisasi extends Model
         'nama_bank',
         'nama_rekening',
         'nomor_rekening',
+        'catatan',
     ];
 
     public function pp03Data(): BelongsTo

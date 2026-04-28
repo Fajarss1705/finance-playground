@@ -1,9 +1,10 @@
 import { Head, router } from '@inertiajs/react';
-import { FileText, Info, AlertTriangle, Upload, X, Download } from 'lucide-react';
+import { AlertTriangle, Download, FileText, Info, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import CopyButton from '@/components/ui/copy-button';
 import { Textarea } from '@/components/ui/textarea';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
@@ -14,7 +15,7 @@ import KodeAnggaranFromString from '@/components/workflow/kode-anggaran-from-str
 import SectionCard from '@/components/workflow/section-card';
 import SubmitterLine from '@/components/workflow/submitter-line';
 import AppLayout from '@/layouts/app-layout';
-import { formatRupiah } from '@/lib/utils';
+import { formatDateTime, formatRupiah, rowToTSV, statusBadgeClass, tableToTSV } from '@/lib/utils';
 import { index as adminIndex } from '@/routes/admin';
 import prbl from '@/routes/admin/workflows/prbl';
 import { download as filesDownload } from '@/routes/files';
@@ -27,10 +28,13 @@ import type { BreadcrumbItem } from '@/types';
 type AnggaranRealisasiItem = {
     pk04_anggaran_id: number;
     kode_anggaran_baru: string | null;
+    kode_anggaran_lama: string | null;
     mata_anggaran: string;
     nominal_dicairkan: number;
     nominal_realisasi: number;
     selisih: number;
+    status_item: string | null;
+    status_label: string;
 };
 
 type KegiatanGroup = {
@@ -61,6 +65,7 @@ type RekeningOrganisasi = {
     nama_bank: string;
     nama_rekening: string;
     nomor_rekening: string;
+    catatan: string | null;
 };
 
 type BuktiFile = {
@@ -143,9 +148,39 @@ function StepStatusBadge({ status }: { status: string }) {
 
 // ─── Realisasi Summary Table ────────────────────────
 
+const REALISASI_HEADERS = ['Status', 'Kode Anggaran Baru', 'Mata Anggaran', 'Dicairkan (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)', 'Kode Anggaran Lama'];
+const SECTION_HEADERS = ['Program', 'Kategori', 'Kegiatan', ...REALISASI_HEADERS];
+
+function anggaranToRow(a: AnggaranRealisasiItem): string[] {
+    return [
+        a.status_label,
+        a.kode_anggaran_baru ?? '',
+        a.mata_anggaran,
+        String(a.nominal_dicairkan),
+        String(a.nominal_realisasi),
+        String(a.selisih),
+        a.kode_anggaran_lama ?? '',
+    ];
+}
+
+function buildSectionTSV(programs: ProgramGroup[]): string {
+    const rows: string[][] = [];
+    for (const program of programs) {
+        for (const kegiatan of program.kegiatan) {
+            for (const a of kegiatan.anggaran) {
+                rows.push([program.program_name, program.kode_kategori, kegiatan.nama_kegiatan, ...anggaranToRow(a)]);
+            }
+        }
+    }
+    return tableToTSV(SECTION_HEADERS, rows);
+}
+
 function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
     return (
         <div className="space-y-3">
+            <div className="flex justify-end">
+                <CopyButton variant="button" label="Salin Semua Realisasi" value={() => buildSectionTSV(programs)} />
+            </div>
             {programs.map((program) => (
                 <div key={program.program_id} className="rounded border p-3">
                     <h5 className="text-xs font-semibold">
@@ -158,48 +193,76 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
 
                         return (
                             <div key={kegiatan.kegiatan_id} className="mt-2 ml-2">
-                                <p className="text-xs font-medium text-muted-foreground">
-                                    {kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}
-                                </p>
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-medium text-muted-foreground">
+                                        {kegiatan.nama_kegiatan} &mdash; {kegiatan.bulan_label}
+                                    </p>
+                                    <CopyButton variant="button" label="Salin Tabel" value={() => tableToTSV(REALISASI_HEADERS, kegiatan.anggaran.map(anggaranToRow))} />
+                                </div>
                                 <div className="mt-1 overflow-x-auto">
-                                    <table className="w-full text-xs">
+                                    <table className="w-full min-w-180 border-collapse border text-xs">
                                         <thead>
-                                            <tr className="border-b text-left text-muted-foreground">
-                                                <th className="p-1">Kode Anggaran</th>
-                                                <th className="p-1">Mata Anggaran</th>
-                                                <th className="p-1 text-right">Dicairkan (Rp)</th>
-                                                <th className="p-1 text-right">Realisasi (Rp)</th>
-                                                <th className="p-1 text-right">Selisih (Rp)</th>
+                                            <tr className="bg-muted/50 text-left text-muted-foreground">
+                                                <th className="border p-1.5">Status</th>
+                                                <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Baru</th>
+                                                <th className="border p-1.5">Mata Anggaran</th>
+                                                <th className="border p-1.5 text-right">Dicairkan (Rp)</th>
+                                                <th className="border p-1.5 text-right">Realisasi (Rp)</th>
+                                                <th className="border p-1.5 text-right">Selisih (Rp)</th>
+                                                <th className="border p-1.5 whitespace-nowrap">Kode Anggaran Lama</th>
+                                                <th className="w-8 border p-1.5"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {kegiatan.anggaran.map((a) => (
                                                 <tr
                                                     key={a.pk04_anggaran_id}
-                                                    className={`border-b last:border-0 ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}
+                                                    className={a.selisih < 0 ? 'text-muted-foreground' : ''}
                                                 >
-                                                    <td className="p-1">
-                                                        {a.kode_anggaran_baru ? (
-                                                            <KodeAnggaranFromString kode={a.kode_anggaran_baru} />
-                                                        ) : (
-                                                            '—'
-                                                        )}
+                                                    <td className="border p-1.5">
+                                                        <Badge className={`text-[10px] ${statusBadgeClass(a.status_label)}`}>{a.status_label ?? "—"}</Badge>
                                                     </td>
-                                                    <td className="p-1">{a.mata_anggaran}</td>
-                                                    <td className="p-1 text-right font-mono">{formatRupiah(a.nominal_dicairkan)}</td>
-                                                    <td className="p-1 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
-                                                    <td className={`p-1 text-right font-mono ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}>
+                                                    <td className="border p-1.5 whitespace-nowrap">
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {a.kode_anggaran_baru ? (
+                                                                <KodeAnggaranFromString
+                                                                    kode={a.kode_anggaran_baru}
+                                                                    programName={program.program_name}
+                                                                    kegiatanName={kegiatan.nama_kegiatan}
+                                                                    mataAnggaran={a.mata_anggaran}
+                                                                />
+                                                            ) : (
+                                                                '—'
+                                                            )}
+                                                            {a.kode_anggaran_baru && <CopyButton value={a.kode_anggaran_baru} label="Salin Kode Baru" />}
+                                                        </span>
+                                                    </td>
+                                                    <td className="border p-1.5">{a.mata_anggaran}</td>
+                                                    <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_dicairkan)}</td>
+                                                    <td className="border p-1.5 text-right font-mono">{formatRupiah(a.nominal_realisasi)}</td>
+                                                    <td className={`border p-1.5 text-right font-mono ${a.selisih < 0 ? 'text-muted-foreground' : ''}`}>
                                                         {formatRupiah(a.selisih)}
+                                                    </td>
+                                                    <td className="border p-1.5 whitespace-nowrap font-mono text-muted-foreground">
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {a.kode_anggaran_lama ?? '—'}
+                                                            {a.kode_anggaran_lama && <CopyButton value={a.kode_anggaran_lama} label="Salin Kode Lama" />}
+                                                        </span>
+                                                    </td>
+                                                    <td className="border p-1.5 text-center">
+                                                        <CopyButton value={() => rowToTSV(anggaranToRow(a))} label="Salin Baris" />
                                                     </td>
                                                 </tr>
                                             ))}
-                                            <tr className="border-t font-medium">
-                                                <td className="p-1" colSpan={2}>
+                                            <tr className="bg-muted/30 font-medium">
+                                                <td className="border p-1.5" colSpan={3}>
                                                     Subtotal
                                                 </td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
-                                                <td className="p-1 text-right font-mono">{formatRupiah(subtotalSelisih)}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalDicairkan)}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalRealisasi)}</td>
+                                                <td className="border p-1.5 text-right font-mono">{formatRupiah(subtotalSelisih)}</td>
+                                                <td className="border p-1.5" />
+                                                <td className="border p-1.5" />
                                             </tr>
                                         </tbody>
                                     </table>
@@ -213,34 +276,85 @@ function RealisasiSummaryTable({ programs }: { programs: ProgramGroup[] }) {
     );
 }
 
-// ─── Refund Summary Card ────────────────────────────
+// ─── Ringkasan Highlight Card ───────────────────────
 
-function RefundSummaryCard({
+function RingkasanHighlightCard({
     totalDicairkan,
     totalRealisasi,
     nominalRefund,
     itemCount,
+    rekeningOrganisasi,
+    ppLabel,
 }: {
     totalDicairkan: number;
     totalRealisasi: number;
     nominalRefund: number;
     itemCount: number;
+    rekeningOrganisasi: RekeningOrganisasi[];
+    ppLabel: string | null;
 }) {
+    const hasRefund = nominalRefund > 0;
     return (
-        <div className="rounded border bg-muted/30 p-3 text-sm">
-            <div className="flex justify-between">
-                <span>Total Anggaran Dicairkan:</span>
-                <span className="font-mono font-medium">
-                    {formatRupiah(totalDicairkan)} ({itemCount} item)
-                </span>
-            </div>
-            <div className="flex justify-between">
-                <span>Total Realisasi:</span>
-                <span className="font-mono">{formatRupiah(totalRealisasi)}</span>
-            </div>
-            <div className="mt-1 flex justify-between border-t pt-1 font-medium">
-                <span>Total Refund:</span>
-                <span className="font-mono">{formatRupiah(nominalRefund)}</span>
+        <div
+            className={`rounded-lg border-2 p-4 ${hasRefund ? 'border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/60 dark:border-green-700 dark:bg-green-950/20'}`}
+        >
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ringkasan Realisasi</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-3">
+                    <div>
+                        <p className="text-xs text-muted-foreground">Nominal Refund</p>
+                        <p
+                            className={`font-mono text-2xl font-bold ${hasRefund ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}
+                        >
+                            {formatRupiah(nominalRefund)}
+                        </p>
+                        {!hasRefund && (
+                            <p className="mt-0.5 text-xs text-green-700 dark:text-green-400">
+                                Realisasi sama dengan anggaran dicairkan — tidak ada sisa refund.
+                            </p>
+                        )}
+                    </div>
+                    <div className="border-t pt-2 space-y-1">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Total Realisasi</span>
+                            <span className="font-mono font-semibold">{formatRupiah(totalRealisasi)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Total Dicairkan ({itemCount} item)</span>
+                            <span className="font-mono">{formatRupiah(totalDicairkan)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {hasRefund && rekeningOrganisasi.length > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-white p-3 dark:border-amber-700 dark:bg-amber-950/40">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                            Rekening Tujuan Transfer
+                        </p>
+                        <div className="divide-y divide-amber-100 dark:divide-amber-800">
+                            {rekeningOrganisasi.map((r, i) => (
+                                <div key={i} className="py-2 first:pt-0 last:pb-0 space-y-0.5">
+                                    <p className="text-xs text-muted-foreground">{r.nama_bank}</p>
+                                    <p className="text-sm font-medium">{r.nama_rekening}</p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="font-mono text-sm font-bold">{r.nomor_rekening}</p>
+                                        <CopyButton value={r.nomor_rekening} label="Salin" />
+                                    </div>
+                                    {r.catatan && <p className="text-xs text-muted-foreground italic">{r.catatan}</p>}
+                                </div>
+                            ))}
+                        </div>
+                        {ppLabel && <p className="mt-2 text-xs text-muted-foreground border-t border-amber-100 dark:border-amber-800 pt-2">PP: {ppLabel}</p>}
+                    </div>
+                )}
+
+                {!hasRefund && (
+                    <div className="flex items-center justify-center rounded-md border border-green-200 bg-white p-4 dark:border-green-800 dark:bg-green-950/40">
+                        <p className="text-center text-sm font-medium text-green-700 dark:text-green-400">
+                            Tidak ada sisa dana — tidak perlu transfer refund.
+                        </p>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -259,6 +373,7 @@ function FileUploadSection({
     onRemoveNew,
     readonly,
     accept,
+    hasError,
 }: {
     title: string;
     description: string;
@@ -270,13 +385,16 @@ function FileUploadSection({
     onRemoveNew: (index: number) => void;
     readonly: boolean;
     accept: string;
+    hasError?: boolean;
 }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const visibleExisting = existingFiles.filter((f) => !removeIds.includes(f.id));
     const totalFiles = visibleExisting.length + newFiles.length;
 
+    const cardTitle = hasError ? <span className="text-destructive">{title}</span> : title;
+
     return (
-        <SectionCard title={title}>
+        <SectionCard title={cardTitle}>
             <p className="text-xs text-muted-foreground">{description}</p>
 
             <div className="mt-2 space-y-2">
@@ -329,12 +447,17 @@ function FileUploadSection({
                     <>
                         <button
                             type="button"
-                            className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 px-6 py-6 text-center transition-colors hover:border-muted-foreground/50 hover:bg-muted/30"
+                            className={`flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-6 py-6 text-center transition-colors ${
+                                hasError
+                                    ? 'border-destructive/60 bg-destructive/5 hover:border-destructive hover:bg-destructive/10'
+                                    : 'border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30'
+                            }`}
                             onClick={() => fileInputRef.current?.click()}
                         >
-                            <Upload className="h-6 w-6 text-muted-foreground" />
-                            <p className="text-sm text-muted-foreground">Klik untuk memilih file</p>
+                            <Upload className={`h-6 w-6 ${hasError ? 'text-destructive' : 'text-muted-foreground'}`} />
+                            <p className={`text-sm ${hasError ? 'text-destructive' : 'text-muted-foreground'}`}>Klik untuk memilih file</p>
                         </button>
+                        {hasError && <p className="text-xs font-medium text-destructive">Wajib upload minimal 1 file.</p>}
                         <input
                             ref={fileInputRef}
                             type="file"
@@ -351,7 +474,7 @@ function FileUploadSection({
                     </>
                 )}
 
-                {totalFiles === 0 && readonly && <p className="text-xs text-muted-foreground italic">Belum ada file.</p>}
+                {totalFiles === 0 && readonly && <p className="text-xs italic text-muted-foreground">Belum ada file.</p>}
             </div>
         </SectionCard>
     );
@@ -382,6 +505,7 @@ export default function Prbl03({
     expectedUpdatedAt,
     actionRoles,
     activeRoleName,
+    basePath,
 }: Props) {
     const [processing, setProcessing] = useState(false);
     const [keterangan, setKeterangan] = useState(prbl03.keterangan ?? '');
@@ -490,7 +614,7 @@ export default function Prbl03({
                                 {cycleBackNotes.role_name && ` (${cycleBackNotes.role_name}`}
                                 {cycleBackNotes.team_name && ` · ${cycleBackNotes.team_name}`}
                                 {cycleBackNotes.role_name && ')'}
-                                {cycleBackNotes.at && ` — ${cycleBackNotes.at}`}
+                                {cycleBackNotes.at && ` — ${formatDateTime(cycleBackNotes.at)}`}
                             </p>
                         )}
                         {cycleBackNotes.notes && <p className="whitespace-pre-line italic">&ldquo;{cycleBackNotes.notes}&rdquo;</p>}
@@ -514,6 +638,17 @@ export default function Prbl03({
                     commentSource="prbl03"
                     canComment={canComment}
                     finalSteps={['PRBL05']}
+                    stepUrlResolver={(entry: HistoryEntry) => {
+                        if (!entry.step || entry.action === 'terminated' || entry.action === 'deleted') return null;
+                        const step = entry.step;
+                        if (step === 'PRBL01' && entry.id) return `${basePath}/prbl01/${entry.id}`;
+                        if (step === 'PRBL02A') return `${basePath}/prbl02a`;
+                        if (step === 'PRBL02B') return `${basePath}/prbl02b`;
+                        if (step === 'PRBL03' && entry.id) return `${basePath}/prbl03/${entry.id}`;
+                        if (step === 'PRBL04') return `${basePath}/prbl04`;
+                        if (step === 'PRBL05') return `${basePath}/prbl05`;
+                        return null;
+                    }}
                 />
 
                 {/* Info Laporan */}
@@ -567,45 +702,20 @@ export default function Prbl03({
                     </div>
                 </SectionCard>
 
-                {/* Rincian Realisasi */}
+                {/* Primary Highlight: Ringkasan Realisasi + Rekening Organisasi */}
+                <RingkasanHighlightCard
+                    totalDicairkan={totalDicairkan}
+                    totalRealisasi={totalRealisasi}
+                    nominalRefund={nominalRefund}
+                    itemCount={totalAnggaranItems}
+                    rekeningOrganisasi={rekeningOrganisasi}
+                    ppLabel={ppLabel}
+                />
+
+                {/* Rincian Realisasi (detail table) */}
                 <SectionCard title="Rincian Realisasi">
                     <RealisasiSummaryTable programs={kegiatanItems} />
-                    <div className="mt-3">
-                        <RefundSummaryCard
-                            totalDicairkan={totalDicairkan}
-                            totalRealisasi={totalRealisasi}
-                            nominalRefund={nominalRefund}
-                            itemCount={totalAnggaranItems}
-                        />
-                    </div>
                 </SectionCard>
-
-                {/* Rekening Organisasi (only when refund > 0) */}
-                {nominalRefund > 0 && rekeningOrganisasi.length > 0 && (
-                    <SectionCard title="Rekening Organisasi Tujuan Refund">
-                        {ppLabel && <p className="mb-2 text-xs text-muted-foreground">Referensi PP: {ppLabel}</p>}
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b text-left text-xs text-muted-foreground">
-                                        <th className="p-2">Nama Bank</th>
-                                        <th className="p-2">Nama Rekening</th>
-                                        <th className="p-2">Nomor Rekening</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {rekeningOrganisasi.map((r, i) => (
-                                        <tr key={i} className="border-b last:border-0">
-                                            <td className="p-2">{r.nama_bank}</td>
-                                            <td className="p-2">{r.nama_rekening}</td>
-                                            <td className="p-2 font-mono">{r.nomor_rekening}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </SectionCard>
-                )}
 
                 {/* Bukti Transfer Upload */}
                 <FileUploadSection
@@ -623,6 +733,7 @@ export default function Prbl03({
                     onRemoveNew={(index) => setNewBuktiFiles((prev) => prev.filter((_, i) => i !== index))}
                     readonly={isReadonly}
                     accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx"
+                    hasError={!isReadonly && nominalRefund > 0 && visibleBuktiCount === 0}
                 />
 
                 {/* Foto Nota Upload */}
@@ -637,6 +748,7 @@ export default function Prbl03({
                     onRemoveNew={(index) => setNewNotaFiles((prev) => prev.filter((_, i) => i !== index))}
                     readonly={isReadonly}
                     accept=".jpg,.jpeg,.png,.webp,.pdf"
+                    hasError={!isReadonly && visibleNotaCount === 0}
                 />
 
                 {/* Keterangan */}
@@ -652,17 +764,6 @@ export default function Prbl03({
                         />
                     )}
                 </SectionCard>
-
-                {/* Zero Refund Banner */}
-                {nominalRefund === 0 && !isReadonly && (
-                    <div className="flex items-start gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
-                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                        <p>
-                            Tidak ada selisih refund untuk bulan ini. Total realisasi sama dengan total anggaran dicairkan. Pastikan foto nota sudah
-                            di-upload, kemudian submit.
-                        </p>
-                    </div>
-                )}
 
                 {/* Actions */}
                 {!isReadonly && (canDraft || canSubmit) && (
