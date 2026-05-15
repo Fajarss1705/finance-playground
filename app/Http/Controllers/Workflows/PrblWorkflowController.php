@@ -3153,11 +3153,11 @@ class PrblWorkflowController extends Controller
                 }
             }
 
-            // Bukti transfer + foto nota
-            foreach ($prbl05->bukti as $bukti) {
+            // Bukti transfer (foto_nota deprecated — record lama tidak diikutkan
+            // ke ZIP agar konsisten dengan UI/PDF/Excel yang sudah disembunyikan).
+            foreach ($prbl05->bukti->where('tipe', 'bukti_transfer') as $bukti) {
                 if ($bukti->file && $bukti->file->path) {
-                    $folder = $bukti->tipe === 'bukti_transfer' ? 'Bukti Transfer' : 'Foto Nota Kantor Pusat';
-                    $addFile($zip, $folder, $bukti->file);
+                    $addFile($zip, 'Bukti Transfer', $bukti->file);
                 }
             }
 
