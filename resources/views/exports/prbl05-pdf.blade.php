@@ -304,7 +304,6 @@
     {{-- Bukti Transfer --}}
     @php
         $buktiTransfer = $prbl05->bukti->where('tipe', 'bukti_transfer');
-        $fotoNota = $prbl05->bukti->where('tipe', 'foto_nota');
     @endphp
 
     @if($buktiTransfer->isNotEmpty())
@@ -319,23 +318,6 @@
                     </div>
                 @else
                     <div style="margin:2px 0;" class="photo-filename">&#128206; {{ $imgData['filename'] ?? $bt->file?->original_filename ?? 'file' }}</div>
-                @endif
-            @endforeach
-        </div>
-    @endif
-
-    @if($fotoNota->isNotEmpty())
-        <h3>Foto Nota di Kantor Pusat</h3>
-        <div class="photo-grid">
-            @foreach($fotoNota as $fn)
-                @php $imgData = $buktiImages[$fn->id] ?? null; @endphp
-                @if($imgData && $imgData['data_uri'])
-                    <div class="photo-item">
-                        <img src="{{ $imgData['data_uri'] }}" alt="{{ $imgData['filename'] }}">
-                        <div class="photo-caption">{{ $imgData['filename'] }}</div>
-                    </div>
-                @else
-                    <div style="margin:2px 0;" class="photo-filename">&#128206; {{ $imgData['filename'] ?? $fn->file?->original_filename ?? 'file' }}</div>
                 @endif
             @endforeach
         </div>

@@ -114,7 +114,6 @@ type Props = {
     totalRealisasi: number;
     nominalRefund: number;
     buktiTransferFiles: BuktiFile[];
-    fotoNotaFiles: BuktiFile[];
     rekeningOrganisasi: RekeningOrganisasi[];
     ppLabel: string | null;
     submitterInfo: SubmitterInfo;
@@ -495,7 +494,6 @@ export default function Prbl03({
     totalRealisasi,
     nominalRefund,
     buktiTransferFiles,
-    fotoNotaFiles,
     rekeningOrganisasi,
     ppLabel,
     submitterInfo,
@@ -514,26 +512,17 @@ export default function Prbl03({
     const [newBuktiFiles, setNewBuktiFiles] = useState<File[]>([]);
     const [removeBuktiIds, setRemoveBuktiIds] = useState<number[]>([]);
 
-    // Foto nota file state
-    const [newNotaFiles, setNewNotaFiles] = useState<File[]>([]);
-    const [removeNotaIds, setRemoveNotaIds] = useState<number[]>([]);
-
     const isReadonly = mode === 'readonly';
 
     // Compute visible file counts for submit validation
     const visibleBuktiCount = buktiTransferFiles.filter((f) => !removeBuktiIds.includes(f.id)).length + newBuktiFiles.length;
-    const visibleNotaCount = fotoNotaFiles.filter((f) => !removeNotaIds.includes(f.id)).length + newNotaFiles.length;
 
     // Count total anggaran items
     const totalAnggaranItems = kegiatanItems.reduce((sum, p) => sum + p.kegiatan.reduce((s, k) => s + k.anggaran.length, 0), 0);
 
     // Submit disabled conditions
     const submitDisabledReason =
-        visibleNotaCount === 0
-            ? 'Upload minimal 1 foto nota'
-            : nominalRefund > 0 && visibleBuktiCount === 0
-              ? 'Upload minimal 1 bukti transfer'
-              : undefined;
+        nominalRefund > 0 && visibleBuktiCount === 0 ? 'Upload minimal 1 bukti transfer' : undefined;
 
     const prblRoutes = scope === 'admin' ? prbl : prblTeam;
 
@@ -557,9 +546,6 @@ export default function Prbl03({
         newBuktiFiles.forEach((file) => formData.append('bukti_transfer_files[]', file));
         removeBuktiIds.forEach((id) => formData.append('remove_bukti_transfer_ids[]', String(id)));
 
-        newNotaFiles.forEach((file) => formData.append('foto_nota_files[]', file));
-        removeNotaIds.forEach((id) => formData.append('remove_foto_nota_ids[]', String(id)));
-
         if (notes) formData.append('notes', notes);
         if (actionFiles && actionFiles.length > 0) {
             actionFiles.forEach((file) => formData.append('files[]', file));
@@ -582,8 +568,6 @@ export default function Prbl03({
             onSuccess: () => {
                 setNewBuktiFiles([]);
                 setRemoveBuktiIds([]);
-                setNewNotaFiles([]);
-                setRemoveNotaIds([]);
             },
         });
     }
@@ -606,7 +590,7 @@ export default function Prbl03({
                     <div className="space-y-1 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                         <div className="flex items-center gap-2">
                             <AlertTriangle className="h-4 w-4" />
-                            <span className="font-medium">Bukti transfer/nota dikembalikan untuk diperbaiki.</span>
+                            <span className="font-medium">Bukti transfer dikembalikan untuk diperbaiki.</span>
                         </div>
                         {cycleBackNotes.by_name && (
                             <p>
@@ -618,7 +602,7 @@ export default function Prbl03({
                             </p>
                         )}
                         {cycleBackNotes.notes && <p className="whitespace-pre-line italic">&ldquo;{cycleBackNotes.notes}&rdquo;</p>}
-                        <p className="mt-1">Silakan perbaiki bukti transfer/foto nota sesuai catatan di atas dan submit ulang.</p>
+                        <p className="mt-1">Silakan perbaiki bukti transfer sesuai catatan di atas dan submit ulang.</p>
                     </div>
                 )}
 
@@ -736,20 +720,17 @@ export default function Prbl03({
                     hasError={!isReadonly && nominalRefund > 0 && visibleBuktiCount === 0}
                 />
 
-                {/* Foto Nota Upload */}
-                <FileUploadSection
-                    title={`Foto Nota di Kantor Pusat${!isReadonly ? ' *' : ''}`}
-                    description="Upload foto nota/kuitansi yang disimpan di kantor pusat (minimal 1 file). Format: JPG, PNG, WEBP, PDF — Maks 25MB/file"
-                    existingFiles={fotoNotaFiles}
-                    newFiles={newNotaFiles}
-                    removeIds={removeNotaIds}
-                    onAddFiles={(files) => setNewNotaFiles((prev) => [...prev, ...files])}
-                    onRemoveExisting={(id) => setRemoveNotaIds((prev) => [...prev, id])}
-                    onRemoveNew={(index) => setNewNotaFiles((prev) => prev.filter((_, i) => i !== index))}
-                    readonly={isReadonly}
-                    accept=".jpg,.jpeg,.png,.webp,.pdf"
-                    hasError={!isReadonly && visibleNotaCount === 0}
-                />
+                {/* Notice: Foto Nota di Kantor Pusat sudah tidak diperlukan */}
+                <div className="flex items-start gap-3 rounded border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="space-y-1">
+                        <p className="font-medium">Foto Nota di Kantor Pusat sudah tidak diperlukan.</p>
+                        <p className="text-xs">
+                            Nota fisik tidak perlu lagi ditaruh di kantor pusat dan tidak perlu diupload pada step ini. Cukup pastikan bukti transfer refund
+                            (jika ada) sudah terlampir di atas.
+                        </p>
+                    </div>
+                </div>
 
                 {/* Keterangan */}
                 <SectionCard title="Keterangan">
