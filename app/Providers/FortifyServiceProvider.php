@@ -49,7 +49,12 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
 
-        ResetPassword::toMailUsing(function (object $_notifiable, string $url) {
+        ResetPassword::toMailUsing(function (object $_notifiable, string $token) {
+            $url = url(route('password.reset', [
+                'token' => $token,
+                'email' => $_notifiable->getEmailForPasswordReset(),
+            ], false));
+
             return (new MailMessage)
                 ->subject('Reset Kata Sandi')
                 ->greeting('Halo!')
