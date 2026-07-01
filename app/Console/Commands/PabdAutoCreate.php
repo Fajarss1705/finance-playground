@@ -75,103 +75,108 @@ class PabdAutoCreate extends Command
                 $pkByTeam = $pkWorkflows->groupBy('team_id');
 
                 foreach ($pkByTeam as $teamId => $teamPkWorkflows) {
-                    // Check if PK04 final exists for any PK in this team
-                    $pk04Finals = Pk04ProgramTahunan::query()
-                        ->whereIn('pk_workflow_id', $teamPkWorkflows->pluck('id'))
-                        ->get();
+                    try {
+                        // Check if PK04 final exists for any PK in this team
+                        $pk04Finals = Pk04ProgramTahunan::query()
+                            ->whereIn('pk_workflow_id', $teamPkWorkflows->pluck('id'))
+                            ->get();
 
-                    if ($pk04Finals->isEmpty()) {
-                        continue;
-                    }
+                        if ($pk04Finals->isEmpty()) {
+                            continue;
+                        }
 
-                    // Check for active anggaran (nominal > 0, status_item = active) in target month
-                    $anggaranInMonth = Pk04Anggaran::query()
-                        ->whereHas('pk04Kegiatan', function ($q) use ($pk04Finals, $targetMonth) {
-                            $q->whereIn('pk04_program_tahunan_id', $pk04Finals->pluck('id'))
-                                ->where('bulan', $targetMonth);
-                        })
-                        ->where('nominal_anggaran', '>', 0)
-                        ->where('status_item', 'active')
-                        ->exists();
+                        // Check for active anggaran (nominal > 0, status_item = active) in target month
+                        $anggaranInMonth = Pk04Anggaran::query()
+                            ->whereHas('pk04Kegiatan', function ($q) use ($pk04Finals, $targetMonth) {
+                                $q->whereIn('pk04_program_tahunan_id', $pk04Finals->pluck('id'))
+                                    ->where('bulan', $targetMonth);
+                            })
+                            ->where('nominal_anggaran', '>', 0)
+                            ->where('status_item', 'active')
+                            ->exists();
 
-                    if (! $anggaranInMonth) {
-                        $skipped++;
+                        if (! $anggaranInMonth) {
+                            $skipped++;
 
-                        continue;
-                    }
+                            continue;
+                        }
 
-                    // Check no existing PABD for this team + month + PP
-                    $exists = PabdWorkflow::query()
-                        ->where('workspace_id', $workspace->id)
-                        ->where('team_id', $teamId)
-                        ->where('pp_workflow_id', $ppWorkflow->id)
-                        ->where('bulan_anggaran', $targetMonth)
-                        ->where('tahun_anggaran', $tahun)
-                        ->exists();
-
-                    if ($exists) {
-                        $skipped++;
-
-                        continue;
-                    }
-
-                    // Subsequent PABD check: previous month's PRBL must be complete
-                    $previousPabd = PabdWorkflow::query()
-                        ->where('workspace_id', $workspace->id)
-                        ->where('team_id', $teamId)
-                        ->where('pp_workflow_id', $ppWorkflow->id)
-                        ->whereNull('deleted_at')
-                        ->where(function ($q) use ($targetMonth, $tahun) {
-                            $q->where('tahun_anggaran', '<', $tahun)
-                                ->orWhere(function ($q2) use ($targetMonth, $tahun) {
-                                    $q2->where('tahun_anggaran', $tahun)
-                                        ->where('bulan_anggaran', '<', $targetMonth);
-                                });
-                        })
-                        ->orderByDesc('tahun_anggaran')
-                        ->orderByDesc('bulan_anggaran')
-                        ->first();
-
-                    if ($previousPabd) {
-                        // Previous PABD exists — check its PRBL is complete
-                        $previousPrbl = PrblWorkflow::query()
+                        // Check no existing PABD for this team + month + PP
+                        $exists = PabdWorkflow::query()
                             ->where('workspace_id', $workspace->id)
                             ->where('team_id', $teamId)
                             ->where('pp_workflow_id', $ppWorkflow->id)
-                            ->where('bulan_laporan', $previousPabd->bulan_anggaran)
-                            ->where('tahun_laporan', $previousPabd->tahun_anggaran)
+                            ->where('bulan_anggaran', $targetMonth)
+                            ->where('tahun_anggaran', $tahun)
+                            ->exists();
+
+                        if ($exists) {
+                            $skipped++;
+
+                            continue;
+                        }
+
+                        // Subsequent PABD check: previous month's PRBL must be complete
+                        $previousPabd = PabdWorkflow::query()
+                            ->where('workspace_id', $workspace->id)
+                            ->where('team_id', $teamId)
+                            ->where('pp_workflow_id', $ppWorkflow->id)
+                            ->whereNull('deleted_at')
+                            ->where(function ($q) use ($targetMonth, $tahun) {
+                                $q->where('tahun_anggaran', '<', $tahun)
+                                    ->orWhere(function ($q2) use ($targetMonth, $tahun) {
+                                        $q2->where('tahun_anggaran', $tahun)
+                                            ->where('bulan_anggaran', '<', $targetMonth);
+                                    });
+                            })
+                            ->orderByDesc('tahun_anggaran')
+                            ->orderByDesc('bulan_anggaran')
                             ->first();
 
-                        if (! $previousPrbl) {
-                            $skipped++;
+                        if ($previousPabd) {
+                            // Previous PABD exists — check its PRBL is complete
+                            $previousPrbl = PrblWorkflow::query()
+                                ->where('workspace_id', $workspace->id)
+                                ->where('team_id', $teamId)
+                                ->where('pp_workflow_id', $ppWorkflow->id)
+                                ->where('bulan_laporan', $previousPabd->bulan_anggaran)
+                                ->where('tahun_laporan', $previousPabd->tahun_anggaran)
+                                ->first();
 
-                            continue;
+                            if (! $previousPrbl) {
+                                $skipped++;
+
+                                continue;
+                            }
+
+                            $prblStatus = $this->engine->getWorkflowStatus($previousPrbl->history ?? []);
+                            if ($prblStatus !== 'completed') {
+                                $skipped++;
+
+                                continue;
+                            }
                         }
 
-                        $prblStatus = $this->engine->getWorkflowStatus($previousPrbl->history ?? []);
-                        if ($prblStatus !== 'completed') {
-                            $skipped++;
+                        // Create PABD workflow + PABD01 data + items
+                        $pabdWorkflow = $this->createPabdWorkflow(
+                            $workspace,
+                            $teamId,
+                            $ppWorkflow,
+                            $pk04Finals,
+                            $targetMonth,
+                            $tahun,
+                        );
 
-                            continue;
-                        }
+                        // Notify team that PABD has been auto-created
+                        $this->notifier->notify($pabdWorkflow, 'pabd.auto_created', [
+                            'actor_name' => 'Sistem',
+                        ]);
+
+                        $created++;
+                    } catch (\Throwable $e) {
+                        $this->components->error("PABD auto-create failed for team {$teamId} (PP {$ppWorkflow->id}, month {$targetMonth}/{$tahun}): {$e->getMessage()}");
+                        $skipped++;
                     }
-
-                    // Create PABD workflow + PABD01 data + items
-                    $pabdWorkflow = $this->createPabdWorkflow(
-                        $workspace,
-                        $teamId,
-                        $ppWorkflow,
-                        $pk04Finals,
-                        $targetMonth,
-                        $tahun,
-                    );
-
-                    // Notify team that PABD has been auto-created
-                    $this->notifier->notify($pabdWorkflow, 'pabd.auto_created', [
-                        'actor_name' => 'Sistem',
-                    ]);
-
-                    $created++;
                 }
             }
         }
