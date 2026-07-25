@@ -34,8 +34,20 @@ class PabdAutoCreate extends Command
     public function handle(): int
     {
         $now = now();
-        $targetMonth = $now->copy()->addMonth()->month;
-        $targetYear = $now->copy()->addMonth()->year;
+
+        // Allow PABD creation up to 30 days before the 1st of the target month.
+        // On e.g. July 2, we can create August PABD. On July 30, still August.
+        // On August 1, target becomes September.
+        $startOfTarget = $now->copy()->startOfMonth()->addMonthNoOverflow();
+        $daysUntil = $now->diffInDays($startOfTarget, false);
+        if ($daysUntil > 30) {
+            // Too early to create PABD for this month
+            $this->components->info("PABD auto-create: too early — {$daysUntil} days until month start.");
+
+            return self::SUCCESS;
+        }
+        $targetMonth = $startOfTarget->month;
+        $targetYear = $startOfTarget->year;
 
         $created = 0;
         $skipped = 0;
@@ -116,8 +128,8 @@ class PabdAutoCreate extends Command
                             continue;
                         }
 
-                        // Subsequent PABD check: previous month's PRBL must be complete
-                        $previousPabd = PabdWorkflow::query()
+                        // All prior PABD months must have completed PRBL
+                        $allPreviousPabd = PabdWorkflow::query()
                             ->where('workspace_id', $workspace->id)
                             ->where('team_id', $teamId)
                             ->where('pp_workflow_id', $ppWorkflow->id)
@@ -129,32 +141,35 @@ class PabdAutoCreate extends Command
                                             ->where('bulan_anggaran', '<', $targetMonth);
                                     });
                             })
-                            ->orderByDesc('tahun_anggaran')
-                            ->orderByDesc('bulan_anggaran')
-                            ->first();
+                            ->get();
 
-                        if ($previousPabd) {
-                            // Previous PABD exists — check its PRBL is complete
-                            $previousPrbl = PrblWorkflow::query()
+                        $allPriorPrblComplete = true;
+                        foreach ($allPreviousPabd as $prevPabd) {
+                            $prevPrbl = PrblWorkflow::query()
                                 ->where('workspace_id', $workspace->id)
                                 ->where('team_id', $teamId)
                                 ->where('pp_workflow_id', $ppWorkflow->id)
-                                ->where('bulan_laporan', $previousPabd->bulan_anggaran)
-                                ->where('tahun_laporan', $previousPabd->tahun_anggaran)
+                                ->where('bulan_laporan', $prevPabd->bulan_anggaran)
+                                ->where('tahun_laporan', $prevPabd->tahun_anggaran)
+                                ->whereNull('deleted_at')
                                 ->first();
 
-                            if (! $previousPrbl) {
-                                $skipped++;
-
-                                continue;
+                            if (! $prevPrbl) {
+                                $allPriorPrblComplete = false;
+                                break;
                             }
 
-                            $prblStatus = $this->engine->getWorkflowStatus($previousPrbl->history ?? []);
+                            $prblStatus = $this->engine->getWorkflowStatus($prevPrbl->history ?? []);
                             if ($prblStatus !== 'completed') {
-                                $skipped++;
-
-                                continue;
+                                $allPriorPrblComplete = false;
+                                break;
                             }
+                        }
+
+                        if (! $allPriorPrblComplete) {
+                            $skipped++;
+
+                            continue;
                         }
 
                         // Create PABD workflow + PABD01 data + items
