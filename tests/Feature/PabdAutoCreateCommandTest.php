@@ -281,7 +281,7 @@ it('skips when tanggal_penetapan_program is in the future', function () {
     expect(PabdWorkflow::where('team_id', $team->id)->count())->toBe(0);
 });
 
-it('skips subsequent PABD when previous PABD exists (PRBL stub)', function () {
+it('creates subsequent PABD when only the grace month PRBL is outstanding', function () {
     $this->travelTo(Carbon::parse('2027-04-15'));
     [$workspace, $team, $ppWorkflow, $pkWorkflow, $pk04] = setupAutoCreateData(
         tanggalPenetapan: '2027-02-01',
@@ -310,7 +310,8 @@ it('skips subsequent PABD when previous PABD exists (PRBL stub)', function () {
         'status_item' => 'active',
     ]);
 
-    // Pre-existing PABD for a different month (this makes it "subsequent")
+    // Pre-existing PABD for month 4 with no completed PRBL. Month 4 is the grace
+    // month for target month 5, so it must NOT block.
     PabdWorkflow::create([
         'uuid' => (string) \Illuminate\Support\Str::uuid(),
         'workspace_id' => $workspace->id,
@@ -327,6 +328,55 @@ it('skips subsequent PABD when previous PABD exists (PRBL stub)', function () {
 
     $this->artisan('pabd:auto-create')->assertSuccessful();
 
-    // Should NOT create PABD for month 5 because previous PABD exists (PRBL stub)
+    expect(PabdWorkflow::where('team_id', $team->id)->where('bulan_anggaran', 5)->count())->toBe(1);
+});
+
+it('skips subsequent PABD when a month older than the grace month has no completed PRBL', function () {
+    $this->travelTo(Carbon::parse('2027-04-15'));
+    [$workspace, $team, $ppWorkflow, $pkWorkflow, $pk04] = setupAutoCreateData(
+        tanggalPenetapan: '2027-02-01',
+        bulanKegiatan: 5,
+    );
+
+    $kegiatan5 = Pk04Kegiatan::create([
+        'pk04_program_tahunan_id' => $pk04->id,
+        'nama_kegiatan' => 'Kegiatan Mei',
+        'bulan' => 5,
+        'nomer_kegiatan' => 2,
+    ]);
+
+    Pk04Anggaran::create([
+        'pk04_kegiatan_id' => $kegiatan5->id,
+        'kode_bidang' => 'B01',
+        'kode_sub_bidang' => 'SB01',
+        'kode_jenis' => 'J01',
+        'mata_anggaran' => 'Konsumsi',
+        'deskripsi_pk' => 'Konsumsi mei',
+        'nominal_anggaran' => 1000000,
+        'nomer_anggaran' => 1,
+        'revisi_terakhir' => 0,
+        'kode_anggaran_baru' => 'R.01.01.01.01.01.001.002.001.2027.05.rev0.M0',
+        'status_item' => 'active',
+    ]);
+
+    // Month 3 is two months back — outside the grace window, so it still gates.
+    foreach ([3, 4] as $bulan) {
+        PabdWorkflow::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'workspace_id' => $workspace->id,
+            'team_id' => $team->id,
+            'pp_workflow_id' => $ppWorkflow->id,
+            'bulan_anggaran' => $bulan,
+            'tahun_anggaran' => 2027,
+            'created_by_user_id' => null,
+            'created_by_role_id' => null,
+            'created_by_team_id' => null,
+            'created_by_org_id' => null,
+            'history' => [],
+        ]);
+    }
+
+    $this->artisan('pabd:auto-create')->assertSuccessful();
+
     expect(PabdWorkflow::where('team_id', $team->id)->where('bulan_anggaran', 5)->count())->toBe(0);
 });

@@ -269,13 +269,13 @@ it('skips when PABD is not completed', function () {
     expect(PrblWorkflow::count())->toBe(0);
 });
 
-it('skips when current date is before day 15 of kegiatan month', function () {
-    $this->travelTo(Carbon::parse('2027-04-14')); // day 14 — too early
+it('creates before day 15 of kegiatan month — the day-15 gate was removed', function () {
+    $this->travelTo(Carbon::parse('2027-04-14')); // day 14 — used to be too early
     setupPrblAutoCreateData();
 
     $this->artisan('prbl:auto-create')->assertSuccessful();
 
-    expect(PrblWorkflow::count())->toBe(0);
+    expect(PrblWorkflow::count())->toBe(1);
 });
 
 it('creates on exactly day 15 of kegiatan month', function () {
@@ -287,7 +287,7 @@ it('creates on exactly day 15 of kegiatan month', function () {
     expect(PrblWorkflow::where('team_id', $team->id)->where('bulan_laporan', 4)->count())->toBe(1);
 });
 
-it('skips subsequent PRBL when previous month PRBL is not complete', function () {
+it('creates subsequent PRBL even when the previous month PRBL is not complete', function () {
     $this->travelTo(Carbon::parse('2027-05-16'));
 
     // Setup data for month 4 (first PABD + completed PRBL)
@@ -357,8 +357,9 @@ it('skips subsequent PRBL when previous month PRBL is not complete', function ()
 
     $this->artisan('prbl:auto-create')->assertSuccessful();
 
-    // PRBL for month 5 should NOT be created because month 4 PRBL is not complete
-    expect(PrblWorkflow::where('team_id', $team->id)->where('bulan_laporan', 5)->count())->toBe(0);
+    // PRBL no longer waits on the previous month — the sequential gate was removed,
+    // so month 5 is created even though month 4 is still open.
+    expect(PrblWorkflow::where('team_id', $team->id)->where('bulan_laporan', 5)->count())->toBe(1);
 });
 
 it('creates subsequent PRBL when previous month PRBL is complete', function () {

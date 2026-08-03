@@ -49,6 +49,15 @@ class PabdAutoCreate extends Command
         $targetMonth = $startOfTarget->month;
         $targetYear = $startOfTarget->year;
 
+        // One-month grace: the month immediately before the target is exempt from the
+        // "prior PRBL must be complete" gate. Teams are never finished reporting month
+        // N-1 by the time month N+1 opens, so requiring it deadlocks the whole cycle
+        // and every PABD ends up created by hand. Everything older than the grace month
+        // still has to be closed, so a backlog cannot grow past one month.
+        $startOfGrace = $startOfTarget->copy()->subMonthNoOverflow();
+        $graceMonth = $startOfGrace->month;
+        $graceYear = $startOfGrace->year;
+
         $created = 0;
         $skipped = 0;
 
@@ -128,7 +137,8 @@ class PabdAutoCreate extends Command
                             continue;
                         }
 
-                        // All prior PABD months must have completed PRBL
+                        // All prior PABD months must have completed PRBL, except the
+                        // immediately preceding month — see the grace note in handle().
                         $allPreviousPabd = PabdWorkflow::query()
                             ->where('workspace_id', $workspace->id)
                             ->where('team_id', $teamId)
@@ -140,6 +150,10 @@ class PabdAutoCreate extends Command
                                         $q2->where('tahun_anggaran', $tahun)
                                             ->where('bulan_anggaran', '<', $targetMonth);
                                     });
+                            })
+                            ->whereNot(function ($q) use ($graceMonth, $graceYear) {
+                                $q->where('tahun_anggaran', $graceYear)
+                                    ->where('bulan_anggaran', $graceMonth);
                             })
                             ->get();
 
