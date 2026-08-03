@@ -18,7 +18,7 @@ class Pabd02aDraftRequest extends FormRequest
     {
         return [
             'items' => ['nullable', 'array'],
-            'items.*.tipe_perubahan' => ['nullable', 'string', 'in:tarik_maju,proposal_baru'],
+            'items.*.tipe_perubahan' => ['nullable', 'string', 'in:tarik_maju,tarik_mundur,proposal_baru'],
             'items.*.pk04_anggaran_id' => ['nullable', 'integer'],
             'items.*.bulan_awal' => ['nullable', 'integer', 'min:1', 'max:12'],
             'items.*.bulan_tujuan' => ['nullable', 'integer', 'min:1', 'max:12'],

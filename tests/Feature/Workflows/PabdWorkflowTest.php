@@ -1063,6 +1063,120 @@ it('saves PABD02A draft with tarik_maju item', function () {
         ->and($lastEntry['step'])->toBe('PABD02A');
 });
 
+// ── PABD02A Submit (tarik_mundur) ──
+
+it('submits PABD02A with tarik_mundur item pushing an item to a later month', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $futureAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 9,
+                'komentar' => 'Menunda anggaran bulan 6 ke bulan 9 karena kegiatan digeser.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    $items = Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->get();
+    expect($items)->toHaveCount(1)
+        ->and($items->first()->tipe_perubahan)->toBe('tarik_mundur')
+        ->and($items->first()->bulan_awal)->toBe(6)
+        ->and($items->first()->bulan_tujuan)->toBe(9)
+        ->and($items->first()->pk04_anggaran_id)->toBe($futureAnggaran->id);
+});
+
+it('rejects tarik_mundur when bulan_tujuan is not after bulan_awal', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // bulan_tujuan 4 is EARLIER than bulan_awal 6 — that is a tarik maju, not mundur.
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $futureAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 4,
+                'komentar' => 'Arah salah, harus ditolak oleh validasi.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(422);
+    expect(Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->count())->toBe(0);
+});
+
+it('rejects tarik_maju when bulan_tujuan is after bulan_awal', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_maju',
+                'pk04_anggaran_id' => $futureAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 9,
+                'komentar' => 'Arah salah, harus ditolak oleh validasi.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(422);
+    expect(Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->count())->toBe(0);
+});
+
 // ── PABD02A Submit (tarik_maju) ──
 
 it('submits PABD02A with tarik_maju item and activates PABD02B', function () {

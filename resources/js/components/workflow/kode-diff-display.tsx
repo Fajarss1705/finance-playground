@@ -1,7 +1,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
- * KodeDiffDisplay — shows "Saat ini" vs "Setelah tarik maju" kodes
+ * KodeDiffDisplay — shows "Saat ini" vs "Setelah pemindahan" kodes
  * with changed segments highlighted (bold/color).
  *
  * Both kodes are 13-segment dot-separated strings:
@@ -44,7 +44,7 @@ export default function KodeDiffDisplay({
         return (
             <div className="space-y-1 text-xs">
                 <div><span className="text-muted-foreground">Saat ini:</span> <code className="text-[11px]">{currentKode}</code></div>
-                <div><span className="text-muted-foreground">Setelah tarik maju:</span> <code className="text-[11px]">{previewKode}</code></div>
+                <div><span className="text-muted-foreground">Setelah pemindahan:</span> <code className="text-[11px]">{previewKode}</code></div>
             </div>
         );
     }
@@ -63,7 +63,7 @@ export default function KodeDiffDisplay({
                 </div>
             </div>
             <div>
-                <span className="text-muted-foreground">Setelah tarik maju:</span>
+                <span className="text-muted-foreground">Setelah pemindahan:</span>
                 <div className="mt-0.5 font-mono text-[11px]">
                     {previewSegments.map((seg, i) => (
                         <span key={i}>

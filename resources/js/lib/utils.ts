@@ -91,14 +91,14 @@ export function formatDateShort(iso: string | null | undefined): string {
 
 /**
  * Pick the Tailwind class for an anggaran status badge (PABD pages).
- * "Tarik Maju …" / "Ditarik Maju …" → amber; "Di Luar Plafon" → purple;
+ * "Tarik/Ditarik Maju …" and "Tarik/Ditarik Mundur …" → amber; "Di Luar Plafon" → purple;
  * "Normal" and anything else → slate.
  */
 export function statusBadgeClass(label: string | null | undefined): string {
     if (!label) {
         return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
     }
-    if (label.startsWith('Tarik Maju') || label.startsWith('Ditarik Maju')) {
+    if (label.startsWith('Tarik Maju') || label.startsWith('Ditarik Maju') || label.startsWith('Tarik Mundur') || label.startsWith('Ditarik Mundur')) {
         return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
     }
     if (label === 'Di Luar Plafon') {

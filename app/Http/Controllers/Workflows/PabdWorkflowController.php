@@ -57,6 +57,18 @@ use Inertia\Response;
 
 class PabdWorkflowController extends Controller
 {
+    /**
+     * Change types that move an existing pk04_anggaran to a different month.
+     *
+     * Both run through the same machinery — same source anggaran, same
+     * bulan_awal/bulan_tujuan pair, same PK04 revisioned recompile. Only the
+     * permitted direction and the labels differ. `proposal_baru` is not one of
+     * these: it creates a new item rather than moving an existing one.
+     *
+     * @var list<string>
+     */
+    private const TIPE_PEMINDAHAN_BULAN = ['tarik_maju', 'tarik_mundur'];
+
     public function __construct(
         private WorkflowEngine $engine,
         private ActiveSessionService $session,
@@ -851,7 +863,7 @@ class PabdWorkflowController extends Controller
         // Future anggaran for tarik maju picker
         $futureAnggaranItems = $this->resolveFutureAnggaran(
             $pabdWorkflow,
-            $existingItems->where('tipe_perubahan', 'tarik_maju')->pluck('pk04_anggaran_id')->filter()->all(),
+            $existingItems->whereIn('tipe_perubahan', self::TIPE_PEMINDAHAN_BULAN)->pluck('pk04_anggaran_id')->filter()->all(),
         );
 
         // PP06 kode references for proposal baru
@@ -996,26 +1008,38 @@ class PabdWorkflowController extends Controller
 
         // Additional validation: unique pk04_anggaran_id per submission
         $tarikMajuIds = collect($validated['items'])
-            ->where('tipe_perubahan', 'tarik_maju')
+            ->whereIn('tipe_perubahan', self::TIPE_PEMINDAHAN_BULAN)
             ->pluck('pk04_anggaran_id')
             ->filter();
         if ($tarikMajuIds->count() !== $tarikMajuIds->unique()->count()) {
             abort(422, 'Setiap anggaran hanya dapat ditarik satu kali per pengajuan.');
         }
 
-        // Validate bulan_tujuan constraints for tarik_maju items
-        // Floor is bulan_anggaran (PABD target month), not the current calendar month,
+        // Validate bulan_tujuan constraints for pemindahan bulan items.
+        // Tarik maju pulls an item EARLIER; tarik mundur pushes it LATER. Floor for
+        // maju is bulan_anggaran (PABD target month), not the current calendar month,
         // so a January PABD processed in April can still pull items to January.
         foreach ($validated['items'] as $idx => $item) {
-            if ($item['tipe_perubahan'] === 'tarik_maju') {
-                $bulanAwal = $item['bulan_awal'] ?? 0;
-                $bulanTujuan = $item['bulan_tujuan'] ?? 0;
+            if (! in_array($item['tipe_perubahan'], self::TIPE_PEMINDAHAN_BULAN, true)) {
+                continue;
+            }
 
+            $bulanAwal = $item['bulan_awal'] ?? 0;
+            $bulanTujuan = $item['bulan_tujuan'] ?? 0;
+
+            if ($item['tipe_perubahan'] === 'tarik_maju') {
                 if ($bulanTujuan >= $bulanAwal) {
                     abort(422, "Bulan tujuan harus lebih kecil dari bulan asal (item #{$idx}).");
                 }
                 if ($bulanTujuan < $pabdWorkflow->bulan_anggaran) {
                     abort(422, "Bulan tujuan tidak boleh sebelum bulan PABD ini (item #{$idx}).");
+                }
+            } else {
+                if ($bulanTujuan <= $bulanAwal) {
+                    abort(422, "Bulan tujuan harus lebih besar dari bulan asal (item #{$idx}).");
+                }
+                if ($bulanAwal < $pabdWorkflow->bulan_anggaran) {
+                    abort(422, "Hanya item bulan ini atau setelahnya yang bisa ditarik mundur (item #{$idx}).");
                 }
             }
         }
@@ -1118,18 +1142,20 @@ class PabdWorkflowController extends Controller
                 continue;
             }
 
+            $isPemindahan = in_array($tipe, self::TIPE_PEMINDAHAN_BULAN, true);
+
             $itemAttrs = [
                 'pabd02a_data_id' => $pabd02aData->id,
                 'tipe_perubahan' => $tipe,
-                'pk04_anggaran_id' => $tipe === 'tarik_maju' ? ($itemData['pk04_anggaran_id'] ?? null) : null,
-                'bulan_awal' => $tipe === 'tarik_maju' ? ($itemData['bulan_awal'] ?? null) : null,
-                'bulan_tujuan' => $tipe === 'tarik_maju' ? ($itemData['bulan_tujuan'] ?? null) : null,
+                'pk04_anggaran_id' => $isPemindahan ? ($itemData['pk04_anggaran_id'] ?? null) : null,
+                'bulan_awal' => $isPemindahan ? ($itemData['bulan_awal'] ?? null) : null,
+                'bulan_tujuan' => $isPemindahan ? ($itemData['bulan_tujuan'] ?? null) : null,
                 'nominal_awal' => null,
                 'komentar' => $itemData['komentar'] ?? null,
             ];
 
             // Snapshot nominal at creation time so it survives PK04 recompile zeroing.
-            if ($tipe === 'tarik_maju' && ! empty($itemAttrs['pk04_anggaran_id'])) {
+            if ($isPemindahan && ! empty($itemAttrs['pk04_anggaran_id'])) {
                 $itemAttrs['nominal_awal'] = \App\Models\Pk\Pk04Anggaran::where('id', $itemAttrs['pk04_anggaran_id'])
                     ->value('nominal_anggaran');
             }
@@ -1292,7 +1318,7 @@ class PabdWorkflowController extends Controller
         ];
 
         // Tarik maju: enrich with anggaran details
-        if ($item->tipe_perubahan === 'tarik_maju' && $item->pk04Anggaran) {
+        if (in_array($item->tipe_perubahan, self::TIPE_PEMINDAHAN_BULAN, true) && $item->pk04Anggaran) {
             $anggaran = $item->pk04Anggaran;
             $kegiatan = $anggaran->pk04Kegiatan;
             $program = $kegiatan?->pk04ProgramTahunan;
@@ -1519,7 +1545,7 @@ class PabdWorkflowController extends Controller
             $formatted['komentar_approval'] = $review->komentar_approval;
 
             // Kode diff preview for tarik_maju items
-            if ($perubahanItem->tipe_perubahan === 'tarik_maju' && $perubahanItem->pk04Anggaran) {
+            if (in_array($perubahanItem->tipe_perubahan, self::TIPE_PEMINDAHAN_BULAN, true) && $perubahanItem->pk04Anggaran) {
                 $formatted['kode_preview'] = $this->computeKodePreview($perubahanItem);
             }
 
@@ -1572,6 +1598,7 @@ class PabdWorkflowController extends Controller
 
         // Change summary counts
         $tarikMajuCount = $reviewItems->where('tipe_perubahan', 'tarik_maju')->count();
+        $tarikMundurCount = $reviewItems->where('tipe_perubahan', 'tarik_mundur')->count();
         $proposalBaruCount = $reviewItems->where('tipe_perubahan', 'proposal_baru')->count();
 
         return Inertia::render('workflows/pabd/pabd02b', [
@@ -1609,6 +1636,7 @@ class PabdWorkflowController extends Controller
             'pabd02aPreviousCycles' => $pabd02aPreviousCycles,
 
             'tarikMajuCount' => $tarikMajuCount,
+            'tarikMundurCount' => $tarikMundurCount,
             'proposalBaruCount' => $proposalBaruCount,
 
             'budgetCounter' => $budgetCounter,
@@ -1718,7 +1746,7 @@ class PabdWorkflowController extends Controller
                 ],
             );
 
-            // 3. Process tarik_maju items (grouped by PK)
+            // 3. Process pemindahan bulan items — tarik maju and tarik mundur (grouped by PK)
             $pabd02bData->load(['itemReview.pabd02aItemPerubahan.pk04Anggaran.pk04Kegiatan.pk04ProgramTahunan.pkWorkflow']);
             $tarikMajuByPk = [];
             $allPerubahanItems = [];
@@ -1727,13 +1755,14 @@ class PabdWorkflowController extends Controller
                 $perubahan = $review->pabd02aItemPerubahan;
                 $allPerubahanItems[] = ['review' => $review, 'perubahan' => $perubahan];
 
-                if ($perubahan->tipe_perubahan === 'tarik_maju' && $perubahan->pk04Anggaran) {
+                if (in_array($perubahan->tipe_perubahan, self::TIPE_PEMINDAHAN_BULAN, true) && $perubahan->pk04Anggaran) {
                     $pkWorkflow = $perubahan->pk04Anggaran->pk04Kegiatan?->pk04ProgramTahunan?->pkWorkflow;
                     if ($pkWorkflow) {
                         $tarikMajuByPk[$pkWorkflow->id] ??= ['workflow' => $pkWorkflow, 'items' => []];
                         $tarikMajuByPk[$pkWorkflow->id]['items'][] = [
                             'pk04_anggaran_id' => $perubahan->pk04_anggaran_id,
                             'bulan_tujuan' => $perubahan->bulan_tujuan,
+                            'tipe_perubahan' => $perubahan->tipe_perubahan,
                             'pabd_workflow_id' => $pabdWorkflow->id,
                         ];
                     }
@@ -1741,7 +1770,7 @@ class PabdWorkflowController extends Controller
             }
 
             foreach ($tarikMajuByPk as $pkData) {
-                $this->compileService->recompileFromTarikMaju($pkData['workflow'], $pkData['items']);
+                $this->compileService->recompileFromPemindahanBulan($pkData['workflow'], $pkData['items']);
             }
 
             // 4. Process proposal_baru items
@@ -2952,14 +2981,14 @@ class PabdWorkflowController extends Controller
             $review = $itemData['review'];
 
             // Only create catatan for tarik_maju items (they have pk04_anggaran_id)
-            if ($perubahan->tipe_perubahan !== 'tarik_maju' || ! $perubahan->pk04_anggaran_id) {
+            if (! in_array($perubahan->tipe_perubahan, self::TIPE_PEMINDAHAN_BULAN, true) || ! $perubahan->pk04_anggaran_id) {
                 continue;
             }
 
             Pk04AnggaranCatatanPerubahan::create([
                 'pk04_anggaran_id' => $perubahan->pk04_anggaran_id,
                 'pabd_workflow_id' => $pabdWorkflowId,
-                'tipe_perubahan' => 'tarik_maju',
+                'tipe_perubahan' => $perubahan->tipe_perubahan,
                 'catatan_pemohon' => $perubahan->komentar,
                 'catatan_approval' => $review->komentar_approval,
             ]);
@@ -2967,7 +2996,7 @@ class PabdWorkflowController extends Controller
     }
 
     /**
-     * Compute kode anggaran preview for a tarik_maju item.
+     * Compute kode anggaran preview for a pemindahan bulan item.
      *
      * Shows what the new kode will look like after recompile:
      * - bulan segment changes from bulan_awal → bulan_tujuan
@@ -3421,20 +3450,22 @@ class PabdWorkflowController extends Controller
             }
 
             // Determine status badge
-            if ($anggaran->status_item === 'ditarik_maju') {
-                // Source item that was pulled forward to another month
+            if (in_array($anggaran->status_item, ['ditarik_maju', 'ditarik_mundur'], true)) {
+                // Source item that was moved to another month
+                $arah = $anggaran->status_item === 'ditarik_maju' ? 'Maju' : 'Mundur';
                 $targetKegiatan = Pk04Anggaran::where('previous_anggaran_id', $anggaran->id)
                     ->first()?->pk04Kegiatan;
                 $targetBulan = $targetKegiatan?->bulan;
                 $statusLabel = $targetBulan
-                    ? "Ditarik Maju ke Bln {$targetBulan}"
-                    : 'Ditarik Maju';
-            } elseif ($anggaran->source === 'tarik_maju') {
-                // Item that was pulled forward INTO this month from a future month
+                    ? "Ditarik {$arah} ke Bln {$targetBulan}"
+                    : "Ditarik {$arah}";
+            } elseif (in_array($anggaran->source, ['tarik_maju', 'tarik_mundur'], true)) {
+                // Item that was moved INTO this month from another month
+                $arah = $anggaran->source === 'tarik_maju' ? 'Maju' : 'Mundur';
                 $sourceBulan = Pk04Anggaran::find($anggaran->previous_anggaran_id)?->pk04Kegiatan?->bulan;
                 $statusLabel = $sourceBulan
-                    ? "Tarik Maju dari Bln {$sourceBulan}"
-                    : 'Tarik Maju';
+                    ? "Tarik {$arah} dari Bln {$sourceBulan}"
+                    : "Tarik {$arah}";
             } elseif ($grouped[$programKey]['tipe'] === 'proposal') {
                 $statusLabel = 'Di Luar Plafon';
             } else {

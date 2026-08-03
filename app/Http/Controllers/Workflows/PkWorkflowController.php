@@ -963,7 +963,7 @@ class PkWorkflowController extends Controller
                         } elseif ($a->status_pencairan !== null) {
                             $lockReason = $a->status_pencairan === 'hangus' ? 'hangus' : 'sudah_dicairkan';
                         } elseif ($a->status_item !== 'active') {
-                            $lockReason = 'ditarik_maju';
+                            $lockReason = $a->status_item === 'ditarik_mundur' ? 'ditarik_mundur' : 'ditarik_maju';
                         }
 
                         return [
@@ -1266,7 +1266,7 @@ class PkWorkflowController extends Controller
                         } elseif ($a->status_pencairan !== null) {
                             $lockReason = $a->status_pencairan === 'hangus' ? 'hangus' : 'sudah_dicairkan';
                         } elseif ($a->status_item !== 'active') {
-                            $lockReason = 'ditarik_maju';
+                            $lockReason = $a->status_item === 'ditarik_mundur' ? 'ditarik_mundur' : 'ditarik_maju';
                         }
 
                         return [
