@@ -2351,9 +2351,12 @@ class PabdWorkflowController extends Controller
             // Upload new files
             $this->uploadBuktiTransferFiles($pabd04Data, $request->file('bukti_transfer_files', []), $pabdWorkflow, $request->user()->id, $sessionContext);
 
-            // Validate at least 1 bukti transfer file
+            // Validate at least 1 bukti transfer file. Waived when nothing is
+            // being disbursed this month — there is no transfer to evidence.
+            // Same rule PRBL03 applies to refunds.
+            $totalDicairkan = $this->resolveTotalDicairkan($pabdWorkflow);
             $fileCount = $pabd04Data->itemBuktiTransfer()->count();
-            if ($fileCount === 0) {
+            if ($fileCount === 0 && $totalDicairkan > 0) {
                 abort(422, 'Minimal 1 bukti transfer harus diupload.');
             }
 
@@ -2379,7 +2382,10 @@ class PabdWorkflowController extends Controller
                 dataId: $pabd04Data->id,
                 notes: $validated['notes'] ?? null,
                 files: ! empty($fileIds) ? $fileIds : null,
-                extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
+                extra: [
+                    'pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow),
+                    'tanpa_transfer' => (bool) ($validated['tanpa_transfer'] ?? false),
+                ],
             );
 
             // 2. Compile PABD05 (auto-compile within same transaction)
@@ -2492,6 +2498,27 @@ class PabdWorkflowController extends Controller
         $pabd04Data->itemBuktiTransfer()
             ->whereIn('id', $removeFileIds)
             ->delete();
+    }
+
+    /**
+     * Total rupiah the team ticked for disbursement in the live PABD01.
+     *
+     * Mirrors what PabdCompileService will sum at compile, so a month that
+     * compiles to zero is a month with nothing to transfer.
+     */
+    private function resolveTotalDicairkan(PabdWorkflow $pabdWorkflow): float
+    {
+        $pabd01 = $pabdWorkflow->latestPabd01();
+
+        if (! $pabd01) {
+            return 0.0;
+        }
+
+        return (float) $pabd01->itemAnggaran()
+            ->where('dicairkan', true)
+            ->with('pk04Anggaran')
+            ->get()
+            ->sum(fn ($item) => (float) ($item->pk04Anggaran?->nominal_anggaran ?? 0));
     }
 
     /**

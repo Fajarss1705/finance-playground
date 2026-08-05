@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import Heading from '@/components/heading';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import ActionConfirmDialog from '@/components/workflow/action-confirm-dialog';
 import ActionRolesSection from '@/components/workflow/action-roles-section';
 import type { ActionRole } from '@/components/workflow/action-roles-section';
@@ -279,6 +280,7 @@ function BuktiTransferUpload({
     onRemoveExisting,
     onRemoveNew,
     readonly,
+    required = true,
 }: {
     existingFiles: BuktiTransferFile[];
     newFiles: File[];
@@ -287,6 +289,7 @@ function BuktiTransferUpload({
     onRemoveExisting: (id: number) => void;
     onRemoveNew: (index: number) => void;
     readonly: boolean;
+    required?: boolean;
 }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const visibleExisting = existingFiles.filter(f => !removeIds.includes(f.id));
@@ -295,7 +298,10 @@ function BuktiTransferUpload({
     return (
         <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
-                Upload bukti transfer dari bank (minimal 1 file). Format: JPG, PNG, GIF, WEBP, PDF, DOC, XLS — Maks 25MB/file
+                {required
+                    ? 'Upload bukti transfer dari bank (minimal 1 file).'
+                    : 'Tidak wajib — tidak ada dana yang ditransfer bulan ini. Lampirkan file hanya bila diperlukan.'}
+                {' '}Format: JPG, PNG, GIF, WEBP, PDF, DOC, XLS — Maks 25MB/file
             </p>
 
             {/* Existing files */}
@@ -376,20 +382,28 @@ function BuktiTransferUpload({
 export default function Pabd04({
     scope, mode, canDraft, canSubmit, canComment, workflow,
     pabd04Data, pabd01ChecklistData, pabd01Submitter, pabd01Cycle,
-    pabd03ApprovalInfo, bankDetails, buktiTransferFiles,
+    pabd03ApprovalInfo, bankDetails, buktiTransferFiles, summaryTotals,
     budgetCounter, expectedUpdatedAt, stepStatuses,
     history, actionRoles, activeRoleName,
 }: Props) {
     const [processing, setProcessing] = useState(false);
     const [newFiles, setNewFiles] = useState<File[]>([]);
     const [removeIds, setRemoveIds] = useState<number[]>([]);
+    const [tanpaTransfer, setTanpaTransfer] = useState(false);
 
     const isReadonly = mode === 'readonly';
     const stepStatus = stepStatuses['PABD04']?.status ?? 'active';
 
+    // Nothing was ticked for disbursement, so there is no transfer to evidence.
+    const nothingToTransfer = Number(summaryTotals.totalDicairkan) <= 0;
+
     // Compute total file count for submit validation
     const visibleExistingCount = buktiTransferFiles.filter(f => !removeIds.includes(f.id)).length;
     const totalFileCount = visibleExistingCount + newFiles.length;
+
+    const submitBlockedReason = nothingToTransfer
+        ? (tanpaTransfer ? null : 'Centang konfirmasi bahwa tidak ada dana yang ditransfer')
+        : (totalFileCount === 0 ? 'Upload minimal 1 bukti transfer' : null);
 
     const basePath = `/${scope}/workflows/pabd/${workflow.id}`;
 
@@ -415,6 +429,10 @@ export default function Pabd04({
         removeIds.forEach((id) => {
             formData.append('remove_file_ids[]', String(id));
         });
+
+        if (nothingToTransfer && tanpaTransfer) {
+            formData.append('tanpa_transfer', '1');
+        }
 
         if (notes) {
             formData.append('notes', notes);
@@ -530,7 +548,25 @@ export default function Pabd04({
                 </SectionCard>
 
                 {/* Bukti Transfer Upload */}
-                <SectionCard title={`Bukti Transfer${!isReadonly ? ' *' : ''}`}>
+                <SectionCard title={`Bukti Transfer${!isReadonly && !nothingToTransfer ? ' *' : ''}`}>
+                    {nothingToTransfer && (
+                        <div className="mb-3 rounded-md border border-dashed p-3">
+                            <p className="text-sm font-medium">Tidak ada dana yang perlu ditransfer bulan ini.</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Total dana dicairkan: {formatRupiah(0)}. Tidak ada bukti transfer yang perlu diupload.
+                            </p>
+                            {!isReadonly && (
+                                <label className="mt-3 flex items-start gap-2 text-sm">
+                                    <Checkbox
+                                        checked={tanpaTransfer}
+                                        onCheckedChange={(val) => setTanpaTransfer(!!val)}
+                                        className="mt-0.5"
+                                    />
+                                    <span>Saya konfirmasi tidak ada dana yang ditransfer untuk bulan ini.</span>
+                                </label>
+                            )}
+                        </div>
+                    )}
                     <BuktiTransferUpload
                         existingFiles={buktiTransferFiles}
                         newFiles={newFiles}
@@ -539,6 +575,7 @@ export default function Pabd04({
                         onRemoveExisting={(id) => setRemoveIds(prev => [...prev, id])}
                         onRemoveNew={(index) => setNewFiles(prev => prev.filter((_, i) => i !== index))}
                         readonly={isReadonly}
+                        required={!nothingToTransfer}
                     />
                 </SectionCard>
 
@@ -558,12 +595,14 @@ export default function Pabd04({
                         {canSubmit && (
                             <ActionConfirmDialog
                                 trigger={
-                                    <Button disabled={processing || totalFileCount === 0} title={totalFileCount === 0 ? 'Upload minimal 1 bukti transfer' : undefined}>
+                                    <Button disabled={processing || submitBlockedReason !== null} title={submitBlockedReason ?? undefined}>
                                         Submit
                                     </Button>
                                 }
                                 title="Submit Bukti Transfer"
-                                description="Bukti transfer akan dikirim dan dilanjutkan ke tahap final (PABD05). Pastikan file sudah benar."
+                                description={nothingToTransfer
+                                    ? 'Bulan ini tidak ada dana yang ditransfer. Tahap ini akan ditutup tanpa bukti transfer dan dilanjutkan ke tahap final (PABD05).'
+                                    : 'Bukti transfer akan dikirim dan dilanjutkan ke tahap final (PABD05). Pastikan file sudah benar.'}
                                 confirmLabel="Submit"
                                 processing={processing}
                                 onConfirm={({ notes, files }) => handleAction('submit', notes, files)}

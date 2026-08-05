@@ -22,6 +22,7 @@ class Pabd04SubmitRequest extends FormRequest
             'bukti_transfer_files.*' => ['file', 'max:25600', 'mimes:jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx'],
             'remove_file_ids' => ['nullable', 'array'],
             'remove_file_ids.*' => ['integer'],
+            'tanpa_transfer' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
             'files' => ['nullable', 'array'],
             'files.*' => ['file', 'max:25600'],
