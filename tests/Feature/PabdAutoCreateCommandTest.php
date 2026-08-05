@@ -20,6 +20,7 @@ use Carbon\Carbon;
 function setupAutoCreateData(
     ?string $tanggalPenetapan = null,
     int $bulanKegiatan = 4,
+    int $tahunProgram = 2027,
 ): array {
     $user = User::factory()->withRole()->create();
     $role = $user->roles->first();
@@ -35,7 +36,7 @@ function setupAutoCreateData(
 
     Pp01Data::create([
         'pp_workflow_id' => $ppWorkflow->id,
-        'tahun' => 2027,
+        'tahun' => $tahunProgram,
         'tanggal_mulai_pra_raker' => now()->subDays(60)->toDateString(),
         'tanggal_penetapan_program' => $tanggalPenetapan ?? now()->subDays(10)->toDateString(),
     ]);
@@ -52,7 +53,7 @@ function setupAutoCreateData(
     Pp06PeriodeTahunan::create([
         'pp_workflow_id' => $ppWorkflow->id,
         'revision' => 0,
-        'tahun' => 2027,
+        'tahun' => $tahunProgram,
         'tanggal_mulai_pra_raker' => now()->subDays(60)->toDateString(),
         'tanggal_penetapan_program' => $tanggalPenetapan ?? now()->subDays(10)->toDateString(),
         ...$pp06Snapshot,
@@ -167,6 +168,46 @@ it('creates PABD when all conditions are met', function () {
     expect($history[0]['step'])->toBe('PABD01');
     expect($history[0]['action'])->toBe('created');
     expect($history[0])->not->toHaveKey('by');
+});
+
+it('skips a programme whose year is not the target year', function () {
+    // A stale programme was left in production from testing (tahun 2025, still
+    // "established") and kept matching calendar months, stamping workflows with
+    // its own year. It must generate nothing at all.
+    $this->travelTo(Carbon::parse('2027-03-15'));
+    [$workspace, $team] = setupAutoCreateData(
+        tanggalPenetapan: '2026-02-01',
+        bulanKegiatan: 4,
+        tahunProgram: 2026,
+    );
+
+    $this->artisan('pabd:auto-create')->assertSuccessful();
+
+    expect(PabdWorkflow::where('team_id', $team->id)->count())->toBe(0);
+});
+
+it('does not stamp a January target with the outgoing year', function () {
+    // Running in December, the target is January of the *next* year. Taking the
+    // year from PP06 instead of the target stamped it with the year just ending,
+    // which the duplicate guard then matched against that January — skipping every
+    // team and stopping the cycle without saying why.
+    $this->travelTo(Carbon::parse('2027-12-05'));
+    [$workspace, $team] = setupAutoCreateData(
+        tanggalPenetapan: '2027-02-01',
+        bulanKegiatan: 1,
+        tahunProgram: 2027,
+    );
+
+    $this->artisan('pabd:auto-create')->assertSuccessful();
+
+    // Nothing at all — and in particular nothing mis-stamped as January 2027.
+    expect(PabdWorkflow::where('team_id', $team->id)->count())->toBe(0);
+    expect(
+        PabdWorkflow::where('team_id', $team->id)
+            ->where('bulan_anggaran', 1)
+            ->where('tahun_anggaran', 2027)
+            ->exists()
+    )->toBeFalse();
 });
 
 it('skips when PABD already exists for team + month + PP', function () {
