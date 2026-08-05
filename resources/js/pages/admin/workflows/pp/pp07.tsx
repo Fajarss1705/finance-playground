@@ -556,7 +556,10 @@ export default function Pp07({ workflow, stepData, mode, canDraft, canSubmit, ca
                                                     className="h-8 w-full rounded-md border bg-background px-2 text-sm"
                                                 >
                                                     <option value={0}>Pilih tim...</option>
-                                                    {teams.filter((t) => t.id === item.team_id || !usedTeamIds.includes(t.id)).map((t) => (
+                                                    {/* Number(): a draft loaded from draft_data carries team_id as a string,
+                                                        so a strict compare drops the selected team from the options and the
+                                                        select falls back to the placeholder. Lines 146 and 550 already guard. */}
+                                                    {teams.filter((t) => t.id === Number(item.team_id) || !usedTeamIds.includes(t.id)).map((t) => (
                                                         <option key={t.id} value={t.id}>{t.name}</option>
                                                     ))}
                                                 </select>

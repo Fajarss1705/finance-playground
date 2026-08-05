@@ -106,7 +106,10 @@ export default function Pp06({ workflow, pp06, allRevisions, changelogByRevision
         );
     }
 
-    const totalPlafon = pp06.item_plafon_anggaran.reduce((sum, item) => sum + item.plafon_anggaran, 0);
+    // plafon_anggaran is a decimal:2 cast, so it arrives as a string despite the
+    // type above. Without Number() the reduce concatenates instead of adding and
+    // the total renders NaN. pp03, pp05 and pp07 all guard the same way.
+    const totalPlafon = pp06.item_plafon_anggaran.reduce((sum, item) => sum + (Number(item.plafon_anggaran) || 0), 0);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
