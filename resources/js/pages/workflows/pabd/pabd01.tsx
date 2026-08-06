@@ -31,6 +31,10 @@ type AnggaranItem = {
     status_item: string;
     status_label: string | null;
     dicairkan: boolean;
+    // Budget moved to another month. The row stays visible as this month's
+    // record of the move, but it is not a pencairan decision — no checkbox, and
+    // the compile skips it rather than writing it off as hangus.
+    dipindahkan: boolean;
 };
 
 type KegiatanGroup = {
@@ -216,6 +220,12 @@ export default function Pabd01({
         for (const program of anggaranItems) {
             for (const kegiatan of program.kegiatan) {
                 for (const item of kegiatan.anggaran) {
+                    // Moved-out rows are Rp 0 and take no part in the totals —
+                    // counting them would report a claim or a forfeit that did
+                    // not happen. Mirrors PabdCompileService::isDipindahkan.
+                    if (item.dipindahkan) {
+                        continue;
+                    }
                     totalNominal += item.nominal;
                     totalCount++;
                     if (checkedMap[item.pabd01_item_id]) {
@@ -232,6 +242,21 @@ export default function Pabd01({
         return { totalNominal, totalCount, dicairkanNominal, dicairkanCount, tidakDicairkanNominal, tidakDicairkanCount };
     }, [anggaranItems, checkedMap]);
 
+    // Checklist rows whose budget has moved to another month — shown, never ticked.
+    const movedItemIds = useMemo(() => {
+        const ids = new Set<number>();
+        for (const program of anggaranItems) {
+            for (const kegiatan of program.kegiatan) {
+                for (const item of kegiatan.anggaran) {
+                    if (item.dipindahkan) {
+                        ids.add(item.pabd01_item_id);
+                    }
+                }
+            }
+        }
+        return ids;
+    }, [anggaranItems]);
+
     // Select all / Deselect all
     const allChecked = summary.dicairkanCount === summary.totalCount && summary.totalCount > 0;
     function toggleSelectAll() {
@@ -239,6 +264,9 @@ export default function Pabd01({
         setCheckedMap((prev) => {
             const next = { ...prev };
             for (const key of Object.keys(next)) {
+                if (movedItemIds.has(Number(key))) {
+                    continue;
+                }
                 next[Number(key)] = newVal;
             }
             return next;
@@ -434,7 +462,14 @@ export default function Pabd01({
                                                         {kegiatan.anggaran.map((item) => (
                                                             <tr key={item.pabd01_item_id}>
                                                                 <td className="border px-3 py-2 text-center">
-                                                                    {isReadonly ? (
+                                                                    {item.dipindahkan ? (
+                                                                        // Anggarannya sudah pindah bulan — tidak dicairkan
+                                                                        // dan tidak hangus. Barisnya tetap tampil sebagai
+                                                                        // catatan bahwa perpindahan itu terjadi.
+                                                                        <span className="text-sm text-muted-foreground" title="Anggaran sudah dipindahkan ke bulan lain">
+                                                                            —
+                                                                        </span>
+                                                                    ) : isReadonly ? (
                                                                         <span className="text-sm">
                                                                             {checkedMap[item.pabd01_item_id] ? '✓' : '✗'}
                                                                         </span>
