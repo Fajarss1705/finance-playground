@@ -766,15 +766,32 @@ class WorkflowEngine
     /**
      * Get the latest action for a step from history.
      *
+     * Ordered by the entry's own 'at', not by array position. Every other
+     * reader here (hasValidAction, getLastCyclebackTimeAffecting) compares
+     * timestamps, and this was the one place that did not — so an entry
+     * appended out of order, or backdated by a seeder, could win.
+     *
+     * Entries with no 'at' sort earliest: 17 hand-created PABD01 rows carry
+     * no timestamp, and they are always the first entry for their step.
+     * Equal timestamps fall back to array order, which is append order.
+     *
      * @param  list<array<string, mixed>>  $history
      */
     private function getLatestAction(string $code, array $history): ?string
     {
         $latest = null;
+        $latestAt = null;
 
         foreach ($history as $entry) {
-            if (($entry['step'] ?? '') === $code) {
+            if (($entry['step'] ?? '') !== $code) {
+                continue;
+            }
+
+            $at = $entry['at'] ?? '';
+
+            if ($latestAt === null || $at >= $latestAt) {
                 $latest = $entry['action'] ?? null;
+                $latestAt = $at;
             }
         }
 

@@ -725,3 +725,74 @@ test('resolveDefinition resolves PABD and PRBL types', function () {
         ->and($prbl)->toBeInstanceOf(App\Workflows\PrblWorkflowDefinition::class)
         ->and($prbl->type())->toBe(App\Enums\WorkflowType::PRBL);
 });
+
+// --- Latest action is ordered by 'at', not by array position (I-063) ---
+
+function ppThroughPp06(): array
+{
+    return [
+        makeEntry('PP01', 'created', '2026-01-01T09:00:00Z', 1, 'pp01_data'),
+        makeEntry('PP01', 'submitted', '2026-01-01T10:00:00Z', 1, 'pp01_data'),
+        makeEntry('PP02', 'created', '2026-01-01T10:01:00Z', 1, 'pp02_data'),
+        makeEntry('PP02', 'submitted', '2026-01-01T11:00:00Z', 1, 'pp02_data'),
+        makeEntry('PP03', 'created', '2026-01-01T11:01:00Z', 1, 'pp03_data'),
+        makeEntry('PP03', 'submitted', '2026-01-01T12:00:00Z', 1, 'pp03_data'),
+        makeEntry('PP04', 'created', '2026-01-01T12:01:00Z', 1, 'pp04_data'),
+        makeEntry('PP04', 'submitted', '2026-01-01T13:00:00Z', 1, 'pp04_data'),
+        makeEntry('PP05', 'approved', '2026-01-01T14:00:00Z'),
+        makeEntry('PP06', 'completed', '2026-01-01T14:01:00Z', 1, 'pp06_periode_tahunan'),
+    ];
+}
+
+test('a revision submitted later but appended earlier is not reported active', function () {
+    // The submit happened at 15:00 and the draft at 14:00, but the entries sit
+    // in the array the other way round. Reading the last array element gives
+    // 'created' and would show a finished revision as still in progress.
+    $history = array_merge(ppThroughPp06(), [
+        makeEntry('PP07', 'submitted', '2026-01-01T15:00:00Z', 1, 'pp07_data'),
+        makeEntry('PP07', 'created', '2026-01-01T14:00:00Z', 1, 'pp07_data'),
+    ]);
+
+    $statuses = $this->engine->getStepStatuses($this->definition, $history);
+
+    expect($statuses['PP07']['status'])->toBe('pending');
+});
+
+test('a revision still in progress is reported active regardless of order', function () {
+    $history = array_merge(ppThroughPp06(), [
+        makeEntry('PP07', 'created', '2026-01-01T15:00:00Z', 1, 'pp07_data'),
+        makeEntry('PP07', 'submitted', '2026-01-01T14:00:00Z', 1, 'pp07_data'),
+    ]);
+
+    $statuses = $this->engine->getStepStatuses($this->definition, $history);
+
+    expect($statuses['PP07']['status'])->toBe('active');
+});
+
+test('an entry with no timestamp loses to one that has a timestamp', function () {
+    // 17 hand-created PABD01 rows in production carry no 'at' at all.
+    $noTimestamp = makeEntry('PP07', 'created', '', 1, 'pp07_data');
+    unset($noTimestamp['at']);
+
+    $history = array_merge(ppThroughPp06(), [
+        $noTimestamp,
+        makeEntry('PP07', 'submitted', '2026-01-01T15:00:00Z', 1, 'pp07_data'),
+    ]);
+
+    $statuses = $this->engine->getStepStatuses($this->definition, $history);
+
+    expect($statuses['PP07']['status'])->toBe('pending');
+});
+
+test('equal timestamps fall back to array order', function () {
+    // The one out-of-order workflow in production is a seed that stamped seven
+    // entries with an identical timestamp. Ties must stay append-ordered.
+    $history = array_merge(ppThroughPp06(), [
+        makeEntry('PP07', 'submitted', '2026-01-01T15:00:00Z', 1, 'pp07_data'),
+        makeEntry('PP07', 'created', '2026-01-01T15:00:00Z', 1, 'pp07_data'),
+    ]);
+
+    $statuses = $this->engine->getStepStatuses($this->definition, $history);
+
+    expect($statuses['PP07']['status'])->toBe('active');
+});
