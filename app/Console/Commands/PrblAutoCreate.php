@@ -92,7 +92,9 @@ class PrblAutoCreate extends Command
             }
         }
 
-        $this->components->info("PRBL auto-create: {$created} created, {$skipped} skipped.");
+        // Dated because this line is appended to a log the scheduler keeps
+        // across runs — an undated "0 created, 19 skipped" says nothing.
+        $this->components->info(now()->toDateTimeString()." PRBL auto-create: {$created} created, {$skipped} skipped.");
 
         return self::SUCCESS;
     }

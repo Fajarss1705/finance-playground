@@ -230,7 +230,9 @@ class PabdAutoCreate extends Command
             }
         }
 
-        $this->components->info("PABD auto-create: {$created} created, {$skipped} skipped.");
+        // Dated because this line is appended to a log the scheduler keeps
+        // across runs — an undated "0 created, 19 skipped" says nothing.
+        $this->components->info(now()->toDateTimeString()." PABD auto-create: target {$targetMonth}/{$targetYear} — {$created} created, {$skipped} skipped.");
 
         return self::SUCCESS;
     }
