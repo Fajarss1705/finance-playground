@@ -85,6 +85,26 @@ class PabdAutoCreate extends Command
                     continue;
                 }
 
+                // A programme only generates workflows for its own year.
+                //
+                // Without this the target month comes from the calendar while the year
+                // comes from PP06, and the two drift apart in two ways. A stale programme
+                // (one was left in production from April 2026 testing, tahun 2025) keeps
+                // matching calendar months and stamps them with its own year, manufacturing
+                // workflows for months that never existed. And every December, the January
+                // target gets stamped with the *current* year, so the duplicate guard below
+                // matches January of the year just ending and skips every team — the cycle
+                // would stop dead and the skip counter would not say why.
+                //
+                // Refusing is the correct answer, not a fallback: January 2027 budgets come
+                // from the 2027 programme, and if that does not exist yet there is nothing
+                // to base a PABD on.
+                if ((int) $tahun !== $targetYear) {
+                    $skipped++;
+
+                    continue;
+                }
+
                 // Find PK workflows with PK04 finals for this PP, grouped by team
                 $pkWorkflows = PkWorkflow::query()
                     ->where('workspace_id', $workspace->id)
