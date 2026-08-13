@@ -155,7 +155,7 @@ class ManualTestingSeeder extends Seeder
         $this->createUser('Asisten Bendahara Umum Test User', 'asisten-bu@demo.test', ['bu_asisten_bendahara_umum']);
 
         // Tim Kantor Pusat
-        $this->createUser('Staff Kantor Pusat Test User', 'staff-kg@demo.test', ['kg_staff_kantor_organisasi']);
+        $this->createUser('Staff Kantor Pusat Test User', 'staff-kg@demo.test', ['kg_staff_kantor_pusat']);
 
         // Divisi Kepemudaan
         $this->createUser('Koordinator Remaja Test User', 'koordinator-remaja@demo.test', ['remaja_koordinator']);
@@ -204,7 +204,7 @@ class ManualTestingSeeder extends Seeder
         $adminRoleKeys = [
             'monev_koordinator_monev', 'monev_evaluator_narasi', 'monev_evaluator_anggaran',
             'bu_bendahara_umum_1', 'bu_bendahara_umum_2', 'bu_asisten_bendahara_umum',
-            'kg_staff_kantor_organisasi',
+            'kg_staff_kantor_pusat',
         ];
 
         foreach ($adminRoleKeys as $roleKey) {
@@ -410,7 +410,7 @@ class ManualTestingSeeder extends Seeder
         $this->syncPermissions($this->roles['bu_asisten_bendahara_umum'], $buPabd);
 
         // Staff KG: PABD04 draft/submit (14 perms)
-        $this->syncPermissions($this->roles['kg_staff_kantor_organisasi'], [
+        $this->syncPermissions($this->roles['kg_staff_kantor_pusat'], [
             'admin.workflows.pabd.index', 'admin.workflows.pabd.show',
             'admin.workflows.pabd.pabd01.show', 'admin.workflows.pabd.pabd02a.show', 'admin.workflows.pabd.pabd02b.show',
             'admin.workflows.pabd.pabd03.show',
@@ -477,7 +477,7 @@ class ManualTestingSeeder extends Seeder
         $this->syncPermissions($this->roles['bu_asisten_bendahara_umum'], $buPrbl);
 
         // Staff KG: view-only (12 perms)
-        $this->syncPermissions($this->roles['kg_staff_kantor_organisasi'], [
+        $this->syncPermissions($this->roles['kg_staff_kantor_pusat'], [
             'admin.workflows.prbl.index', 'admin.workflows.prbl.show',
             'admin.workflows.prbl.prbl01.show', 'admin.workflows.prbl.prbl02a.show', 'admin.workflows.prbl.prbl02b.show',
             'admin.workflows.prbl.prbl03.show', 'admin.workflows.prbl.prbl04.show', 'admin.workflows.prbl.prbl05.show',
