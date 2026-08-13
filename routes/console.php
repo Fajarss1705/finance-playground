@@ -8,5 +8,5 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('pabd:auto-create')->daily()->at('06:00');
-Schedule::command('prbl:auto-create')->daily()->at('06:15');
+Schedule::command('pabd:auto-create')->daily()->at('06:00')->withoutOverlapping();
+Schedule::command('prbl:auto-create')->daily()->at('06:15')->withoutOverlapping();

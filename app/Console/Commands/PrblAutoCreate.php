@@ -46,119 +46,55 @@ class PrblAutoCreate extends Command
                 ->get();
 
             foreach ($pabdWorkflows as $pabdWorkflow) {
-                // Check PABD05 is complete (workflow status = 'completed')
-                $status = $this->engine->getWorkflowStatus($pabdWorkflow->history ?? []);
-                if ($status !== 'completed') {
-                    continue;
-                }
+                try {
+                    // Check PABD05 is complete (workflow status = 'completed')
+                    $status = $this->engine->getWorkflowStatus($pabdWorkflow->history ?? []);
+                    if ($status !== 'completed') {
+                        continue;
+                    }
 
-                $bulanLaporan = $pabdWorkflow->bulan_anggaran;
-                $tahunLaporan = $pabdWorkflow->tahun_anggaran;
-                $teamId = $pabdWorkflow->team_id;
-                $ppWorkflowId = $pabdWorkflow->pp_workflow_id;
+                    $bulanLaporan = $pabdWorkflow->bulan_anggaran;
+                    $tahunLaporan = $pabdWorkflow->tahun_anggaran;
+                    $teamId = $pabdWorkflow->team_id;
+                    $ppWorkflowId = $pabdWorkflow->pp_workflow_id;
 
-                // Check current date >= day 15 of kegiatan month
-                $day15 = $now->copy()->setDate($tahunLaporan, $bulanLaporan, 15)->startOfDay();
-                if ($now->lt($day15)) {
+                    // Check no existing PRBL for team + month + PP
+                    $exists = PrblWorkflow::query()
+                        ->where('workspace_id', $workspace->id)
+                        ->where('team_id', $teamId)
+                        ->where('pp_workflow_id', $ppWorkflowId)
+                        ->where('bulan_laporan', $bulanLaporan)
+                        ->where('tahun_laporan', $tahunLaporan)
+                        ->exists();
+
+                    if ($exists) {
+                        $skipped++;
+
+                        continue;
+                    }
+
+                    // Create PRBL workflow + PRBL01 data + items
+                    $prblWorkflow = $this->createPrblWorkflow(
+                        $workspace,
+                        $pabdWorkflow,
+                    );
+
+                    // Notify team that PRBL has been auto-created
+                    $this->notifier->notify($prblWorkflow, 'prbl.auto_created', [
+                        'actor_name' => 'Sistem',
+                    ]);
+
+                    $created++;
+                } catch (\Throwable $e) {
+                    $this->components->error("PRBL auto-create failed for PABD {$pabdWorkflow->id} (team {$pabdWorkflow->team_id}): {$e->getMessage()}");
                     $skipped++;
-
-                    continue;
                 }
-
-                // Check no existing PRBL for team + month + PP
-                $exists = PrblWorkflow::query()
-                    ->where('workspace_id', $workspace->id)
-                    ->where('team_id', $teamId)
-                    ->where('pp_workflow_id', $ppWorkflowId)
-                    ->where('bulan_laporan', $bulanLaporan)
-                    ->where('tahun_laporan', $tahunLaporan)
-                    ->exists();
-
-                if ($exists) {
-                    $skipped++;
-
-                    continue;
-                }
-
-                // Check previous month's PRBL is complete (for months after the first)
-                if (! $this->isPreviousMonthPrblComplete($workspace, $teamId, $ppWorkflowId, $bulanLaporan, $tahunLaporan)) {
-                    $skipped++;
-
-                    continue;
-                }
-
-                // Create PRBL workflow + PRBL01 data + items
-                $prblWorkflow = $this->createPrblWorkflow(
-                    $workspace,
-                    $pabdWorkflow,
-                );
-
-                // Notify team that PRBL has been auto-created
-                $this->notifier->notify($prblWorkflow, 'prbl.auto_created', [
-                    'actor_name' => 'Sistem',
-                ]);
-
-                $created++;
             }
         }
 
         $this->components->info("PRBL auto-create: {$created} created, {$skipped} skipped.");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Check if the previous month's PRBL is complete.
-     *
-     * Returns true if this is the first PABD month for this team+PP (no previous PABD exists),
-     * or if the previous month's PRBL has status 'completed'.
-     */
-    private function isPreviousMonthPrblComplete(
-        Workspace $workspace,
-        int $teamId,
-        int $ppWorkflowId,
-        int $bulanLaporan,
-        int $tahunLaporan,
-    ): bool {
-        // Find the previous PABD for this team+PP (the one with the closest earlier month)
-        $previousPabd = PabdWorkflow::query()
-            ->where('workspace_id', $workspace->id)
-            ->where('team_id', $teamId)
-            ->where('pp_workflow_id', $ppWorkflowId)
-            ->whereNull('deleted_at')
-            ->where(function ($q) use ($bulanLaporan, $tahunLaporan) {
-                $q->where('tahun_anggaran', '<', $tahunLaporan)
-                    ->orWhere(function ($q2) use ($bulanLaporan, $tahunLaporan) {
-                        $q2->where('tahun_anggaran', $tahunLaporan)
-                            ->where('bulan_anggaran', '<', $bulanLaporan);
-                    });
-            })
-            ->orderByDesc('tahun_anggaran')
-            ->orderByDesc('bulan_anggaran')
-            ->first();
-
-        if (! $previousPabd) {
-            // First PABD month for this team+PP — no previous PRBL required
-            return true;
-        }
-
-        // Find the PRBL for the previous month
-        $previousPrbl = PrblWorkflow::query()
-            ->where('workspace_id', $workspace->id)
-            ->where('team_id', $teamId)
-            ->where('pp_workflow_id', $ppWorkflowId)
-            ->where('bulan_laporan', $previousPabd->bulan_anggaran)
-            ->where('tahun_laporan', $previousPabd->tahun_anggaran)
-            ->first();
-
-        if (! $previousPrbl) {
-            // Previous PRBL not yet created
-            return false;
-        }
-
-        $status = $this->engine->getWorkflowStatus($previousPrbl->history ?? []);
-
-        return $status === 'completed';
     }
 
     /**
