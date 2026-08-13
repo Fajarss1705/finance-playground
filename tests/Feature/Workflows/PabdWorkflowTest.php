@@ -1063,6 +1063,426 @@ it('saves PABD02A draft with tarik_maju item', function () {
         ->and($lastEntry['step'])->toBe('PABD02A');
 });
 
+it('offers the PABD own month in the pemindahan bulan picker', function () {
+    // Regression: the picker used to filter bulan > bulan_anggaran, which made
+    // the commonest tarik mundur case — push THIS month's unspent item to next
+    // month — unreachable in the UI even though pabd02aSubmit accepted it
+    // (it aborts only when bulan_awal < bulan_anggaran). PPS Gathering, Aug 2026.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->get(route('team.workflows.pabd.pabd02a.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]));
+
+    $response->assertOk();
+
+    $bulanOffered = collect($response->viewData('page')['props']['futureAnggaranItems'])
+        ->flatMap(fn ($program) => collect($program['kegiatan'])->pluck('bulan'))
+        ->unique()
+        ->values();
+
+    expect($bulanOffered)->toContain(3);
+});
+
+it('submits PABD02A with tarik_mundur from the PABD own month to the next one', function () {
+    // The PPS Gathering shape: an item sitting in THIS month's PABD, pushed one
+    // month out. bulan_awal === bulan_anggaran is the boundary the validator
+    // allows and the picker used to hide.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $sameMonthAnggaran = $pabd01->itemAnggaran->first()->pk04Anggaran;
+    expect($sameMonthAnggaran->pk04Kegiatan->bulan)->toBe(3);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $sameMonthAnggaran->id,
+                'bulan_awal' => 3,
+                'bulan_tujuan' => 4,
+                'komentar' => 'Kegiatan bulan ini tidak jadi, anggaran digeser ke bulan depan.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHasNoErrors();
+
+    $items = Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->get();
+    expect($items)->toHaveCount(1)
+        ->and($items->first()->tipe_perubahan)->toBe('tarik_mundur')
+        ->and($items->first()->bulan_awal)->toBe(3)
+        ->and($items->first()->bulan_tujuan)->toBe(4);
+});
+
+it('derives bulan_awal from the database and ignores the submitted value', function () {
+    // The window rule used to rest on a client-supplied bulan_awal that nothing
+    // checked against the referenced anggaran. A past-month item sent with a
+    // current-month bulan_awal passed every guard and was then moved for real.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    // An item in a month BEFORE this PABD — off limits to either direction.
+    [$pastKegiatan, $pastAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 1);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $pastAnggaran->id,
+                'bulan_awal' => 3,   // ← lie: the row actually sits in month 1
+                'bulan_tujuan' => 4,
+                'komentar' => 'Mencoba memindahkan item bulan lalu dengan bulan asal palsu.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(422);
+    expect(Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->count())->toBe(0);
+});
+
+it('refuses to move an anggaran belonging to another team', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // A second team in the same workspace, with its own PK04 and its own items.
+    $otherUser = User::factory()->withRole()->create();
+    $otherRole = $otherUser->roles->first();
+    $otherTeam = $otherRole->team;
+
+    [$otherPpWorkflow] = setupCompletedPpForPabd($workspace, $otherTeam);
+    [$otherPkWorkflow, $otherPk04] = setupPk04WithAnggaran($workspace, $otherTeam, $otherPpWorkflow, 3, $otherUser, $otherRole);
+    [$otherKegiatan, $otherAnggaran] = setupFutureMonthAnggaran($otherPkWorkflow, $otherPk04, 6);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $otherAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 9,
+                'komentar' => 'Mencoba memindahkan anggaran milik tim lain.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(422);
+    expect(Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->count())->toBe(0);
+    // The other team's PK04 must be untouched.
+    expect($otherAnggaran->fresh()->status_item)->toBe('active')
+        ->and((float) $otherAnggaran->fresh()->nominal_anggaran)->toBe(3000000.0);
+});
+
+it('refuses to move an anggaran whose money has already been disbursed', function () {
+    // "Either direction, provided the money has not gone out" — the clause the
+    // organisation was given. Nothing enforced it: 523 production rows were
+    // status_pencairan=dicairkan while still status_item=active.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $futureAnggaran->update(['status_pencairan' => 'dicairkan']);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $futureAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 9,
+                'komentar' => 'Mencoba memindahkan anggaran yang sudah dicairkan.',
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(422);
+    expect(Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)->count())->toBe(0);
+});
+
+it('hides disbursed anggaran from the pemindahan bulan picker', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $futureAnggaran->update(['status_pencairan' => 'dicairkan']);
+
+    $response = $this->get(route('team.workflows.pabd.pabd02a.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]));
+
+    $response->assertOk();
+
+    $offeredIds = collect($response->viewData('page')['props']['futureAnggaranItems'])
+        ->flatMap(fn ($program) => collect($program['kegiatan'])
+            ->flatMap(fn ($k) => collect($k['anggaran'])->pluck('pk04_anggaran_id')));
+
+    expect($offeredIds)->not->toContain($futureAnggaran->id);
+});
+
+it('clears the pencairan lock when PABD03 is rejected', function () {
+    // PABD03 approve takes a Tier 2 lock. Rejecting cycles back to PABD01 but
+    // used to leave status_pencairan=menunggu_pencairan behind, so the items
+    // read as pending-disbursement while the team was editing them again.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'admin.workflows.pabd.pabd03.reject',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabd03Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $lockedIds = $pabd01->itemAnggaran()->pluck('pk04_anggaran_id');
+    Pk04Anggaran::whereIn('id', $lockedIds)->update([
+        'status_pencairan' => 'menunggu_pencairan',
+        'pencairan_pabd_workflow_id' => $pabdWorkflow->id,
+    ]);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd03.reject', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+    ]), [
+        'notes' => 'Nominal tidak sesuai dengan bukti yang dilampirkan, mohon diperiksa ulang.',
+        'expected_updated_at' => $pabdWorkflow->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    expect(Pk04Anggaran::whereIn('id', $lockedIds)->whereNotNull('status_pencairan')->count())->toBe(0);
+});
+
+it('accepts a proposal whose document was attached in an earlier draft, alongside a pemindahan item', function () {
+    // The check used to skip($idx) with $idx counted over ALL items, so the
+    // proposal sitting at index 1 looked for a SECOND saved proposal, found
+    // none, and rejected a submission whose document was already attached.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // A previously drafted proposal that already carries its document.
+    $savedProposal = Pabd02aItemPerubahan::create([
+        'pabd02a_data_id' => $pabd02a->id,
+        'tipe_perubahan' => 'proposal_baru',
+        'komentar' => 'Proposal kegiatan baru yang sudah dilampirkan dokumennya.',
+    ]);
+    $proposalFile = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'proposal.pdf',
+        'filename' => 'proposal.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 1024,
+        'disk' => 'local',
+        'path' => 'files/test/proposal.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd02aItemPerubahan::class,
+        'attachable_id' => $savedProposal->id,
+    ]);
+
+    // Submit with the pemindahan item FIRST, so the proposal sits at index 1.
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $futureAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 9,
+                'komentar' => 'Kegiatan bulan 6 digeser ke bulan 9.',
+            ],
+            [
+                'tipe_perubahan' => 'proposal_baru',
+                'komentar' => 'Proposal kegiatan baru yang sudah dilampirkan dokumennya.',
+                'proposal' => [
+                    'kode_kategori' => 'R',
+                    'nama_program' => 'Program Baru',
+                    'deskripsi_program' => 'Deskripsi program baru.',
+                    'tujuan_program' => 'Tujuan program baru.',
+                    'kegiatan' => [[
+                        'nama_kegiatan' => 'Kegiatan Baru',
+                        'bulan' => 9,
+                        'anggaran' => [[
+                            'kode_bidang' => 'B01',
+                            'kode_sub_bidang' => 'SB01',
+                            'kode_jenis' => 'J01',
+                            'mata_anggaran' => 'Konsumsi',
+                            'nominal_anggaran' => 500000,
+                        ]],
+                        'kuisioner' => [[
+                            'pertanyaan' => 'Berapa peserta yang hadir?',
+                            'tipe' => 'angka',
+                            'satuan' => 'orang',
+                        ]],
+                    ]],
+                ],
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHasNoErrors();
+
+    // The document followed the proposal across the row rebuild.
+    $newProposalRow = Pabd02aItemPerubahan::where('pabd02a_data_id', $pabd02a->id)
+        ->where('tipe_perubahan', 'proposal_baru')
+        ->first();
+
+    expect($newProposalRow)->not->toBeNull()
+        ->and($newProposalRow->id)->not->toBe($savedProposal->id);
+    expect($proposalFile->fresh()->attachable_id)->toBe($newProposalRow->id);
+});
+
+it('still rejects a proposal that has never had a document', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'team.workflows.pabd.pabd02a.show',
+        'team.workflows.pabd.pabd02a.draft',
+        'team.workflows.pabd.pabd02a.submit',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$futureKegiatan, $futureAnggaran] = setupFutureMonthAnggaran($pkWorkflow, $pk04, 6);
+    [$pabdWorkflow, $pabd01, $pabd02a] = setupPabd02aActive($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $response = $this->post(route('team.workflows.pabd.pabd02a.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd02aData' => $pabd02a->id,
+    ]), [
+        'items' => [
+            [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $futureAnggaran->id,
+                'bulan_awal' => 6,
+                'bulan_tujuan' => 9,
+                'komentar' => 'Kegiatan bulan 6 digeser ke bulan 9.',
+            ],
+            [
+                'tipe_perubahan' => 'proposal_baru',
+                'komentar' => 'Proposal tanpa dokumen apa pun.',
+                'proposal' => [
+                    'kode_kategori' => 'R',
+                    'nama_program' => 'Program Tanpa Dokumen',
+                    'deskripsi_program' => 'Deskripsi.',
+                    'tujuan_program' => 'Tujuan.',
+                    'kegiatan' => [[
+                        'nama_kegiatan' => 'Kegiatan',
+                        'bulan' => 9,
+                        'anggaran' => [[
+                            'kode_bidang' => 'B01',
+                            'kode_sub_bidang' => 'SB01',
+                            'kode_jenis' => 'J01',
+                            'mata_anggaran' => 'Konsumsi',
+                            'nominal_anggaran' => 500000,
+                        ]],
+                        'kuisioner' => [[
+                            'pertanyaan' => 'Berapa peserta?',
+                            'tipe' => 'angka',
+                            'satuan' => 'orang',
+                        ]],
+                    ]],
+                ],
+            ],
+        ],
+        'expected_updated_at' => $pabd02a->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertStatus(422);
+});
+
 // ── PABD02A Submit (tarik_mundur) ──
 
 it('submits PABD02A with tarik_mundur item pushing an item to a later month', function () {
@@ -3068,6 +3488,123 @@ it('compiles PABD05 with mixed dicairkan and hangus items', function () {
     expect($anggaran1->status_pencairan)->toBe('dicairkan');
     expect($anggaran2->status_pencairan)->toBe('hangus');
     expect($anggaran2->tanggal_pencairan)->toBeNull();
+});
+
+it('excludes a moved-out item from the compile instead of writing it off as hangus', function () {
+    // The source row of a tarik maju/mundur is zeroed but stays in its original
+    // month, so it keeps appearing in that month's checklist. It must stay
+    // VISIBLE — it is how the month records that the money left — but it is
+    // neither claimed nor forfeited. Marking it hangus would put a non-active
+    // row into the I-053 population, where every other member still consumes
+    // plafon and this one does not.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $anggaran1, $anggaran2] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // anggaran2 has already been pulled into another month: zeroed, relabelled,
+    // still sitting in March's checklist.
+    $anggaran2->update(['nominal_anggaran' => 0, 'status_item' => 'ditarik_maju']);
+
+    $items = $pabd01->itemAnggaran;
+    $items[0]->update(['dicairkan' => true]);
+    $items[1]->update(['dicairkan' => false]);
+
+    $engine = new WorkflowEngine;
+    $sessionContext = ['role' => $role->id, 'team' => $team->id, 'org' => null, 'workspace' => $workspace->id];
+
+    $pabd01->update(['ada_perubahan' => false]);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD01', action: 'submitted', userId: $user->id, sessionContext: $sessionContext, table: 'pabd01_data', dataId: $pabd01->id);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD02A', action: 'skipped', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD02B', action: 'skipped', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD03', action: 'created', userId: null, sessionContext: []);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD03', action: 'approved', userId: $user->id, sessionContext: $sessionContext);
+
+    $pabd04 = Pabd04Data::create(['pabd_workflow_id' => $pabdWorkflow->id]);
+    $engine->recordAction(workflow: $pabdWorkflow, step: 'PABD04', action: 'created', userId: null, sessionContext: [], table: 'pabd04_data', dataId: $pabd04->id);
+
+    $file = \App\Models\File::create([
+        'uuid' => (string) \Illuminate\Support\Str::uuid(),
+        'original_filename' => 'bukti.pdf',
+        'filename' => 'bukti.pdf',
+        'mime_type' => 'application/pdf',
+        'size' => 512,
+        'disk' => 'local',
+        'path' => 'files/test/bukti.pdf',
+        'user_id' => $user->id,
+        'workspace_id' => $workspace->id,
+        'attachable_type' => Pabd04Data::class,
+        'attachable_id' => $pabd04->id,
+    ]);
+    Pabd04ItemBuktiTransfer::create(['pabd04_data_id' => $pabd04->id, 'file_id' => $file->id]);
+    $pabd04->touch();
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->fresh()->updated_at->toIso8601String(),
+    ]);
+
+    $response->assertRedirect();
+
+    $pabd05 = Pabd05PengajuanBulanan::where('pabd_workflow_id', $pabdWorkflow->id)->first();
+    expect($pabd05)->not->toBeNull();
+
+    // One claimed item, and NO forfeited one — the moved row is simply absent.
+    expect($pabd05->total_item_dicairkan)->toBe(1)
+        ->and($pabd05->total_item_hangus)->toBe(0);
+
+    expect(\App\Models\Pabd\Pabd05ItemAnggaran::where('pabd05_pengajuan_bulanan_id', $pabd05->id)
+        ->where('pk04_anggaran_id', $anggaran2->id)->exists())->toBeFalse();
+
+    // And its pk04 row keeps the move as its only story.
+    $anggaran2->refresh();
+    expect($anggaran2->status_pencairan)->toBeNull()
+        ->and($anggaran2->status_item)->toBe('ditarik_maju');
+
+    // The claimed item is unaffected.
+    expect($anggaran1->fresh()->status_pencairan)->toBe('dicairkan');
+});
+
+it('keeps the moved-out row visible in the PABD01 checklist', function () {
+    // Excluding it from the compile must not hide it — the row is the month's
+    // record that the budget left.
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04, $kegiatan, $anggaran1, $anggaran2] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01] = setupPabdWorkflow($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    $anggaran2->update(['nominal_anggaran' => 0, 'status_item' => 'ditarik_mundur']);
+
+    $response = $this->get(route('team.workflows.pabd.pabd01.show', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd01Data' => $pabd01->id,
+    ]));
+
+    $response->assertOk();
+
+    $rows = collect($response->viewData('page')['props']['anggaranItems'])
+        ->flatMap(fn ($program) => collect($program['kegiatan'])->flatMap(fn ($k) => $k['anggaran']));
+
+    $movedRow = $rows->firstWhere('pk04_anggaran_id', $anggaran2->id);
+
+    expect($movedRow)->not->toBeNull()
+        ->and($movedRow['dipindahkan'])->toBeTrue();
+
+    expect($rows->firstWhere('pk04_anggaran_id', $anggaran1->id)['dipindahkan'])->toBeFalse();
 });
 
 // ── PABD05 Show ──

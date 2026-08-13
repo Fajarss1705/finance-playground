@@ -271,26 +271,36 @@ function StepStatusBadge({ mode, scope }: { mode: string; scope: string }) {
 function TarikMajuPicker({
     programs,
     selectedIds,
+    tipe,
     onSelect,
     onClose,
 }: {
     programs: ProgramPickerGroup[];
     selectedIds: number[];
+    tipe: ChangeItem['tipe_perubahan'];
     onSelect: (anggaranId: number, detail: ChangeItem['anggaran_detail'], bulanAwal: number) => void;
     onClose: () => void;
 }) {
+    // Tarik mundur pushes an item LATER, so this month's own items are valid
+    // sources. Tarik maju pulls EARLIER and floors at the PABD month, so a
+    // same-month source would have no selectable target — hide it.
+    const isMundur = tipe === 'tarik_mundur';
+    const heading = isMundur ? 'Pilih Anggaran Bulan Ini atau Setelahnya' : 'Pilih Anggaran dari Bulan Mendatang';
+    const emptyText = isMundur
+        ? 'Tidak ada anggaran yang dapat ditarik mundur.'
+        : 'Tidak ada anggaran di bulan mendatang yang dapat ditarik.';
     const hasItems = programs.some((p) => p.kegiatan.some((k) => k.anggaran.length > 0));
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="mx-4 max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-background p-6 shadow-xl">
                 <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Pilih Anggaran dari Bulan Mendatang</h3>
+                    <h3 className="text-lg font-semibold">{heading}</h3>
                     <Button variant="ghost" size="sm" onClick={onClose}>✕</Button>
                 </div>
                 {!hasItems ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">
-                        Tidak ada anggaran di bulan mendatang yang dapat ditarik.
+                        {emptyText}
                     </p>
                 ) : (
                     <div className="space-y-4">
@@ -853,6 +863,22 @@ export default function Pabd02a({
         setPickerOpen(null);
     }
 
+    // The server supplies every anggaran from the PABD month onward. Narrow it
+    // per direction: tarik maju needs a strictly later source (its target floors
+    // at bulan_anggaran and must precede the source), tarik mundur accepts this
+    // month too. Kegiatan left empty after filtering are dropped so the picker's
+    // "nothing to pull" state stays accurate.
+    function pickerPrograms(tipe: ChangeItem['tipe_perubahan']): ProgramPickerGroup[] {
+        const floor = tipe === 'tarik_mundur' ? workflowMeta.bulan_anggaran : workflowMeta.bulan_anggaran + 1;
+
+        return futureAnggaranItems
+            .map((program) => ({
+                ...program,
+                kegiatan: program.kegiatan.filter((k) => k.bulan >= floor && k.anggaran.length > 0),
+            }))
+            .filter((program) => program.kegiatan.length > 0);
+    }
+
     // Valid bulan_tujuan options depend on direction.
     // Tarik maju pulls EARLIER: from the PABD target month up to bulan_awal - 1.
     // Floor is bulan_anggaran (not the current calendar month) so a January PABD
@@ -1086,7 +1112,9 @@ export default function Pabd02a({
                         <h4 className="mb-2 text-xs font-semibold text-muted-foreground">Ringkasan Perubahan</h4>
                         <dl className="grid grid-cols-2 gap-2 text-xs">
                             <div>
-                                <dt className="text-muted-foreground">Tarik Maju (perubahan ini)</dt>
+                                {/* Counts both directions — labelling it "Tarik Maju"
+                                    reported a tarik mundur under the wrong heading. */}
+                                <dt className="text-muted-foreground">Pemindahan Bulan (perubahan ini)</dt>
                                 <dd className="font-medium">{formatRupiah(summary.tarikMajuNominal)} ({summary.tarikMajuCount} item)</dd>
                             </div>
                             <div>
@@ -1140,14 +1168,14 @@ export default function Pabd02a({
                                             <label className="flex cursor-pointer items-center gap-2">
                                                 <input type="radio" name={`tipe_${idx}`} value="tarik_maju"
                                                     checked={item.tipe_perubahan === 'tarik_maju'}
-                                                    onChange={() => updateItem(idx, { tipe_perubahan: 'tarik_maju', bulan_tujuan: null })}
+                                                    onChange={() => updateItem(idx, { tipe_perubahan: 'tarik_maju', bulan_tujuan: null, pk04_anggaran_id: null, anggaran_detail: undefined, bulan_awal: null })}
                                                     disabled={isReadonly} className="h-3.5 w-3.5" />
                                                 <span className="text-xs">Tarik Anggaran Maju</span>
                                             </label>
                                             <label className="flex cursor-pointer items-center gap-2">
                                                 <input type="radio" name={`tipe_${idx}`} value="tarik_mundur"
                                                     checked={item.tipe_perubahan === 'tarik_mundur'}
-                                                    onChange={() => updateItem(idx, { tipe_perubahan: 'tarik_mundur', bulan_tujuan: null })}
+                                                    onChange={() => updateItem(idx, { tipe_perubahan: 'tarik_mundur', bulan_tujuan: null, pk04_anggaran_id: null, anggaran_detail: undefined, bulan_awal: null })}
                                                     disabled={isReadonly} className="h-3.5 w-3.5" />
                                                 <span className="text-xs">Tarik Anggaran Mundur</span>
                                             </label>
@@ -1295,8 +1323,9 @@ export default function Pabd02a({
                 {/* Pemindahan Bulan Picker Modal */}
                 {pickerOpen !== null && (
                     <TarikMajuPicker
-                        programs={futureAnggaranItems}
+                        programs={pickerPrograms(items[pickerOpen]?.tipe_perubahan ?? '')}
                         selectedIds={selectedAnggaranIds}
+                        tipe={items[pickerOpen]?.tipe_perubahan ?? ''}
                         onSelect={(id, detail, bulanAwal) => handlePickerSelect(pickerOpen, id, detail, bulanAwal)}
                         onClose={() => setPickerOpen(null)}
                     />

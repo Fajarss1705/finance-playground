@@ -41,9 +41,16 @@ class PabdCompileService
         // Step 2 — Snapshot bank details from PP06
         $bankDetails = $this->snapshotBankDetails($pabdWorkflow);
 
-        // Step 3 — Compute totals from PABD01 checklist
-        $dicairkanItems = $pabd01->itemAnggaran->where('dicairkan', true);
-        $hangusItems = $pabd01->itemAnggaran->where('dicairkan', false);
+        // Step 3 — Compute totals from PABD01 checklist.
+        // Rows whose budget was moved to another month are excluded from every
+        // count: they sit at Rp 0 and are neither claimed nor forfeited. They
+        // stay visible in the checklist as the month's record of the move —
+        // see resolveAnggaranItems' `dipindahkan` flag.
+        $checklistItems = $pabd01->itemAnggaran->filter(
+            fn (Pabd01ItemAnggaran $item) => ! $this->isDipindahkan($item)
+        );
+        $dicairkanItems = $checklistItems->where('dicairkan', true);
+        $hangusItems = $checklistItems->where('dicairkan', false);
 
         $totalAnggaranDicairkan = $dicairkanItems->sum(fn (Pabd01ItemAnggaran $item) => (float) ($item->pk04Anggaran?->nominal_anggaran ?? 0));
 
@@ -174,11 +181,32 @@ class PabdCompileService
     }
 
     /**
+     * Has this checklist row's budget been moved to another month?
+     *
+     * The source row of a tarik maju/mundur is zeroed and relabelled but stays
+     * in its original month, so it keeps turning up in that month's checklist.
+     * It is deliberately still shown — it is how the month records that the
+     * money left — but it takes no part in the compile.
+     */
+    private function isDipindahkan(Pabd01ItemAnggaran $item): bool
+    {
+        return in_array(
+            $item->pk04Anggaran?->status_item,
+            ['ditarik_maju', 'ditarik_mundur'],
+            true,
+        );
+    }
+
+    /**
      * Create pabd05_item_anggaran rows from PABD01 checklist.
      */
     private function buildItemAnggaran(Pabd05PengajuanBulanan $pabd05, Pabd01Data $pabd01): void
     {
         foreach ($pabd01->itemAnggaran as $item) {
+            if ($this->isDipindahkan($item)) {
+                continue;
+            }
+
             $pk04Anggaran = $item->pk04Anggaran;
 
             Pabd05ItemAnggaran::create([
@@ -221,6 +249,13 @@ class PabdCompileService
         foreach ($pabd01->itemAnggaran as $item) {
             $pk04Anggaran = Pk04Anggaran::find($item->pk04_anggaran_id);
             if (! $pk04Anggaran) {
+                continue;
+            }
+
+            // Budget moved out — not a pencairan outcome. Writing 'hangus' here
+            // would add a non-active row to the I-053 hangus population, where
+            // every other member still consumes plafon and this one does not.
+            if ($this->isDipindahkan($item)) {
                 continue;
             }
 

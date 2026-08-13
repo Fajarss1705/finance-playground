@@ -1053,7 +1053,15 @@ class PkCompileService
 
         foreach ($tarikMap as $anggaranId => $item) {
             $oldAnggaran = Pk04Anggaran::find($anggaranId);
-            if (! $oldAnggaran || $oldAnggaran->status_item !== 'active') {
+            // Skip anything not movable. status_pencairan is the second half of
+            // the rule — money already out, or already reported in a PRBL, is a
+            // repair and not a change. PabdWorkflowController::resolveMovableAnggaran
+            // rejects these at submit; this is the backstop for any other caller.
+            if (! $oldAnggaran
+                || $oldAnggaran->status_item !== 'active'
+                || $oldAnggaran->status_pencairan !== null
+                || $oldAnggaran->hasRealisasiLock()
+            ) {
                 continue;
             }
 

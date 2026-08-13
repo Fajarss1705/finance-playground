@@ -1019,13 +1019,21 @@ class PabdWorkflowController extends Controller
         // Tarik maju pulls an item EARLIER; tarik mundur pushes it LATER. Floor for
         // maju is bulan_anggaran (PABD target month), not the current calendar month,
         // so a January PABD processed in April can still pull items to January.
+        //
+        // ⚠️ bulan_awal is taken from the DATABASE, never from the request. The
+        // client used to supply it and nothing checked it against the referenced
+        // anggaran, so a past-month item could be moved by sending a current-month
+        // bulan_awal — the whole window rule rested on an unverified number.
         foreach ($validated['items'] as $idx => $item) {
             if (! in_array($item['tipe_perubahan'], self::TIPE_PEMINDAHAN_BULAN, true)) {
                 continue;
             }
 
-            $bulanAwal = $item['bulan_awal'] ?? 0;
-            $bulanTujuan = $item['bulan_tujuan'] ?? 0;
+            $anggaran = $this->resolveMovableAnggaran($pabdWorkflow, $item['pk04_anggaran_id'] ?? null, $idx);
+
+            $bulanAwal = (int) $anggaran->pk04Kegiatan->bulan;
+            $bulanTujuan = (int) ($item['bulan_tujuan'] ?? 0);
+            $validated['items'][$idx]['bulan_awal'] = $bulanAwal;
 
             if ($item['tipe_perubahan'] === 'tarik_maju') {
                 if ($bulanTujuan >= $bulanAwal) {
@@ -1044,22 +1052,28 @@ class PabdWorkflowController extends Controller
             }
         }
 
-        // Validate proposal_baru items have files
+        // Validate proposal_baru items have files.
+        //
+        // ⚠️ Matching is by position AMONG PROPOSALS, not by position among all
+        // items. It used to `skip($idx)` with $idx counted over every item, so
+        // submitting [tarik_mundur, proposal_baru] looked for the second saved
+        // proposal, found none, and rejected a proposal whose document was
+        // already attached. The ordering is pinned too — `skip()->first()` with
+        // no orderBy is whatever Postgres feels like returning.
+        $existingProposals = $this->existingProposalItems($pabd02aData);
+
+        $proposalOrdinal = 0;
         foreach ($validated['items'] as $idx => $item) {
-            if ($item['tipe_perubahan'] === 'proposal_baru') {
-                $itemFiles = $request->file("items.{$idx}.item_files", []);
-                // Check existing files from previously drafted items
-                $hasExistingFiles = false;
-                $existingItem = $pabd02aData->itemPerubahan()
-                    ->where('tipe_perubahan', 'proposal_baru')
-                    ->skip($idx)
-                    ->first();
-                if ($existingItem && $existingItem->files()->count() > 0) {
-                    $hasExistingFiles = true;
-                }
-                if (empty($itemFiles) && ! $hasExistingFiles) {
-                    abort(422, "Dokumen proposal wajib dilampirkan (item #{$idx}).");
-                }
+            if ($item['tipe_perubahan'] !== 'proposal_baru') {
+                continue;
+            }
+
+            $itemFiles = $request->file("items.{$idx}.item_files", []);
+            $carriedOver = $existingProposals[$proposalOrdinal] ?? null;
+            $proposalOrdinal++;
+
+            if (empty($itemFiles) && ! ($carriedOver && $carriedOver->files()->exists())) {
+                abort(422, "Dokumen proposal wajib dilampirkan (item #{$idx}).");
             }
         }
 
@@ -1128,11 +1142,41 @@ class PabdWorkflowController extends Controller
      * Sync pabd02a_item_perubahan rows from form data.
      * For proposal_baru items, create/update draft PK Proposals.
      */
+    /**
+     * Saved proposal_baru rows in a fixed order, indexed by their position
+     * among proposals.
+     *
+     * The submitted payload carries no stable key for these rows, so position
+     * is all there is to match on — but it has to be position among proposals
+     * and the order has to be deterministic. Both callers use this list so the
+     * validation and the sync can never disagree about which saved row a
+     * submitted proposal corresponds to.
+     *
+     * @return list<Pabd02aItemPerubahan>
+     */
+    private function existingProposalItems(Pabd02aData $pabd02aData): array
+    {
+        return $pabd02aData->itemPerubahan()
+            ->where('tipe_perubahan', 'proposal_baru')
+            ->orderBy('id')
+            ->get()
+            ->all();
+    }
+
     private function syncPabd02aItems(Pabd02aData $pabd02aData, array $items, PabdWorkflow $pabdWorkflow, $request, bool $isDraft): void
     {
         // Collect existing items for cleanup
         $existingItemIds = $pabd02aData->itemPerubahan()->pluck('id')->all();
         $processedIds = [];
+
+        // Rows are re-created wholesale below rather than diffed, which orphans
+        // any file attached to the previous row. The submit validation accepts a
+        // proposal with no new upload on the strength of that earlier
+        // attachment, so the attachment has to actually follow the proposal
+        // across the rebuild — otherwise the check passes and the proposal ends
+        // up with no document at all.
+        $existingProposals = $this->existingProposalItems($pabd02aData);
+        $proposalOrdinal = 0;
 
         foreach ($items as $idx => $itemData) {
             $tipe = $itemData['tipe_perubahan'] ?? null;
@@ -1161,14 +1205,28 @@ class PabdWorkflowController extends Controller
             }
 
             // Handle proposal_baru: create/update PK Proposal
-            if ($tipe === 'proposal_baru' && ! empty($itemData['proposal'])) {
-                $pkWorkflowId = $this->createOrUpdateDraftProposal(
-                    $pabdWorkflow,
-                    $itemData['proposal'],
-                    $itemData['_existing_pk_workflow_id'] ?? null,
-                    $isDraft,
-                );
-                $itemAttrs['pk_workflow_id'] = $pkWorkflowId;
+            $carriedOver = null;
+            if ($tipe === 'proposal_baru') {
+                $carriedOver = $existingProposals[$proposalOrdinal] ?? null;
+                $proposalOrdinal++;
+
+                if (! empty($itemData['proposal'])) {
+                    // The PK workflow to update is taken from the matched saved
+                    // row, never from the request. The client does post an
+                    // `_existing_pk_workflow_id`, but neither request class
+                    // validates it, so it was always stripped before reaching
+                    // here — every save built a brand new proposal workflow and
+                    // discarded the last one. Reading it from the matched row
+                    // fixes that and leaves no client-supplied id to point at
+                    // another team's proposal.
+                    $pkWorkflowId = $this->createOrUpdateDraftProposal(
+                        $pabdWorkflow,
+                        $itemData['proposal'],
+                        $carriedOver?->pk_workflow_id,
+                        $isDraft,
+                    );
+                    $itemAttrs['pk_workflow_id'] = $pkWorkflowId;
+                }
             }
 
             // Create the item row (always re-create — simpler than diffing)
@@ -1186,6 +1244,12 @@ class PabdWorkflowController extends Controller
                     $request->user()->id,
                     $sessionContext,
                 );
+            } elseif ($carriedOver) {
+                // No new upload — move the previous row's attachments onto this
+                // one so they are not orphaned by the delete below.
+                File::where('attachable_type', Pabd02aItemPerubahan::class)
+                    ->where('attachable_id', $carriedOver->id)
+                    ->update(['attachable_id' => $perubahanItem->id]);
             }
         }
 
@@ -1213,6 +1277,15 @@ class PabdWorkflowController extends Controller
     private function createOrUpdateDraftProposal(PabdWorkflow $pabdWorkflow, array $proposalData, ?int $existingPkWorkflowId, bool $isDraft): int
     {
         $pkWorkflow = $existingPkWorkflowId ? PkWorkflow::find($existingPkWorkflowId) : null;
+
+        // Only ever reuse a proposal that belongs to this PABD's own team.
+        if ($pkWorkflow && (
+            $pkWorkflow->team_id !== $pabdWorkflow->team_id
+            || $pkWorkflow->workspace_id !== $pabdWorkflow->workspace_id
+            || $pkWorkflow->tipe !== 'proposal'
+        )) {
+            $pkWorkflow = null;
+        }
 
         if (! $pkWorkflow) {
             $sessionContext = $this->getSessionContext();
@@ -1373,7 +1446,71 @@ class PabdWorkflowController extends Controller
     }
 
     /**
-     * Resolve future-month PK04 anggaran for tarik maju picker.
+     * Load a pk04_anggaran and prove it may be moved by THIS PABD.
+     *
+     * Three things the request cannot be trusted for:
+     *
+     *  1. Ownership — pk04_anggaran_id was validated only with `exists`, so any
+     *     id in the table was accepted. pabd02bApprove then resolves the PK
+     *     workflow from the anggaran itself and recompiles it, which meant one
+     *     team could recompile another team's PK04.
+     *  2. Month — see the note in pabd02aSubmit. bulan_awal comes from here.
+     *  3. Disbursement — the rule the organisation was given is "either direction,
+     *     provided the money has not gone out". Nothing enforced it: the guard
+     *     in recompileFromPemindahanBulan only tests status_item, and 523
+     *     production rows are `dicairkan` while still `active`. The lock
+     *     predicate below matches PkCompileService::applyAnggaranChanges.
+     */
+    private function resolveMovableAnggaran(PabdWorkflow $pabdWorkflow, ?int $anggaranId, int $idx): Pk04Anggaran
+    {
+        $anggaran = Pk04Anggaran::with('pk04Kegiatan.pk04ProgramTahunan.pkWorkflow')->find($anggaranId);
+
+        if (! $anggaran || ! $anggaran->pk04Kegiatan) {
+            abort(422, "Anggaran sumber tidak ditemukan (item #{$idx}).");
+        }
+
+        $pkWorkflow = $anggaran->pk04Kegiatan->pk04ProgramTahunan?->pkWorkflow;
+
+        if (
+            ! $pkWorkflow
+            || $pkWorkflow->team_id !== $pabdWorkflow->team_id
+            || $pkWorkflow->workspace_id !== $pabdWorkflow->workspace_id
+            || $pkWorkflow->pp_workflow_id !== $pabdWorkflow->pp_workflow_id
+            || $pkWorkflow->deleted_at !== null
+        ) {
+            abort(422, "Anggaran sumber bukan milik tim ini (item #{$idx}).");
+        }
+
+        if ($anggaran->status_item !== 'active') {
+            abort(422, "Anggaran sumber sudah tidak aktif dan tidak dapat dipindahkan (item #{$idx}).");
+        }
+
+        if ($anggaran->status_pencairan !== null || $anggaran->hasRealisasiLock()) {
+            abort(422, "Anggaran yang sudah diproses pencairannya tidak dapat dipindahkan (item #{$idx}). Sampaikan ke Bendahara Umum secara tertulis.");
+        }
+
+        return $anggaran;
+    }
+
+    /**
+     * Resolve movable PK04 anggaran for the pemindahan bulan picker.
+     *
+     * Includes the PABD's OWN month as well as later ones, because the two
+     * directions need different ranges and the picker filters by direction on
+     * the client:
+     *
+     *   tarik maju   — source must be a LATER month (bulan > bulan_anggaran),
+     *                  since the target floors at bulan_anggaran and must be
+     *                  earlier than the source. A same-month source has no
+     *                  valid target.
+     *   tarik mundur — source may be THIS month or later (bulan >= bulan_anggaran),
+     *                  matching the submit validation, which aborts only when
+     *                  bulan_awal < bulan_anggaran.
+     *
+     * ⚠️ This used to filter bulan > bulan_anggaran for both, which silently
+     * made the commonest tarik mundur case — push this month's unspent item to
+     * next month — unreachable from the UI even though the validator accepted
+     * it. See the PPS Gathering case, Aug 2026.
      *
      * @param  list<int>  $excludeAnggaranIds  Already-selected anggaran IDs
      * @return list<array>
@@ -1404,10 +1541,14 @@ class PabdWorkflowController extends Controller
             $anggaranItems = Pk04Anggaran::query()
                 ->whereHas('pk04Kegiatan', fn ($q) => $q
                     ->where('pk04_program_tahunan_id', $pk04->id)
-                    ->where('bulan', '>', $bulan)  // Future months only
+                    ->where('bulan', '>=', $bulan)  // This month and later; client filters per direction
                 )
                 ->where('status_item', 'active')
                 ->where('nominal_anggaran', '>', 0)
+                // Money already out (or already reported) cannot be moved — same
+                // rule resolveMovableAnggaran enforces on submit. Keep the two in
+                // step or the picker offers items the submit will reject.
+                ->whereNull('status_pencairan')
                 ->with('pk04Kegiatan')
                 ->get();
 
@@ -2137,7 +2278,22 @@ class PabdWorkflowController extends Controller
                 extra: ['pp06_revision' => $this->getLatestPp06Revision($pabdWorkflow)],
             );
 
-            // 2. Cycle back to PABD01
+            // 2. Release the Tier 2 pencairan lock PABD03 approve had taken.
+            // Without this the items stay `menunggu_pencairan` while the team is
+            // back at PABD01, so they read as pending-disbursement to every other
+            // guard — including the one that now refuses to move them.
+            $latestPabd01 = $pabdWorkflow->latestPabd01();
+            if ($latestPabd01) {
+                Pk04Anggaran::whereIn('id', $latestPabd01->itemAnggaran()->pluck('pk04_anggaran_id'))
+                    ->where('status_pencairan', 'menunggu_pencairan')
+                    ->where('pencairan_pabd_workflow_id', $pabdWorkflow->id)
+                    ->update([
+                        'status_pencairan' => null,
+                        'pencairan_pabd_workflow_id' => null,
+                    ]);
+            }
+
+            // 3. Cycle back to PABD01
             $freshPabd01 = $this->createFreshPabd01Data($pabdWorkflow);
             $this->engine->recordAction(
                 workflow: $pabdWorkflow,
@@ -3509,6 +3665,13 @@ class PabdWorkflowController extends Controller
                 'status_item' => $anggaran->status_item,
                 'status_label' => $statusLabel,
                 'dicairkan' => $item->dicairkan,
+                // A row whose budget has been moved out stays VISIBLE — it is the
+                // month's record that the move happened — but it is not a
+                // pencairan decision any more. Rp 0 is neither claimed nor
+                // forfeited, and marking it hangus would put a row in the I-053
+                // population that, being non-active, consumes no plafon like the
+                // other 110 do.
+                'dipindahkan' => in_array($anggaran->status_item, ['ditarik_maju', 'ditarik_mundur'], true),
             ];
         }
 
