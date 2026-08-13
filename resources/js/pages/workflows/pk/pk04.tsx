@@ -359,6 +359,7 @@ export default function Pk04({
                                                     : a.lock_reason === 'sudah_dicairkan' ? 'Item sudah dicairkan'
                                                     : a.lock_reason === 'hangus' ? 'Item hangus'
                                                     : a.lock_reason === 'ditarik_maju' ? 'Item ditarik maju'
+                                                    : a.lock_reason === 'ditarik_mundur' ? 'Item ditarik mundur'
                                                     : 'Item terkunci';
                                                 return (
                                                 <tr key={a.id} className={`border-b last:border-0 ${a.is_locked ? 'bg-muted/40' : ''}`}>

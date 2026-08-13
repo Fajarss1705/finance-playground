@@ -255,13 +255,15 @@ class PkCompileService
     }
 
     /**
-     * Resolve tarik maju chain depth from previous_anggaran_id.
+     * Resolve pemindahan bulan chain depth from previous_anggaran_id.
      *
-     * M0 = original PK item, M1 = first tarik maju, M2 = chained, etc.
+     * M0 = original PK item, M1 = first move, M2 = chained, etc. Counts moves in
+     * either direction — an item pulled forward and later pushed back is at depth 2,
+     * not back at 0, because each move produced a distinct revisioned row.
      */
     private function resolveTarikDepth(Pk04Anggaran $anggaran): int
     {
-        if ($anggaran->source !== 'tarik_maju' || ! $anggaran->previous_anggaran_id) {
+        if (! in_array($anggaran->source, ['tarik_maju', 'tarik_mundur'], true) || ! $anggaran->previous_anggaran_id) {
             return 0;
         }
 
@@ -271,7 +273,7 @@ class PkCompileService
         while ($currentId) {
             $depth++;
             $prev = Pk04Anggaran::where('id', $currentId)
-                ->where('source', 'tarik_maju')
+                ->whereIn('source', ['tarik_maju', 'tarik_mundur'])
                 ->value('previous_anggaran_id');
             $currentId = $prev;
         }
@@ -983,22 +985,27 @@ class PkCompileService
     // ──────────────────────────────────────────────────────────
 
     /**
-     * Recompile PK04 after tarik maju approval (PABD02B approve).
+     * Recompile PK04 after a pemindahan bulan approval (PABD02B approve).
+     *
+     * Handles both directions. Tarik maju pulls an item to an EARLIER month;
+     * tarik mundur pushes it to a LATER one. The mechanics are identical — only
+     * the status_item / source labels differ — so both share this path. Direction
+     * is validated in PabdWorkflowController before it ever reaches here.
      *
      * Snapshot-then-move pattern (same as PK05 recompile):
      * 1. Snapshot current state on OLD pk04
      * 2. Create NEW pk04 with incremented revision
      * 3. Reassign live kegiatan to new parent
-     * 4. Apply tarik maju changes (zero old, create new in destination month)
+     * 4. Apply the month moves (zero old, create new in destination month)
      * 5. Regenerate all kode_anggaran
      *
      * Called inside DB::transaction from pabd02bApprove.
      *
-     * @param  list<array{pk04_anggaran_id: int, bulan_tujuan: int}>  $tarikMajuItems
+     * @param  list<array{pk04_anggaran_id: int, bulan_tujuan: int, tipe_perubahan?: string}>  $tarikMajuItems
      *
      * @throws \RuntimeException if PK04 or PP06 not found
      */
-    public function recompileFromTarikMaju(PkWorkflow $pkWorkflow, array $tarikMajuItems): Pk04ProgramTahunan
+    public function recompileFromPemindahanBulan(PkWorkflow $pkWorkflow, array $tarikMajuItems): Pk04ProgramTahunan
     {
         $currentPk04 = $pkWorkflow->latestPk04();
         if (! $currentPk04) {
@@ -1053,13 +1060,18 @@ class PkCompileService
             $bulanTujuan = (int) $item['bulan_tujuan'];
             $oldKegiatan = $oldAnggaran->pk04Kegiatan;
 
+            // Direction labels. Default to tarik_maju so any caller predating
+            // tarik mundur keeps its existing behaviour.
+            $tipePerubahan = $item['tipe_perubahan'] ?? 'tarik_maju';
+            $statusItemDitarik = $tipePerubahan === 'tarik_mundur' ? 'ditarik_mundur' : 'ditarik_maju';
+
             // Capture original nominal before zeroing
             $originalNominal = $oldAnggaran->nominal_anggaran;
 
             // Zero old anggaran
             $oldAnggaran->update([
                 'nominal_anggaran' => 0,
-                'status_item' => 'ditarik_maju',
+                'status_item' => $statusItemDitarik,
                 'revisi_terakhir' => $newRevision,
             ]);
 
@@ -1070,7 +1082,7 @@ class PkCompileService
                 'nama_kegiatan' => $oldKegiatan->nama_kegiatan,
                 'bulan' => $bulanTujuan,
                 'nomer_kegiatan' => $maxNomerKegiatan,
-                'source' => 'tarik_maju',
+                'source' => $tipePerubahan,
                 'source_pabd_workflow_id' => $item['pabd_workflow_id'] ?? null,
                 'previous_kegiatan_id' => $oldKegiatan->id,
             ]);
@@ -1088,7 +1100,7 @@ class PkCompileService
                 'revisi_terakhir' => $newRevision,
                 'status_item' => 'active',
                 'previous_anggaran_id' => $oldAnggaran->id,
-                'source' => 'tarik_maju',
+                'source' => $tipePerubahan,
                 'source_pabd_workflow_id' => $item['pabd_workflow_id'] ?? null,
             ]);
 

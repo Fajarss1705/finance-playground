@@ -3342,18 +3342,20 @@ class PrblWorkflowController extends Controller
      *
      * Mirrors the logic in PabdWorkflowController::resolveAnggaranItems so the
      * same labels surface across both workflows. PRBL only contains items
-     * whose status_pencairan is 'dicairkan', so "Ditarik Maju" never appears
-     * here — only Normal, Tarik Maju from another month, or Di Luar Plafon.
+     * whose status_pencairan is 'dicairkan', so "Ditarik Maju/Mundur" never
+     * appears here — only Normal, Tarik Maju/Mundur from another month, or
+     * Di Luar Plafon.
      *
      * @return array{status_item: string|null, status_label: string}
      */
     private function resolveStatusLabel(Pk04Anggaran $anggaran, ?string $programTipe): array
     {
-        if ($anggaran->source === 'tarik_maju') {
+        if (in_array($anggaran->source, ['tarik_maju', 'tarik_mundur'], true)) {
+            $arah = $anggaran->source === 'tarik_maju' ? 'Maju' : 'Mundur';
             $sourceBulan = Pk04Anggaran::find($anggaran->previous_anggaran_id)?->pk04Kegiatan?->bulan;
             $statusLabel = $sourceBulan
-                ? "Tarik Maju dari Bln {$sourceBulan}"
-                : 'Tarik Maju';
+                ? "Tarik {$arah} dari Bln {$sourceBulan}"
+                : "Tarik {$arah}";
         } elseif ($programTipe === 'proposal') {
             $statusLabel = 'Di Luar Plafon';
         } else {

@@ -18,15 +18,15 @@ class Pabd02aSubmitRequest extends FormRequest
     {
         return [
             'items' => ['required', 'array', 'min:1'],
-            'items.*.tipe_perubahan' => ['required', 'string', 'in:tarik_maju,proposal_baru'],
+            'items.*.tipe_perubahan' => ['required', 'string', 'in:tarik_maju,tarik_mundur,proposal_baru'],
             'items.*.komentar' => ['required', 'string', 'min:10'],
 
-            // Tarik Maju fields
-            'items.*.pk04_anggaran_id' => ['nullable', 'required_if:items.*.tipe_perubahan,tarik_maju', 'integer', 'exists:pk04_anggaran,id'],
-            'items.*.bulan_awal' => ['nullable', 'required_if:items.*.tipe_perubahan,tarik_maju', 'integer', 'min:1', 'max:12'],
-            'items.*.bulan_tujuan' => ['nullable', 'required_if:items.*.tipe_perubahan,tarik_maju', 'integer', 'min:1', 'max:12'],
+            // Pemindahan bulan fields (tarik maju and tarik mundur share these)
+            'items.*.pk04_anggaran_id' => ['nullable', 'required_if:items.*.tipe_perubahan,tarik_maju,tarik_mundur', 'integer', 'exists:pk04_anggaran,id'],
+            'items.*.bulan_awal' => ['nullable', 'required_if:items.*.tipe_perubahan,tarik_maju,tarik_mundur', 'integer', 'min:1', 'max:12'],
+            'items.*.bulan_tujuan' => ['nullable', 'required_if:items.*.tipe_perubahan,tarik_maju,tarik_mundur', 'integer', 'min:1', 'max:12'],
 
-            // Per-item files (required for proposal_baru, optional for tarik_maju)
+            // Per-item files (required for proposal_baru, optional for pemindahan bulan)
             'items.*.item_files' => ['nullable', 'array'],
             'items.*.item_files.*' => ['file', 'max:25600'],
 
@@ -71,7 +71,7 @@ class Pabd02aSubmitRequest extends FormRequest
             'items.*.tipe_perubahan.in' => 'Tipe perubahan tidak valid.',
             'items.*.komentar.required' => 'Alasan perubahan harus diisi.',
             'items.*.komentar.min' => 'Alasan perubahan minimal 10 karakter.',
-            'items.*.pk04_anggaran_id.required_if' => 'Anggaran sumber harus dipilih untuk tarik maju.',
+            'items.*.pk04_anggaran_id.required_if' => 'Anggaran sumber harus dipilih untuk pemindahan bulan.',
             'items.*.pk04_anggaran_id.exists' => 'Anggaran sumber tidak ditemukan.',
             'items.*.bulan_awal.required_if' => 'Bulan asal harus diisi.',
             'items.*.bulan_tujuan.required_if' => 'Bulan tujuan harus dipilih.',

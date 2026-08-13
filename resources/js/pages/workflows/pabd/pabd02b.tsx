@@ -88,7 +88,7 @@ type ReviewItemFile = { id: number; name: string; url: string | null };
 type ReviewItem = {
     id: number;
     pabd02b_item_review_id: number;
-    tipe_perubahan: 'tarik_maju' | 'proposal_baru';
+    tipe_perubahan: 'tarik_maju' | 'tarik_mundur' | 'proposal_baru';
     pk04_anggaran_id: number | null;
     bulan_awal: number | null;
     bulan_tujuan: number | null;
@@ -146,6 +146,7 @@ type Props = {
     pabd02aCycle: number;
     pabd02aPreviousCycles: { cycle: number; dataId: number }[];
     tarikMajuCount: number;
+    tarikMundurCount: number;
     proposalBaruCount: number;
     budgetCounter: BudgetCounterData;
     stepStatuses: Record<string, { status: string; cycle?: number }>;
@@ -351,7 +352,7 @@ function ProposalReadonly({ proposal }: { proposal: ProposalData }) {
 export default function Pabd02b({
     scope, mode, canDraft, canApprove, canReject, canComment, workflow,
     stepData, pabd01ChecklistData, pabd01Submitter, pabd01Cycle,
-    pabd02aSubmitter, pabd02aCycle, tarikMajuCount, proposalBaruCount,
+    pabd02aSubmitter, pabd02aCycle, tarikMajuCount, tarikMundurCount, proposalBaruCount,
     budgetCounter, stepStatuses, history, actionRoles, activeRoleName,
 }: Props) {
     const [processing, setProcessing] = useState(false);
@@ -488,7 +489,7 @@ export default function Pabd02b({
                     headerRight={
                         <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-[10px]">
-                                {tarikMajuCount + proposalBaruCount} perubahan: {tarikMajuCount} Tarik Maju, {proposalBaruCount} Proposal
+                                {tarikMajuCount + tarikMundurCount + proposalBaruCount} perubahan: {tarikMajuCount} Tarik Maju, {tarikMundurCount} Tarik Mundur, {proposalBaruCount} Proposal
                             </Badge>
                             {pabd02aCycle > 1 && <Badge variant="outline" className="text-[10px]">Pengisian ke-{pabd02aCycle}</Badge>}
                         </div>
@@ -504,16 +505,20 @@ export default function Pabd02b({
                                 {/* Item header */}
                                 <div className="mb-2 flex items-center gap-2">
                                     <span className="text-xs font-semibold text-muted-foreground">Item {idx + 1}</span>
-                                    <Badge variant={item.tipe_perubahan === 'tarik_maju' ? 'secondary' : 'default'} className="text-[10px]">
-                                        {item.tipe_perubahan === 'tarik_maju' ? 'Tarik Anggaran Maju' : 'Proposal Baru'}
+                                    <Badge variant={item.tipe_perubahan === 'proposal_baru' ? 'default' : 'secondary'} className="text-[10px]">
+                                        {item.tipe_perubahan === 'tarik_maju'
+                                            ? 'Tarik Anggaran Maju'
+                                            : item.tipe_perubahan === 'tarik_mundur'
+                                              ? 'Tarik Anggaran Mundur'
+                                              : 'Proposal Baru'}
                                     </Badge>
                                     {item.tipe_perubahan === 'proposal_baru' && (
                                         <Badge variant="outline" className="text-[10px]">Di Luar Plafon</Badge>
                                     )}
                                 </div>
 
-                                {/* Tarik Maju detail */}
-                                {item.tipe_perubahan === 'tarik_maju' && item.anggaran_detail && (
+                                {/* Pemindahan bulan detail */}
+                                {(item.tipe_perubahan === 'tarik_maju' || item.tipe_perubahan === 'tarik_mundur') && item.anggaran_detail && (
                                     <div className="mb-3 space-y-2 text-xs">
                                         <div className="rounded border bg-muted/20 p-2">
                                             <p className="font-medium">Anggaran Sumber:</p>
@@ -593,7 +598,7 @@ export default function Pabd02b({
                             <ActionConfirmDialog
                                 trigger={<Button disabled={processing}>Setujui</Button>}
                                 title="Setujui Perubahan Anggaran"
-                                description="Semua perubahan akan disetujui. PK04 akan di-recompile (tarik maju) dan proposal akan dikompilasi. Checklist pencairan baru akan dibuat."
+                                description="Semua perubahan akan disetujui. PK04 akan di-recompile (pemindahan bulan) dan proposal akan dikompilasi. Checklist pencairan baru akan dibuat."
                                 confirmLabel="Setujui"
                                 processing={processing}
                                 onConfirm={({ notes, files }) => handleAction('approve', notes, files)}
