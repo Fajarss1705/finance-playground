@@ -2691,6 +2691,73 @@ it('rejects PABD04 submit with zero files', function () {
     $response->assertStatus(422);
 });
 
+it('allows PABD04 submit without files when nothing is being disbursed', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Nothing ticked for disbursement — there is no transfer to evidence.
+    $pabd01->itemAnggaran()->update(['dicairkan' => false]);
+
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+        'tanpa_transfer' => true,
+    ]);
+
+    $response->assertRedirect();
+
+    // The affirmation is recorded on the PABD04 entry.
+    $pabdWorkflow->refresh();
+    $submittedEntry = collect($pabdWorkflow->history)
+        ->firstWhere(fn ($e) => ($e['step'] ?? '') === 'PABD04' && ($e['action'] ?? '') === 'submitted');
+    expect($submittedEntry)->not->toBeNull()
+        ->and($submittedEntry['tanpa_transfer'] ?? null)->toBeTrue();
+
+    // PABD05 still compiles, at zero.
+    $pabd05 = Pabd05PengajuanBulanan::where('pabd_workflow_id', $pabdWorkflow->id)->first();
+    expect($pabd05)->not->toBeNull()
+        ->and((float) $pabd05->total_anggaran_dicairkan)->toBe(0.0)
+        ->and($pabd05->total_item_dicairkan)->toBe(0);
+});
+
+it('still requires a bukti transfer when money is being disbursed even if tanpa_transfer is sent', function () {
+    [$user, $role, $workspace, $team] = setupPabdUser(
+        'team.workflows.pabd.pabd01.show',
+        'team.workflows.pabd.pabd01.submit',
+        'admin.workflows.pabd.pabd04.show',
+        'admin.workflows.pabd.pabd04.submit',
+        'admin.workflows.pabd.comment',
+    );
+    activatePabdSession($this, $user, $role, $workspace);
+
+    [$ppWorkflow] = setupCompletedPpForPabd($workspace, $team);
+    [$pkWorkflow, $pk04] = setupPk04WithAnggaran($workspace, $team, $ppWorkflow, 3, $user, $role);
+    [$pabdWorkflow, $pabd01, $pabd04] = setupPabd04Active($workspace, $team, $ppWorkflow, $pk04, 3, $user, $role);
+
+    // Items are ticked, so proof is still mandatory — the flag must not bypass it.
+    $response = $this->post(route('admin.workflows.pabd.pabd04.submit', [
+        'pabdWorkflow' => $pabdWorkflow->id,
+        'pabd04Data' => $pabd04->id,
+    ]), [
+        'expected_updated_at' => $pabd04->updated_at->toIso8601String(),
+        'tanpa_transfer' => true,
+    ]);
+
+    $response->assertStatus(422);
+});
+
 it('submits PABD04 with pre-existing files (no new upload needed)', function () {
     [$user, $role, $workspace, $team] = setupPabdUser(
         'team.workflows.pabd.pabd01.show',
