@@ -144,7 +144,6 @@ type Props = {
     totalRealisasi: number;
     prbl03Data: Prbl03DataProp;
     buktiTransferFiles: BuktiFile[];
-    fotoNotaFiles: BuktiFile[];
     nominalRefund: number;
     rekeningOrganisasi: RekeningOrganisasi[];
     submitterInfo: SubmitterInfo;
@@ -545,7 +544,7 @@ function DualRejectDialog({
 export default function Prbl04({
     scope, mode, canApprove, canReject, canComment, workflow,
     kegiatanItems, totalDicairkan, totalRealisasi,
-    prbl03Data, buktiTransferFiles, fotoNotaFiles, nominalRefund, rekeningOrganisasi,
+    prbl03Data, buktiTransferFiles, nominalRefund, rekeningOrganisasi,
     submitterInfo, approvalChain, ppLabel, workflowMeta,
     stepStatus, prbl01Cycle, prbl03Cycle,
     previousPrbl01Cycles, previousPrbl03Cycles,
@@ -796,12 +795,6 @@ export default function Prbl04({
                                 ) : (
                                     <p className="text-xs text-muted-foreground/50">Tidak ada refund. Bukti transfer tidak diunggah.</p>
                                 )}
-                            </div>
-
-                            {/* Foto Nota */}
-                            <div>
-                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-primary">Foto Nota di Kantor Pusat</p>
-                                <BuktiFileChips files={fotoNotaFiles} emptyText="Tidak ada foto nota." />
                             </div>
 
                             {/* Keterangan */}

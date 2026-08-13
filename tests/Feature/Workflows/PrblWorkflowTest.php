@@ -1813,7 +1813,7 @@ it('submits PRBL03 with bukti transfer and foto nota and activates PRBL04', func
     expect($statuses['PRBL04']['status'])->toBe('active');
 });
 
-it('rejects PRBL03 submit without foto nota', function () {
+it('allows PRBL03 submit without foto nota (no longer required)', function () {
     Storage::fake('local');
 
     [$user, $role, $workspace, $team] = setupPrblUser(
@@ -1828,7 +1828,8 @@ it('rejects PRBL03 submit without foto nota', function () {
     [$prblWorkflow, $pabdWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2] = setupPrblWorkflow($workspace, $team, $ppWorkflow, $pk04, $kegiatan, $ang1, $ang2, $kuisioner, 3, $user, $role);
     $prbl03Data = advanceToPrbl03($prblWorkflow, $prbl01, $itemKegiatan, $itemKuisioner, $realisasi1, $realisasi2, $user->id);
 
-    // Submit without any foto_nota files
+    // Submit without any foto_nota files. Praktik menaruh nota fisik di
+    // kantor pusat sudah tidak diterapkan, sehingga foto_nota tidak lagi wajib.
     $response = $this->post(route('team.workflows.prbl.prbl03.submit', [
         'prblWorkflow' => $prblWorkflow->id,
         'prbl03Data' => $prbl03Data->id,
@@ -1837,7 +1838,8 @@ it('rejects PRBL03 submit without foto nota', function () {
         'bukti_transfer_files' => [UploadedFile::fake()->image('bukti1.jpg')],
     ]);
 
-    $response->assertStatus(422);
+    $response->assertRedirect();
+    expect($prbl03Data->bukti()->where('tipe', 'foto_nota')->count())->toBe(0);
 });
 
 it('rejects PRBL03 submit without bukti transfer when refund > 0', function () {
@@ -2637,7 +2639,6 @@ it('shows PRBL05 page for admin scope', function () {
             ->has('rekeningOrganisasi', 1)
             ->where('rekeningOrganisasi.0.nama_bank', 'Bank Mandiri')
             ->has('buktiTransferFiles', 1)
-            ->has('fotoNotaFiles', 1)
             ->where('prbl05.verification_code', fn ($v) => is_string($v) && strlen($v) <= 8)
         );
 });

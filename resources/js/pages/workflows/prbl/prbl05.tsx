@@ -151,7 +151,6 @@ type Props = {
     realisasiItems: RealisasiProgramGroup[];
     rekeningOrganisasi: RekeningOrganisasi[];
     buktiTransferFiles: FileEntry[];
-    fotoNotaFiles: FileEntry[];
     exportFiles: { pdf: ExportFile; excel: ExportFile };
     ppLabel: string | null;
     pabdLabel: string | null;
@@ -216,7 +215,6 @@ export default function Prbl05Show({
     realisasiItems,
     rekeningOrganisasi,
     buktiTransferFiles,
-    fotoNotaFiles,
     exportFiles,
     ppLabel,
     pabdLabel,
@@ -544,26 +542,10 @@ export default function Prbl05Show({
                                     <FileList files={buktiTransferFiles} />
                                 </div>
                             )}
-
-                            {fotoNotaFiles.length > 0 && (
-                                <div>
-                                    <h5 className="mb-2 text-sm font-medium text-gray-600">Foto Nota di Kantor Pusat</h5>
-                                    <FileList files={fotoNotaFiles} />
-                                </div>
-                            )}
                         </div>
                     ) : (
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                                Tidak ada selisih refund untuk bulan ini. Total realisasi sama dengan total anggaran dicairkan.
-                            </div>
-
-                            {fotoNotaFiles.length > 0 && (
-                                <div>
-                                    <h5 className="mb-2 text-sm font-medium text-gray-600">Foto Nota di Kantor Pusat</h5>
-                                    <FileList files={fotoNotaFiles} />
-                                </div>
-                            )}
+                        <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                            Tidak ada selisih refund untuk bulan ini. Total realisasi sama dengan total anggaran dicairkan.
                         </div>
                     )}
                 </SectionCard>

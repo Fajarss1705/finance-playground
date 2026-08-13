@@ -377,36 +377,6 @@ class Prbl05ExcelExportService
             $row++;
         }
 
-        // Foto Nota
-        $row += 1;
-        $sheet->setCellValue("A{$row}", 'Foto Nota');
-        $this->styleSubHeader($sheet, "A{$row}:B{$row}");
-        $row++;
-
-        $fotoNota = $prbl05->bukti->where('tipe', 'foto_nota');
-
-        $notaHeaders = ['No', 'Nama File'];
-        foreach ($notaHeaders as $i => $header) {
-            $col = chr(65 + $i);
-            $sheet->setCellValue("{$col}{$row}", $header);
-        }
-        $this->styleTableHeader($sheet, "A{$row}:B{$row}");
-        $row++;
-
-        $no = 1;
-        foreach ($fotoNota as $bukti) {
-            $sheet->setCellValue("A{$row}", $no);
-            $sheet->setCellValue("B{$row}", $bukti->file?->original_filename ?? '-');
-            $row++;
-            $no++;
-        }
-
-        if ($fotoNota->isEmpty()) {
-            $sheet->setCellValue("A{$row}", 'Tidak ada foto nota.');
-            $sheet->mergeCells("A{$row}:B{$row}");
-            $row++;
-        }
-
         // Keterangan
         $row += 1;
         $sheet->setCellValue("A{$row}", 'Keterangan');

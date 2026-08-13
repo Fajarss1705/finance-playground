@@ -46,9 +46,12 @@ class Prbl05PdfExportService
         $bulanLabel = $bulanLabels[$bulan] ?? '-';
         $logoBase64 = base64_encode(file_get_contents(public_path('images/app-logo-black.png')));
 
-        $buktiImages = $prbl05->bukti->mapWithKeys(fn ($b) => [
-            $b->id => $this->fileToImageData($b->file),
-        ])->all();
+        $buktiImages = $prbl05->bukti
+            ->where('tipe', 'bukti_transfer')
+            ->mapWithKeys(fn ($b) => [
+                $b->id => $this->fileToImageData($b->file),
+            ])
+            ->all();
 
         $pdf = Pdf::loadView('exports.prbl05-pdf', [
             'prbl05' => $prbl05,

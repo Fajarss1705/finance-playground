@@ -1305,21 +1305,6 @@ class PrblWorkflowController extends Controller
             ->values()
             ->all();
 
-        $fotoNotaFiles = $prbl03Data->bukti()
-            ->where('tipe', 'foto_nota')
-            ->with('file')
-            ->get()
-            ->map(fn (Prbl03Bukti $item) => [
-                'id' => $item->id,
-                'file_id' => $item->file_id,
-                'original_filename' => $item->file?->original_filename,
-                'mime_type' => $item->file?->mime_type,
-                'size' => $item->file?->size,
-                'uuid' => $item->file?->uuid,
-            ])
-            ->values()
-            ->all();
-
         // Rekening organisasi
         $rekeningOrganisasi = [];
         if ($pp06) {
@@ -1377,7 +1362,6 @@ class PrblWorkflowController extends Controller
             'totalRealisasi' => $totalRealisasi,
             'nominalRefund' => (float) $prbl03Data->nominal_refund,
             'buktiTransferFiles' => $buktiTransferFiles,
-            'fotoNotaFiles' => $fotoNotaFiles,
             'rekeningOrganisasi' => $rekeningOrganisasi,
             'ppLabel' => $ppLabel,
             'submitterInfo' => $submitterInfo,
@@ -1469,24 +1453,19 @@ class PrblWorkflowController extends Controller
         $validated = $request->validated();
         $this->checkOptimisticLock($prbl03Data, $validated['expected_updated_at']);
 
-        // Validate final file counts before touching the DB or disk
+        // Validate bukti transfer count when refund > 0. Foto nota di kantor pusat
+        // tidak lagi diwajibkan (bendahara organisasi tidak menerapkan praktik
+        // menyimpan nota fisik di kantor pusat), sehingga validasi minimal foto
+        // nota dihapus.
         $nominalRefund = (float) $prbl03Data->nominal_refund;
-        $finalNotaCount = $prbl03Data->bukti()->where('tipe', 'foto_nota')->count()
-            - count($validated['remove_foto_nota_ids'] ?? [])
-            + count($request->file('foto_nota_files', []));
         $finalBuktiCount = $prbl03Data->bukti()->where('tipe', 'bukti_transfer')->count()
             - count($validated['remove_bukti_transfer_ids'] ?? [])
             + count($request->file('bukti_transfer_files', []));
 
-        $fileErrors = [];
-        if ($finalNotaCount <= 0) {
-            $fileErrors['foto_nota_files'] = ['Minimal 1 foto nota harus diupload.'];
-        }
         if ($nominalRefund > 0 && $finalBuktiCount <= 0) {
-            $fileErrors['bukti_transfer_files'] = ['Minimal 1 bukti transfer harus diupload karena ada refund.'];
-        }
-        if (! empty($fileErrors)) {
-            throw ValidationException::withMessages($fileErrors);
+            throw ValidationException::withMessages([
+                'bukti_transfer_files' => ['Minimal 1 bukti transfer harus diupload karena ada refund.'],
+            ]);
         }
 
         $sessionContext = $this->getSessionContext();
@@ -1601,7 +1580,6 @@ class PrblWorkflowController extends Controller
         $latestPrbl03 = $prblWorkflow->latestPrbl03();
         $prbl03Data = null;
         $buktiTransferFiles = [];
-        $fotoNotaFiles = [];
         $nominalRefund = 0;
 
         if ($latestPrbl03) {
@@ -1614,21 +1592,6 @@ class PrblWorkflowController extends Controller
 
             $buktiTransferFiles = $latestPrbl03->bukti()
                 ->where('tipe', 'bukti_transfer')
-                ->with('file')
-                ->get()
-                ->map(fn ($item) => [
-                    'id' => $item->id,
-                    'file_id' => $item->file_id,
-                    'original_filename' => $item->file?->original_filename,
-                    'mime_type' => $item->file?->mime_type,
-                    'size' => $item->file?->size,
-                    'uuid' => $item->file?->uuid,
-                ])
-                ->values()
-                ->all();
-
-            $fotoNotaFiles = $latestPrbl03->bukti()
-                ->where('tipe', 'foto_nota')
                 ->with('file')
                 ->get()
                 ->map(fn ($item) => [
@@ -1702,7 +1665,6 @@ class PrblWorkflowController extends Controller
             'totalRealisasi' => $totalRealisasi,
             'prbl03Data' => $prbl03Data,
             'buktiTransferFiles' => $buktiTransferFiles,
-            'fotoNotaFiles' => $fotoNotaFiles,
             'nominalRefund' => $nominalRefund,
             'rekeningOrganisasi' => $rekeningOrganisasi,
             'submitterInfo' => $submitterInfo,
@@ -2780,16 +2742,6 @@ class PrblWorkflowController extends Controller
             'download_url' => $b->file?->path ? route('files.download', $b->file) : null,
         ])->values();
 
-        $fotoNotaFiles = $prbl05->bukti->where('tipe', 'foto_nota')->map(fn ($b) => [
-            'id' => $b->id,
-            'file_id' => $b->file_id,
-            'filename' => $b->file?->original_filename ?? 'Unknown',
-            'mime_type' => $b->file?->mime_type,
-            'size' => $b->file?->size,
-            'path' => $b->file?->path,
-            'download_url' => $b->file?->path ? route('files.download', $b->file) : null,
-        ])->values();
-
         // Export files from file records
         $exportFiles = $this->resolvePrbl05ExportFiles($prbl05);
 
@@ -2868,7 +2820,6 @@ class PrblWorkflowController extends Controller
             'realisasiItems' => $realisasiItems,
             'rekeningOrganisasi' => $rekeningOrganisasi,
             'buktiTransferFiles' => $buktiTransferFiles,
-            'fotoNotaFiles' => $fotoNotaFiles,
             'exportFiles' => $exportFiles,
             'ppLabel' => $ppLabel,
             'pabdLabel' => $pabdLabel,
@@ -3202,11 +3153,11 @@ class PrblWorkflowController extends Controller
                 }
             }
 
-            // Bukti transfer + foto nota
-            foreach ($prbl05->bukti as $bukti) {
+            // Bukti transfer (foto_nota deprecated — record lama tidak diikutkan
+            // ke ZIP agar konsisten dengan UI/PDF/Excel yang sudah disembunyikan).
+            foreach ($prbl05->bukti->where('tipe', 'bukti_transfer') as $bukti) {
                 if ($bukti->file && $bukti->file->path) {
-                    $folder = $bukti->tipe === 'bukti_transfer' ? 'Bukti Transfer' : 'Foto Nota Kantor Pusat';
-                    $addFile($zip, $folder, $bukti->file);
+                    $addFile($zip, 'Bukti Transfer', $bukti->file);
                 }
             }
 
