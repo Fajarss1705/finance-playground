@@ -10,7 +10,7 @@ export default function AppLogo() {
             {/* Collapsed: square favicon */}
             <img
                 src="/favicon.svg"
-                alt="Demo"
+                alt="Finance Playground"
                 className="hidden size-8 group-data-[collapsible=icon]:block"
             />
         </>
