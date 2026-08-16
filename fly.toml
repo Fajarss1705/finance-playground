@@ -24,10 +24,17 @@ console_command = 'php /app/artisan tinker'
   LOG_CHANNEL = 'stderr'
   LOG_LEVEL = 'info'
 
-  # Cookie sessions, deliberately kept from what fly launch suggested: the
-  # 15-minute reset drops the sessions table, so database sessions would log a
-  # visitor out mid-workflow. Cookies outlive the wipe.
-  SESSION_DRIVER = 'cookie'
+  # 🔴 Not 'cookie'. Selecting a role puts that role's whole permission list in
+  # the session -- 213 names and 6KB for Super Admin -- and a browser silently
+  # drops any cookie over 4KB. The session vanished on the next request and the
+  # role selector bounced the visitor straight back to itself, for every role.
+  #
+  # 'file' rather than 'database' because the 15-minute migrate:fresh drops the
+  # sessions table: file sessions live on the rootfs, so they outlive the reset
+  # and a visitor is not logged out mid-workflow. They are wiped when the
+  # Machine restarts, which is the clean slate we want anyway. ⚠️ This assumes a
+  # single Machine -- file sessions are not shared between them.
+  SESSION_DRIVER = 'file'
   SESSION_SECURE_COOKIE = 'true'
 
 [http_service]
