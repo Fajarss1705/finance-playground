@@ -13,14 +13,20 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 
 /**
- * Seeds org, workspace, teams, users, roles, and permissions for manual browser testing.
+ * Seeds the organisation, workspaces, teams, roles, users and permissions.
  *
- * NO workflows are created — test PP → PK → PABD → PRBL manually.
+ * Workflow data is not created here — that is DemoWorkflowSeeder, which runs
+ * after this one and needs the teams and roles below to already exist.
  *
- * Password for all accounts: `password123!`
+ * Password for every account: `password123!`
  */
 class ManualTestingSeeder extends Seeder
 {
+    private const PASSWORD = 'password123!';
+
+    /** The account the demo hands to a visitor. Holds every role in the system. */
+    private const TEST_EMAIL = 'test@demo.test';
+
     private Organization $org;
 
     private Workspace $workspace;
@@ -31,13 +37,22 @@ class ManualTestingSeeder extends Seeder
     /** @var array<string, Role> */
     private array $roles = [];
 
+    /**
+     * Divisions that own workflows. The first three run the full chain through
+     * to monthly reports; `hr`, `fin` and `lgl` are parked one at each PK
+     * approval desk, so every step has live work waiting on it.
+     *
+     * @var list<string>
+     */
+    private const DIVISIONS = ['ops', 'mkt', 'it', 'hr', 'fin', 'lgl', 'pro'];
+
     public function run(): void
     {
-        if (Organization::where('name', 'Finance Playground')->exists()) {
+        if (Organization::where('name', 'PT Nusantara Sejahtera')->exists()) {
             return;
         }
 
-        $this->createOrgAndWorkspace();
+        $this->createOrgAndWorkspaces();
         $this->createTeamsAndRoles();
         $this->syncAllPermissions();
         $this->createUsers();
@@ -47,28 +62,40 @@ class ManualTestingSeeder extends Seeder
         $this->assignPkPermissions();
         $this->assignPabdPermissions();
         $this->assignPrblPermissions();
-        $this->giveAdminAllRoles();
+        $this->giveSuperAdminAllPermissions();
+        $this->giveTestUserAllRoles();
 
-        $this->command->info('Manual testing data seeded: 7 teams, 16 users, all permissions assigned.');
+        $this->command->info('Base data seeded: 2 workspaces, 10 teams, 14 users, all permissions assigned.');
     }
 
     // =========================================================================
-    // Organization + Workspace
+    // Organization + Workspaces
     // =========================================================================
 
-    private function createOrgAndWorkspace(): void
+    /**
+     * A workspace is a budget period, not a department — the same organisation
+     * participates in several of them. Two exist so the workspace switcher has
+     * something to switch between: 2026 carries the seeded data, 2027 is empty
+     * and ready for a fresh PP to be created in it.
+     */
+    private function createOrgAndWorkspaces(): void
     {
         $this->org = Organization::create([
-            'name' => 'Finance Playground',
-            'description' => 'Finance Playground',
+            'name' => 'PT Nusantara Sejahtera',
+            'description' => 'Perusahaan distribusi dengan beberapa divisi yang mengelola anggaran masing-masing.',
         ]);
 
         $this->workspace = Workspace::create([
-            'name' => 'Workspace Monitoring dan Evaluasi',
-            'description' => 'Workspace monitoring dan evaluasi Finance Playground',
+            'name' => 'Periode Anggaran 2026',
+            'description' => 'Periode anggaran berjalan — memuat data contoh untuk seluruh alur kerja.',
         ]);
 
-        $this->org->workspaces()->attach($this->workspace->id);
+        $next = Workspace::create([
+            'name' => 'Periode Anggaran 2027',
+            'description' => 'Periode anggaran berikutnya — masih kosong, siap dimulai dari PP01.',
+        ]);
+
+        $this->org->workspaces()->attach([$this->workspace->id, $next->id]);
     }
 
     // =========================================================================
@@ -77,30 +104,30 @@ class ManualTestingSeeder extends Seeder
 
     private function createTeamsAndRoles(): void
     {
-        // Admin teams
-        $this->createTeam('monev', 'Tim Monev', 'Tim Monitoring dan Evaluasi', [
-            'Koordinator MONEV', 'Evaluator Narasi', 'Evaluator Anggaran',
+        // Central teams — they review and approve what the divisions submit.
+        $this->createTeam('monev', 'Tim Monitoring dan Evaluasi', 'Tim pengawasan program dan evaluasi laporan', [
+            'Super Admin', 'Koordinator MONEV', 'Evaluator Narasi', 'Evaluator Anggaran',
         ]);
 
-        $this->createTeam('bu', 'Tim Bendahara Umum', 'Tim Bendahara Umum organisasi', [
-            'Bendahara Umum 1', 'Bendahara Umum 2', 'Asisten Bendahara Umum',
+        $this->createTeam('bu', 'Tim Bendahara Pusat', 'Tim keuangan pusat — persetujuan transfer dan realisasi', [
+            'Bendahara Umum 1', 'Asisten Bendahara Umum',
         ]);
 
-        $this->createTeam('kg', 'Tim Kantor Pusat', 'Tim administrasi kantor pusat', [
+        $this->createTeam('kg', 'Tim Kantor Pusat', 'Tim administrasi kantor pusat — bukti transfer', [
             'Staff Kantor Pusat',
         ]);
 
-        // Bapel teams (each gets standard 4 roles)
-        $bapelRoles = ['Koordinator', 'Bendahara Tim', 'Sekretaris', 'Anggota'];
+        // One role per division. Every team-side step is submitted by the same
+        // desk, so a second role only added rows without adding a capability.
+        $divisionRoles = ['Bendahara Tim'];
 
-        $this->createTeam('remaja', 'Divisi Kepemudaan', 'Divisi kepemudaan', $bapelRoles);
-        $this->createTeam('pemuda', 'Divisi Kaderisasi', 'Divisi kaderisasi', $bapelRoles);
-        $this->createTeam('tmm', 'Tim Multi Media', 'Tim pelayanan multimedia organisasi', $bapelRoles);
-
-        // Legacy team (kept for compatibility)
-        $this->createTeam('anak', 'Divisi Pendidikan', 'Divisi pendidikan', [
-            'Ketua', 'Sekretaris', 'Bendahara Tim',
-        ]);
+        $this->createTeam('ops', 'Divisi Operasional', 'Divisi operasional dan distribusi', $divisionRoles);
+        $this->createTeam('mkt', 'Divisi Pemasaran', 'Divisi pemasaran dan pengembangan pasar', $divisionRoles);
+        $this->createTeam('it', 'Divisi Teknologi Informasi', 'Divisi teknologi informasi dan infrastruktur', $divisionRoles);
+        $this->createTeam('hr', 'Divisi Sumber Daya Manusia', 'Divisi sumber daya manusia dan pengembangan karyawan', $divisionRoles);
+        $this->createTeam('fin', 'Divisi Keuangan', 'Divisi keuangan dan pengendalian internal', $divisionRoles);
+        $this->createTeam('lgl', 'Divisi Legal dan Kepatuhan', 'Divisi legal, perizinan dan kepatuhan', $divisionRoles);
+        $this->createTeam('pro', 'Divisi Pengadaan', 'Divisi pengadaan barang dan jasa', $divisionRoles);
     }
 
     /** @param list<string> $roleNames */
@@ -116,7 +143,7 @@ class ManualTestingSeeder extends Seeder
 
         foreach ($roleNames as $roleName) {
             $role = Role::create(['team_id' => $team->id, 'name' => $roleName]);
-            // Store with composite key: "teamKey.roleName" normalized
+            // Composite key: "teamKey_role_name" normalised.
             $roleKey = $key.'_'.str_replace(' ', '_', strtolower($roleName));
             $this->roles[$roleKey] = $role;
         }
@@ -128,10 +155,8 @@ class ManualTestingSeeder extends Seeder
 
     private function syncAllPermissions(): void
     {
-        // Create all PK/PABD/PRBL permission records
         $this->call(PermissionSeeder::class);
 
-        // Also create PP permissions via route sync
         Artisan::call('permissions:sync');
     }
 
@@ -141,35 +166,28 @@ class ManualTestingSeeder extends Seeder
 
     private function createUsers(): void
     {
-        // Admin super-user
-        $this->createUser('Admin Test User', 'admin@demo.test', []);
+        // The advertised demo account. Gets every role at the end of run().
+        $this->createUser('Test User', self::TEST_EMAIL, []);
 
-        // Tim Monev
-        $this->createUser('Koordinator MONEV Test User', 'koordinator-monev@demo.test', ['monev_koordinator_monev']);
-        $this->createUser('Evaluator Narasi Test User', 'evaluator-narasi@demo.test', ['monev_evaluator_narasi']);
-        $this->createUser('Evaluator Anggaran Test User', 'evaluator-anggaran@demo.test', ['monev_evaluator_anggaran']);
+        // Single-role accounts, so the seeded history names a plausible actor
+        // per step rather than attributing the whole chain to one person.
+        $this->createUser('Super Admin', 'superadmin@demo.test', ['monev_super_admin']);
+        $this->createUser('Koordinator Monitoring', 'koordinator-monev@demo.test', ['monev_koordinator_monev']);
+        $this->createUser('Evaluator Narasi', 'evaluator-narasi@demo.test', ['monev_evaluator_narasi']);
+        $this->createUser('Evaluator Anggaran', 'evaluator-anggaran@demo.test', ['monev_evaluator_anggaran']);
 
-        // Tim Bendahara Umum
-        $this->createUser('Bendahara Umum 1 Test User', 'bu1@demo.test', ['bu_bendahara_umum_1']);
-        $this->createUser('Bendahara Umum 2 Test User', 'bu2@demo.test', ['bu_bendahara_umum_2']);
-        $this->createUser('Asisten Bendahara Umum Test User', 'asisten-bu@demo.test', ['bu_asisten_bendahara_umum']);
+        $this->createUser('Bendahara Umum 1', 'bu1@demo.test', ['bu_bendahara_umum_1']);
+        $this->createUser('Asisten Bendahara Umum', 'asisten-bu@demo.test', ['bu_asisten_bendahara_umum']);
 
-        // Tim Kantor Pusat
-        $this->createUser('Staff Kantor Pusat Test User', 'staff-kg@demo.test', ['kg_staff_kantor_pusat']);
+        $this->createUser('Staff Kantor Pusat', 'staff-kp@demo.test', ['kg_staff_kantor_pusat']);
 
-        // Divisi Kepemudaan
-        $this->createUser('Koordinator Remaja Test User', 'koordinator-remaja@demo.test', ['remaja_koordinator']);
-        $this->createUser('Bendahara Tim Test User', 'bendahara-remaja@demo.test', ['remaja_bendahara_tim']);
-
-        // Divisi Kaderisasi
-        $this->createUser('Koordinator Pemuda Test User', 'koordinator-pemuda@demo.test', ['pemuda_koordinator']);
-        $this->createUser('Anggota Test User', 'anggota-pemuda@demo.test', ['pemuda_anggota']);
-
-        // Tim Multi Media
-        $this->createUser('Koordinator Multimedia Test User', 'koordinator-tmm@demo.test', ['tmm_koordinator']);
-
-        // Divisi Pendidikan
-        $this->createUser('Koordinator Anak Test User', 'rina@demo.test', ['anak_koordinator']);
+        $this->createUser('Bendahara Operasional', 'bendahara-ops@demo.test', ['ops_bendahara_tim']);
+        $this->createUser('Bendahara Pemasaran', 'bendahara-mkt@demo.test', ['mkt_bendahara_tim']);
+        $this->createUser('Bendahara Teknologi Informasi', 'bendahara-it@demo.test', ['it_bendahara_tim']);
+        $this->createUser('Bendahara Sumber Daya Manusia', 'bendahara-hr@demo.test', ['hr_bendahara_tim']);
+        $this->createUser('Bendahara Keuangan', 'bendahara-fin@demo.test', ['fin_bendahara_tim']);
+        $this->createUser('Bendahara Legal dan Kepatuhan', 'bendahara-lgl@demo.test', ['lgl_bendahara_tim']);
+        $this->createUser('Bendahara Pengadaan', 'bendahara-pro@demo.test', ['pro_bendahara_tim']);
     }
 
     /** @param list<string> $roleKeys */
@@ -179,7 +197,7 @@ class ManualTestingSeeder extends Seeder
             'name' => $name,
             'email' => $email,
             'email_verified_at' => now(),
-            'password' => Hash::make('password123!'),
+            'password' => Hash::make(self::PASSWORD),
         ]);
 
         foreach ($roleKeys as $key) {
@@ -190,7 +208,7 @@ class ManualTestingSeeder extends Seeder
     }
 
     // =========================================================================
-    // PP Permission Assignments (source: FeatureTestPpIntegration20260313Seeder)
+    // PP Permission Assignments
     // =========================================================================
 
     private function assignBasePermissions(): void
@@ -200,10 +218,9 @@ class ManualTestingSeeder extends Seeder
             'personal.notifications', 'personal.notifications.mark-all-read',
         ];
 
-        // Admin roles need base permissions too (personal dashboard, etc.)
         $adminRoleKeys = [
-            'monev_koordinator_monev', 'monev_evaluator_narasi', 'monev_evaluator_anggaran',
-            'bu_bendahara_umum_1', 'bu_bendahara_umum_2', 'bu_asisten_bendahara_umum',
+            'monev_super_admin', 'monev_koordinator_monev', 'monev_evaluator_narasi', 'monev_evaluator_anggaran',
+            'bu_bendahara_umum_1', 'bu_asisten_bendahara_umum',
             'kg_staff_kantor_pusat',
         ];
 
@@ -302,12 +319,11 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.pp.comment',
         ];
         $this->syncPermissions($this->roles['bu_bendahara_umum_1'], $buPerms);
-        $this->syncPermissions($this->roles['bu_bendahara_umum_2'], $buPerms);
         $this->syncPermissions($this->roles['bu_asisten_bendahara_umum'], $buPerms);
     }
 
     // =========================================================================
-    // PK Permission Assignments (source: FeatureTestPkBrowser20260316Seeder)
+    // PK Permission Assignments
     // =========================================================================
 
     private function assignPkPermissions(): void
@@ -348,10 +364,9 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.pk.comment',
         ];
         $this->syncPermissions($this->roles['bu_bendahara_umum_1'], $buPkPerms);
-        $this->syncPermissions($this->roles['bu_bendahara_umum_2'], $buPkPerms);
         $this->syncPermissions($this->roles['bu_asisten_bendahara_umum'], $buPkPerms);
 
-        // Team scope — bapel teams
+        // Team scope — every division
         $baseTeamPerms = [
             'personal.index', 'personal.files', 'personal.verify',
             'personal.notifications', 'personal.notifications.mark-all-read',
@@ -364,24 +379,22 @@ class ManualTestingSeeder extends Seeder
             'team.workflows.pk.comment', 'team.workflows.pk.terminate',
         ];
         $allTeamPerms = [...$baseTeamPerms, ...$pkTeamPerms];
-        $noTerminatePerms = array_values(array_filter($allTeamPerms, fn ($p) => $p !== 'team.workflows.pk.terminate'));
 
-        foreach (['remaja', 'pemuda', 'tmm'] as $teamKey) {
+        foreach (self::DIVISIONS as $teamKey) {
             $roles = Role::where('team_id', $this->teams[$teamKey]->id)->get();
             foreach ($roles as $role) {
-                $perms = $role->name === 'Koordinator' ? $allTeamPerms : $noTerminatePerms;
-                $this->syncPermissions($role, $perms);
+                $this->syncPermissions($role, $allTeamPerms);
             }
         }
     }
 
     // =========================================================================
-    // PABD Permission Assignments (source: FeatureTestPabdPrblIntegration20260320Seeder)
+    // PABD Permission Assignments
     // =========================================================================
 
     private function assignPabdPermissions(): void
     {
-        // Monev: view-only + admin_reset (13 perms)
+        // Monev: view-only + admin_reset
         $monevPabd = [
             'admin.workflows.pabd.index', 'admin.workflows.pabd.show',
             'admin.workflows.pabd.pabd01.show', 'admin.workflows.pabd.pabd02a.show', 'admin.workflows.pabd.pabd02b.show',
@@ -395,7 +408,7 @@ class ManualTestingSeeder extends Seeder
         $this->syncPermissions($this->roles['monev_evaluator_narasi'], $monevPabd);
         $this->syncPermissions($this->roles['monev_evaluator_anggaran'], $monevPabd);
 
-        // BU: PABD02B + PABD03 action perms (17 perms)
+        // Bendahara Pusat: PABD02B + PABD03 action perms
         $buPabd = [
             'admin.workflows.pabd.index', 'admin.workflows.pabd.show',
             'admin.workflows.pabd.pabd01.show', 'admin.workflows.pabd.pabd02a.show',
@@ -406,10 +419,9 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.pabd.comment',
         ];
         $this->syncPermissions($this->roles['bu_bendahara_umum_1'], $buPabd);
-        $this->syncPermissions($this->roles['bu_bendahara_umum_2'], $buPabd);
         $this->syncPermissions($this->roles['bu_asisten_bendahara_umum'], $buPabd);
 
-        // Staff KG: PABD04 draft/submit (14 perms)
+        // Kantor Pusat: PABD04 draft/submit
         $this->syncPermissions($this->roles['kg_staff_kantor_pusat'], [
             'admin.workflows.pabd.index', 'admin.workflows.pabd.show',
             'admin.workflows.pabd.pabd01.show', 'admin.workflows.pabd.pabd02a.show', 'admin.workflows.pabd.pabd02b.show',
@@ -420,7 +432,7 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.pabd.comment',
         ]);
 
-        // Team scope: all bapel roles get 16 perms
+        // Team scope
         $teamPabd = [
             'team.workflows.pabd.index', 'team.workflows.pabd.show',
             'team.workflows.pabd.pabd01.show', 'team.workflows.pabd.pabd01.draft', 'team.workflows.pabd.pabd01.submit',
@@ -431,7 +443,7 @@ class ManualTestingSeeder extends Seeder
             'team.workflows.pabd.comment',
         ];
 
-        foreach (['remaja', 'pemuda', 'tmm'] as $teamKey) {
+        foreach (self::DIVISIONS as $teamKey) {
             foreach (Role::where('team_id', $this->teams[$teamKey]->id)->get() as $role) {
                 $this->syncPermissions($role, $teamPabd);
             }
@@ -439,12 +451,12 @@ class ManualTestingSeeder extends Seeder
     }
 
     // =========================================================================
-    // PRBL Permission Assignments (source: FeatureTestPabdPrblIntegration20260320Seeder)
+    // PRBL Permission Assignments
     // =========================================================================
 
     private function assignPrblPermissions(): void
     {
-        // Monev: PRBL02A approve/reject + admin_reset/create (16 perms)
+        // Monev: PRBL02A approve/reject + admin_reset/create
         $monevPrbl = [
             'admin.workflows.prbl.index', 'admin.workflows.prbl.show',
             'admin.workflows.prbl.prbl01.show',
@@ -460,7 +472,7 @@ class ManualTestingSeeder extends Seeder
         $this->syncPermissions($this->roles['monev_evaluator_narasi'], $monevPrbl);
         $this->syncPermissions($this->roles['monev_evaluator_anggaran'], $monevPrbl);
 
-        // BU: PRBL02B + PRBL04 approve/reject (16 perms)
+        // Bendahara Pusat: PRBL02B + PRBL04 approve/reject
         $buPrbl = [
             'admin.workflows.prbl.index', 'admin.workflows.prbl.show',
             'admin.workflows.prbl.prbl01.show',
@@ -473,10 +485,9 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.prbl.comment',
         ];
         $this->syncPermissions($this->roles['bu_bendahara_umum_1'], $buPrbl);
-        $this->syncPermissions($this->roles['bu_bendahara_umum_2'], $buPrbl);
         $this->syncPermissions($this->roles['bu_asisten_bendahara_umum'], $buPrbl);
 
-        // Staff KG: view-only (12 perms)
+        // Kantor Pusat: view-only
         $this->syncPermissions($this->roles['kg_staff_kantor_pusat'], [
             'admin.workflows.prbl.index', 'admin.workflows.prbl.show',
             'admin.workflows.prbl.prbl01.show', 'admin.workflows.prbl.prbl02a.show', 'admin.workflows.prbl.prbl02b.show',
@@ -485,7 +496,7 @@ class ManualTestingSeeder extends Seeder
             'admin.workflows.prbl.comment',
         ]);
 
-        // Team scope: all bapel roles get 16 perms
+        // Team scope
         $teamPrbl = [
             'team.workflows.prbl.index', 'team.workflows.prbl.show',
             'team.workflows.prbl.prbl01.show', 'team.workflows.prbl.prbl01.draft', 'team.workflows.prbl.prbl01.submit',
@@ -496,7 +507,7 @@ class ManualTestingSeeder extends Seeder
             'team.workflows.prbl.comment',
         ];
 
-        foreach (['remaja', 'pemuda', 'tmm'] as $teamKey) {
+        foreach (self::DIVISIONS as $teamKey) {
             foreach (Role::where('team_id', $this->teams[$teamKey]->id)->get() as $role) {
                 $this->syncPermissions($role, $teamPrbl);
             }
@@ -507,11 +518,26 @@ class ManualTestingSeeder extends Seeder
     // Helpers
     // =========================================================================
 
-    private function giveAdminAllRoles(): void
+    /**
+     * Super Admin is defined as "every permission in the catalogue" rather than
+     * a hardcoded list, so it cannot drift out of date as routes are added.
+     */
+    private function giveSuperAdminAllPermissions(): void
     {
-        $admin = User::where('email', 'admin@demo.test')->firstOrFail();
-        $allRoleIds = Role::pluck('id')->toArray();
-        $admin->roles()->syncWithoutDetaching($allRoleIds);
+        $this->roles['monev_super_admin']
+            ->permissions()
+            ->syncWithoutDetaching(Permission::pluck('id')->toArray());
+    }
+
+    /**
+     * One account holds every role, so a visitor can walk the whole chain —
+     * submit as a division, approve as the treasury, sign off as monitoring —
+     * without logging out. The role switcher is how they change hats.
+     */
+    private function giveTestUserAllRoles(): void
+    {
+        $test = User::where('email', self::TEST_EMAIL)->firstOrFail();
+        $test->roles()->syncWithoutDetaching(Role::pluck('id')->toArray());
     }
 
     /** Additive permission sync — won't remove permissions from other workflow types. */

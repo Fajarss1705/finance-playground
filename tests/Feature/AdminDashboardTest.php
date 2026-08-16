@@ -366,7 +366,7 @@ test('team summary shows plafon for each team', function () {
     $org = $role->team->organization;
 
     [$ppWorkflow, $pp06] = adminCreatePp06WithPlafon($workspace->id, $team->id, 2026, 45000000);
-    [$teamB] = addTeamWithPlafon($org, $pp06->id, 'Divisi Kepemudaan', '02', 30000000);
+    [$teamB] = addTeamWithPlafon($org, $pp06->id, 'Divisi Kepemasaranan', '02', 30000000);
 
     activateAdminSession($this, $user, $role, $workspace);
 

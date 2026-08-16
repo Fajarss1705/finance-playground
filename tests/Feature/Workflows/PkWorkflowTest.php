@@ -147,12 +147,12 @@ function validPk01SubmitData(string $expectedUpdatedAt): array
 {
     return [
         'kode_kategori' => 'K01',
-        'nama_program' => 'Program Kegiatan Kepemudaan',
-        'deskripsi_program' => 'Program pembinaan spiritual untuk remaja.',
-        'tujuan_program' => 'Meningkatkan partisipasi remaja dalam kegiatan.',
+        'nama_program' => 'Program Kegiatan Kepemasaranan',
+        'deskripsi_program' => 'Program pembinaan operasional untuk operasional.',
+        'tujuan_program' => 'Meningkatkan partisipasi operasional dalam kegiatan.',
         'kegiatan' => [
             [
-                'nama_kegiatan' => 'Retreat Remaja',
+                'nama_kegiatan' => 'Lokakarya Operasional',
                 'bulan' => 3,
                 'anggaran' => [
                     [
@@ -160,7 +160,7 @@ function validPk01SubmitData(string $expectedUpdatedAt): array
                         'kode_sub_bidang' => 'SB01',
                         'kode_jenis' => 'J01',
                         'mata_anggaran' => 'Konsumsi',
-                        'deskripsi_pk' => 'Konsumsi peserta retreat',
+                        'deskripsi_pk' => 'Konsumsi peserta lokakarya',
                         'nominal_anggaran' => 2500000,
                     ],
                 ],
@@ -464,12 +464,12 @@ it('submits PK01 and auto-creates PK02A + PK02B', function () {
 
     $pk01->refresh();
     expect($pk01->kode_kategori)->toBe('K01')
-        ->and($pk01->nama_program)->toBe('Program Kegiatan Kepemudaan');
+        ->and($pk01->nama_program)->toBe('Program Kegiatan Kepemasaranan');
 
     // Kegiatan + anggaran + kuisioner saved
     $kegiatan = $pk01->kegiatan()->with(['anggaran', 'kuisioner'])->first();
     expect($kegiatan)->not->toBeNull()
-        ->and($kegiatan->nama_kegiatan)->toBe('Retreat Remaja')
+        ->and($kegiatan->nama_kegiatan)->toBe('Lokakarya Operasional')
         ->and($kegiatan->anggaran)->toHaveCount(1)
         ->and($kegiatan->kuisioner)->toHaveCount(1);
 
@@ -837,7 +837,7 @@ it('handles PK01 re-submission after rejection with changelog diff', function ()
 
     // --- Cycle 2: re-submit with changes ---
     $data = validPk01SubmitData($pk01Cycle2->updated_at->toIso8601String());
-    $data['nama_program'] = 'Program Kegiatan Kepemudaan (Revisi)'; // changed
+    $data['nama_program'] = 'Program Kegiatan Kepemasaranan (Revisi)'; // changed
     $data['kegiatan'][0]['anggaran'][0]['nominal_anggaran'] = 2000000; // changed from 2500000
 
     $this->post(
@@ -857,8 +857,8 @@ it('handles PK01 re-submission after rejection with changelog diff', function ()
     $programChange = collect($changes)->firstWhere('type', 'program_changed');
     expect($programChange)->not->toBeNull()
         ->and($programChange['field'])->toBe('nama_program')
-        ->and($programChange['old'])->toBe('Program Kegiatan Kepemudaan')
-        ->and($programChange['new'])->toBe('Program Kegiatan Kepemudaan (Revisi)');
+        ->and($programChange['old'])->toBe('Program Kegiatan Kepemasaranan')
+        ->and($programChange['new'])->toBe('Program Kegiatan Kepemasaranan (Revisi)');
 
     $anggaranChange = collect($changes)->firstWhere('type', 'anggaran_changed');
     expect($anggaranChange)->not->toBeNull()

@@ -11,16 +11,23 @@ import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 
+type DemoCredentials = {
+    email: string;
+    password: string;
+};
+
 type Props = {
     status?: string;
     canResetPassword: boolean;
     canRegister: boolean;
+    demoCredentials?: DemoCredentials | null;
 };
 
 export default function Login({
     status,
     canResetPassword,
     canRegister,
+    demoCredentials,
 }: Props) {
     return (
         <AuthLayout
@@ -28,6 +35,14 @@ export default function Login({
             description="Masukkan email dan kata sandi Anda untuk masuk"
         >
             <Head title="Masuk" />
+
+            {demoCredentials && (
+                <div className="rounded-md border border-dashed px-4 py-3 text-sm text-muted-foreground">
+                    Ini adalah demo publik. Email dan kata sandi sudah terisi —
+                    tekan <span className="font-medium">Masuk</span> untuk
+                    mencoba. Data direset setiap 15 menit.
+                </div>
+            )}
 
             <Form
                 {...store.form()}
@@ -53,6 +68,7 @@ export default function Login({
                                     tabIndex={1}
                                     autoComplete="email"
                                     placeholder="email@example.com"
+                                    defaultValue={demoCredentials?.email}
                                 />
                                 <InputError message={errors.email} />
                             </div>
@@ -83,6 +99,7 @@ export default function Login({
                                     tabIndex={2}
                                     autoComplete="current-password"
                                     placeholder="Kata sandi"
+                                    defaultValue={demoCredentials?.password}
                                 />
                                 <InputError message={errors.password} />
                             </div>

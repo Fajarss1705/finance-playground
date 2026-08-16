@@ -85,6 +85,9 @@ class FortifyServiceProvider extends ServiceProvider
             'canResetPassword' => Features::enabled(Features::resetPasswords()),
             'canRegister' => Features::enabled(Features::registration()),
             'status' => $request->session()->get('status'),
+            // Only the public demo ships credentials to the browser. Guarded by
+            // config, so this is null everywhere DEMO_CREDENTIALS is unset.
+            'demoCredentials' => config('demo.credentials'),
         ]));
 
         Fortify::resetPasswordView(fn (Request $request) => Inertia::render('auth/reset-password', [

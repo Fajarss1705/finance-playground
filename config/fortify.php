@@ -143,15 +143,21 @@ return [
     |
     */
 
-    'features' => [
-        Features::registration(),
-        Features::resetPasswords(),
+    /*
+    | 🔴 On the public demo (DEMO_MODE=true) self-service registration and
+    | password reset are switched off. Hiding the buttons is not enough — the
+    | routes themselves must go, or anyone can still POST to them and create
+    | accounts on a box that wipes itself every 15 minutes.
+    */
+    'features' => array_values(array_filter([
+        env('DEMO_MODE', false) ? null : Features::registration(),
+        env('DEMO_MODE', false) ? null : Features::resetPasswords(),
         Features::emailVerification(),
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,
             // 'window' => 0
         ]),
-    ],
+    ])),
 
 ];

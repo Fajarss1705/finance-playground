@@ -217,7 +217,7 @@ test('user with both roles sees active role tasks in section 1 and other roles i
 
     // Another PABD at PABD03 for BU review
     $org = $bapelRole->team->organization;
-    $anotherTeam = Team::factory()->for($org)->create(['name' => 'Divisi Kepemudaan']);
+    $anotherTeam = Team::factory()->for($org)->create(['name' => 'Divisi Kepemasaranan']);
 
     createPabdWorkflow($workspace->id, $anotherTeam->id, [
         ['step' => 'PABD01', 'action' => 'created', 'by' => null, 'role' => null, 'team' => $anotherTeam->id, 'org' => null, 'workspace' => $workspace->id, 'at' => now()->subMinutes(10)->toIso8601String()],

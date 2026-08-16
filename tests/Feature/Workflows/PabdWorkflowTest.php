@@ -148,7 +148,7 @@ function setupPk04WithAnggaran($workspace, $team, $ppWorkflow, $bulan = 3, $user
 
     $kegiatan = Pk04Kegiatan::create([
         'pk04_program_tahunan_id' => $pk04->id,
-        'nama_kegiatan' => 'Retreat Remaja',
+        'nama_kegiatan' => 'Lokakarya Operasional',
         'bulan' => $bulan,
         'nomer_kegiatan' => 1,
     ]);
@@ -159,7 +159,7 @@ function setupPk04WithAnggaran($workspace, $team, $ppWorkflow, $bulan = 3, $user
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Konsumsi',
-        'deskripsi_pk' => 'Konsumsi retreat remaja',
+        'deskripsi_pk' => 'Konsumsi lokakarya operasional',
         'nominal_anggaran' => 2500000,
         'nomer_anggaran' => 1,
         'revisi_terakhir' => 0,
@@ -173,7 +173,7 @@ function setupPk04WithAnggaran($workspace, $team, $ppWorkflow, $bulan = 3, $user
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Transportasi',
-        'deskripsi_pk' => 'Transportasi retreat remaja',
+        'deskripsi_pk' => 'Transportasi lokakarya operasional',
         'nominal_anggaran' => 1000000,
         'nomer_anggaran' => 2,
         'revisi_terakhir' => 0,
@@ -1676,24 +1676,24 @@ it('submits PABD02A with proposal_baru item and creates PK Proposal', function (
         'items' => [
             [
                 'tipe_perubahan' => 'proposal_baru',
-                'komentar' => 'Program baru untuk pelayanan pemuda yang sangat dibutuhkan.',
+                'komentar' => 'Program baru untuk pelayanan pemasaran yang sangat dibutuhkan.',
                 'item_files' => [$file],
                 'proposal' => [
                     'kode_kategori' => 'K01',
-                    'nama_program' => 'Program Pelayanan Pemuda',
-                    'deskripsi_program' => 'Deskripsi program pelayanan pemuda',
-                    'tujuan_program' => 'Tujuan program pelayanan pemuda',
+                    'nama_program' => 'Program Pelayanan Pemasaran',
+                    'deskripsi_program' => 'Deskripsi program pelayanan pemasaran',
+                    'tujuan_program' => 'Tujuan program pelayanan pemasaran',
                     'kegiatan' => [
                         [
-                            'nama_kegiatan' => 'Retreat Pemuda',
+                            'nama_kegiatan' => 'Lokakarya Pemasaran',
                             'bulan' => 5,
                             'anggaran' => [
                                 [
                                     'kode_bidang' => 'B01',
                                     'kode_sub_bidang' => 'SB01',
                                     'kode_jenis' => 'J01',
-                                    'mata_anggaran' => 'Konsumsi Retreat',
-                                    'deskripsi_pk' => 'Konsumsi retreat pemuda',
+                                    'mata_anggaran' => 'Konsumsi Lokakarya',
+                                    'deskripsi_pk' => 'Konsumsi lokakarya pemasaran',
                                     'nominal_anggaran' => 5000000,
                                 ],
                             ],
@@ -1728,12 +1728,12 @@ it('submits PABD02A with proposal_baru item and creates PK Proposal', function (
     // Verify PK01 data was created with kegiatan
     $pk01 = Pk01Data::where('pk_workflow_id', $proposalWorkflow->id)->first();
     expect($pk01)->not->toBeNull()
-        ->and($pk01->nama_program)->toBe('Program Pelayanan Pemuda')
+        ->and($pk01->nama_program)->toBe('Program Pelayanan Pemasaran')
         ->and($pk01->kode_kategori)->toBe('K01');
 
     $kegiatan = $pk01->kegiatan;
     expect($kegiatan)->toHaveCount(1)
-        ->and($kegiatan->first()->nama_kegiatan)->toBe('Retreat Pemuda')
+        ->and($kegiatan->first()->nama_kegiatan)->toBe('Lokakarya Pemasaran')
         ->and($kegiatan->first()->bulan)->toBe(5);
 
     // Verify anggaran and kuisioner
@@ -1879,7 +1879,7 @@ function setupPabd02bActive(
             'pabd02a_data_id' => $pabd02a->id,
             'tipe_perubahan' => 'proposal_baru',
             'pk_workflow_id' => $pkWorkflow->id,
-            'komentar' => 'Program baru untuk pelayanan pemuda.',
+            'komentar' => 'Program baru untuk pelayanan pemasaran.',
         ]);
     } else {
         throw new \RuntimeException('setupPabd02bActive requires futureAnggaran for tarik_maju or pkWorkflow for proposal_baru');
@@ -1944,13 +1944,13 @@ function setupPkProposal($workspace, $team, $ppWorkflow, $user, $role): PkWorkfl
     $pk01 = Pk01Data::create([
         'pk_workflow_id' => $proposalWorkflow->id,
         'kode_kategori' => 'K01',
-        'nama_program' => 'Program Pelayanan Pemuda',
-        'deskripsi_program' => 'Deskripsi program pelayanan pemuda',
-        'tujuan_program' => 'Tujuan program pelayanan pemuda',
+        'nama_program' => 'Program Pelayanan Pemasaran',
+        'deskripsi_program' => 'Deskripsi program pelayanan pemasaran',
+        'tujuan_program' => 'Tujuan program pelayanan pemasaran',
     ]);
 
     $kegiatan = $pk01->kegiatan()->create([
-        'nama_kegiatan' => 'Retreat Pemuda',
+        'nama_kegiatan' => 'Lokakarya Pemasaran',
         'bulan' => 5,
     ]);
 
@@ -1958,8 +1958,8 @@ function setupPkProposal($workspace, $team, $ppWorkflow, $user, $role): PkWorkfl
         'kode_bidang' => 'B01',
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
-        'mata_anggaran' => 'Konsumsi Retreat',
-        'deskripsi_pk' => 'Konsumsi retreat pemuda',
+        'mata_anggaran' => 'Konsumsi Lokakarya',
+        'deskripsi_pk' => 'Konsumsi lokakarya pemasaran',
         'nominal_anggaran' => 5000000,
     ]);
 
@@ -2288,13 +2288,13 @@ it('approves PABD02B with proposal_baru item and compiles to PK04', function () 
     // Verify PK Proposal was compiled to PK04
     $proposalPk04 = Pk04ProgramTahunan::where('pk_workflow_id', $proposalWorkflow->id)->first();
     expect($proposalPk04)->not->toBeNull()
-        ->and($proposalPk04->nama_program)->toBe('Program Pelayanan Pemuda')
+        ->and($proposalPk04->nama_program)->toBe('Program Pelayanan Pemasaran')
         ->and($proposalPk04->revision)->toBe(0);
 
     // Verify PK04 kegiatan and anggaran created
     $proposalKegiatan = Pk04Kegiatan::where('pk04_program_tahunan_id', $proposalPk04->id)->first();
     expect($proposalKegiatan)->not->toBeNull()
-        ->and($proposalKegiatan->nama_kegiatan)->toBe('Retreat Pemuda')
+        ->and($proposalKegiatan->nama_kegiatan)->toBe('Lokakarya Pemasaran')
         ->and($proposalKegiatan->source)->toBe('proposal')
         ->and($proposalKegiatan->source_pabd_workflow_id)->toBe($pabdWorkflow->id);
 

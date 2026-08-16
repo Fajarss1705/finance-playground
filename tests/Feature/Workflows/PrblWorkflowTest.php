@@ -156,7 +156,7 @@ function setupPk04ForPrbl($workspace, $team, $ppWorkflow, $bulan = 3, $user = nu
 
     $kegiatan = Pk04Kegiatan::create([
         'pk04_program_tahunan_id' => $pk04->id,
-        'nama_kegiatan' => 'Retreat Remaja',
+        'nama_kegiatan' => 'Lokakarya Operasional',
         'bulan' => $bulan,
         'nomer_kegiatan' => 1,
     ]);
@@ -167,7 +167,7 @@ function setupPk04ForPrbl($workspace, $team, $ppWorkflow, $bulan = 3, $user = nu
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Konsumsi',
-        'deskripsi_pk' => 'Konsumsi retreat remaja',
+        'deskripsi_pk' => 'Konsumsi lokakarya operasional',
         'nominal_anggaran' => 2500000,
         'nomer_anggaran' => 1,
         'revisi_terakhir' => 0,
@@ -181,7 +181,7 @@ function setupPk04ForPrbl($workspace, $team, $ppWorkflow, $bulan = 3, $user = nu
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Transportasi',
-        'deskripsi_pk' => 'Transportasi retreat remaja',
+        'deskripsi_pk' => 'Transportasi lokakarya operasional',
         'nominal_anggaran' => 1000000,
         'nomer_anggaran' => 2,
         'revisi_terakhir' => 0,
@@ -330,7 +330,7 @@ it('shows PRBL01 page with kegiatan items for team scope', function () {
             ->has('kegiatanItems', 1)
             ->where('kegiatanItems.0.program_name', 'Program Kegiatan')
             ->has('kegiatanItems.0.kegiatan', 1)
-            ->where('kegiatanItems.0.kegiatan.0.nama_kegiatan', 'Retreat Remaja')
+            ->where('kegiatanItems.0.kegiatan.0.nama_kegiatan', 'Lokakarya Operasional')
             ->has('kegiatanItems.0.kegiatan.0.realisasi', 2)
             ->has('kegiatanItems.0.kegiatan.0.kuisioner', 1)
             ->where('totalDicairkan', fn ($v) => (float) $v === 3500000.0)

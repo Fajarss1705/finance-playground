@@ -130,7 +130,7 @@ function setupPk04ForReset($workspace, $team, $ppWorkflow, $bulan = 3, $user = n
 
     $kegiatan = Pk04Kegiatan::create([
         'pk04_program_tahunan_id' => $pk04->id,
-        'nama_kegiatan' => 'Retreat Remaja',
+        'nama_kegiatan' => 'Lokakarya Operasional',
         'bulan' => $bulan,
         'nomer_kegiatan' => 1,
     ]);
@@ -141,7 +141,7 @@ function setupPk04ForReset($workspace, $team, $ppWorkflow, $bulan = 3, $user = n
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Konsumsi',
-        'deskripsi_pk' => 'Konsumsi retreat remaja',
+        'deskripsi_pk' => 'Konsumsi lokakarya operasional',
         'nominal_anggaran' => 2500000,
         'nomer_anggaran' => 1,
         'revisi_terakhir' => 0,
@@ -155,7 +155,7 @@ function setupPk04ForReset($workspace, $team, $ppWorkflow, $bulan = 3, $user = n
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Transportasi',
-        'deskripsi_pk' => 'Transportasi retreat remaja',
+        'deskripsi_pk' => 'Transportasi lokakarya operasional',
         'nominal_anggaran' => 1000000,
         'nomer_anggaran' => 2,
         'revisi_terakhir' => 0,

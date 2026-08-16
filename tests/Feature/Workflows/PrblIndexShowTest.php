@@ -132,7 +132,7 @@ function setupPrblWorkflowIndex($workspace, $team, $ppWorkflow, $bulan = 3, $use
 
     $kegiatan = Pk04Kegiatan::create([
         'pk04_program_tahunan_id' => $pk04->id,
-        'nama_kegiatan' => 'Retreat Remaja',
+        'nama_kegiatan' => 'Lokakarya Operasional',
         'bulan' => $bulan,
         'nomer_kegiatan' => 1,
     ]);
@@ -143,7 +143,7 @@ function setupPrblWorkflowIndex($workspace, $team, $ppWorkflow, $bulan = 3, $use
         'kode_sub_bidang' => 'SB01',
         'kode_jenis' => 'J01',
         'mata_anggaran' => 'Konsumsi',
-        'deskripsi_pk' => 'Konsumsi retreat remaja',
+        'deskripsi_pk' => 'Konsumsi lokakarya operasional',
         'nominal_anggaran' => 2500000,
         'nomer_anggaran' => 1,
         'revisi_terakhir' => 0,
