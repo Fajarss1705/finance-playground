@@ -2,7 +2,9 @@
 
 A multi-tenant budgeting and accountability system for a federated organisation — one head office, many semi-autonomous teams, four chained approval workflows that run a budget from annual plan through disbursement to monthly report.
 
-**Live demo:** _(pending deploy)_ · **Log in with any account below, password `password123!`**
+**Live demo:** **[finance-playground.fly.dev](https://finance-playground.fly.dev)** · **Log in with any account below, password `password123!`**
+
+> The demo sleeps when idle and takes about twenty seconds to wake, so the first request after a quiet spell is slow. Everything after it is not. It resets itself every fifteen minutes, which will log you out mid-session — that is deliberate, so nobody inherits the last visitor's mess.
 
 > This is a public, anonymised playground built from a system that runs in production. Client identity, real data and domain-specific vocabulary have been removed from the entire history, not just the current version. The engineering is unchanged.
 
