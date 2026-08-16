@@ -14,7 +14,15 @@ touch "${DB_DATABASE}"
 chown www-data:www-data "${DB_DATABASE}"
 
 php artisan storage:link --force
-php artisan migrate:fresh --seed --force
+
+# The image already ships a seeded database, so booting is just "start the
+# server" -- that is the point, and re-seeding here would throw the baked copy
+# away and put ~30s back in front of the first visitor. This only fires when
+# there is genuinely nothing to serve, e.g. DB_DATABASE pointed elsewhere.
+if [ ! -s "${DB_DATABASE}" ]; then
+    echo "entrypoint: no seeded database at ${DB_DATABASE}; seeding now." >&2
+    php artisan migrate:fresh --seed --force
+fi
 
 php artisan config:cache
 php artisan route:cache
