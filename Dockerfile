@@ -74,6 +74,18 @@ RUN export APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" \
     && touch "${DB_DATABASE}" \
     && php artisan migrate:fresh --seed --force
 
+# Everything here used to run on boot, in front of the first visitor. The paths
+# are identical at build and at run, and none of it reads the environment, so
+# there is no reason to pay for it
+# once per wake instead of once per image.
+#
+# 🔴 config:cache is NOT here and must not be. It freezes env into the cache
+# file, so a build-time run would bake this stage's throwaway APP_KEY and its
+# APP_ENV in place of the secrets and fly.toml values supplied at runtime.
+RUN php artisan storage:link --force \
+    && php artisan route:cache \
+    && php artisan event:cache
+
 RUN rm -rf node_modules tests .git
 
 
