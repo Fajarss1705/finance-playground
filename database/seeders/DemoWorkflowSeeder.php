@@ -488,18 +488,9 @@ class DemoWorkflowSeeder extends Seeder
         // --- Rejection cycle-back from PABD02B ---
         if ($rejectedFrom === 'PABD02B') {
             $pabd02a = Pabd02aData::create(['pabd_workflow_id' => $workflow->id]);
-            $nextAnggaran = $this->anggaranForMonth($teamKey, $bulan + 1);
-
-            if ($nextAnggaran->isNotEmpty()) {
-                Pabd02aItemPerubahan::create([
-                    'pabd02a_data_id' => $pabd02a->id,
-                    'tipe_perubahan' => 'tarik_maju',
-                    'pk04_anggaran_id' => $nextAnggaran->first()->id,
-                    'bulan_awal' => $bulan + 1,
-                    'bulan_tujuan' => $bulan,
-                    'komentar' => 'Perlu percepatan kegiatan.',
-                ]);
-            }
+            Pabd02aItemPerubahan::create(
+                ['pabd02a_data_id' => $pabd02a->id] + $this->perubahanForPabd($teamKey, $bulan)
+            );
 
             $history[] = $this->entry('PABD02A', 'submitted', $user->id, $tCtx, 'pabd02a_data', $pabd02a->id, offset: '-'.($d - 2).' days');
             $history[] = $this->entry('PABD02B', 'rejected', $this->users['bu1']->id, $bCtx, offset: '-'.($d - 4).' days', notes: 'Perubahan anggaran tidak sesuai kebijakan. Silakan revisi.');
@@ -528,18 +519,9 @@ class DemoWorkflowSeeder extends Seeder
 
         if ($adaPerubahan) {
             $pabd02a = Pabd02aData::create(['pabd_workflow_id' => $workflow->id]);
-            $nextAnggaran = $this->anggaranForMonth($teamKey, $bulan + 1);
-
-            if ($nextAnggaran->isNotEmpty()) {
-                $perubahan = Pabd02aItemPerubahan::create([
-                    'pabd02a_data_id' => $pabd02a->id,
-                    'tipe_perubahan' => 'tarik_maju',
-                    'pk04_anggaran_id' => $nextAnggaran->first()->id,
-                    'bulan_awal' => $bulan + 1,
-                    'bulan_tujuan' => $bulan,
-                    'komentar' => 'Kegiatan perlu dipercepat sesuai jadwal operasional.',
-                ]);
-            }
+            $perubahan = Pabd02aItemPerubahan::create(
+                ['pabd02a_data_id' => $pabd02a->id] + $this->perubahanForPabd($teamKey, $bulan)
+            );
 
             $history[] = $this->entry('PABD02A', 'created', null, $tCtx, 'pabd02a_data', $pabd02a->id, offset: '-'.($d - 1).' days');
 
@@ -556,13 +538,14 @@ class DemoWorkflowSeeder extends Seeder
             // stepper is pointing at.
             $pabd02b = Pabd02bData::create(['pabd_workflow_id' => $workflow->id]);
 
-            if (isset($perubahan)) {
-                Pabd02bItemReview::create([
-                    'pabd02b_data_id' => $pabd02b->id,
-                    'pabd02a_item_perubahan_id' => $perubahan->id,
-                    'komentar_approval' => 'Perubahan disetujui.',
-                ]);
-            }
+            // The reviewer's own comment is left blank on the workflow parked
+            // here — a visitor sitting at this desk should find the decision
+            // unmade, not already written for them.
+            Pabd02bItemReview::create([
+                'pabd02b_data_id' => $pabd02b->id,
+                'pabd02a_item_perubahan_id' => $perubahan->id,
+                'komentar_approval' => $stopAt === 'PABD02B' ? null : 'Perubahan disetujui.',
+            ]);
 
             $history[] = $this->entry('PABD02B', 'created', null, $bCtx, 'pabd02b_data', $pabd02b->id, offset: '-'.($d - 3).' days');
 
@@ -943,6 +926,60 @@ class DemoWorkflowSeeder extends Seeder
             )
             ->where('status_item', 'active')
             ->get();
+    }
+
+    /**
+     * Build one legal PABD02A change for a PABD on $bulan.
+     *
+     * The old version assumed the team had budget in $bulan + 1 and pulled it
+     * forward. Divisi Pemasaran's programme ends in month 4, so the PABD for
+     * month 4 — the one parked on PABD02B — got no item at all, and PABD02B
+     * creates its reviews 1:1 with PABD02A's items. The reviewer's desk was
+     * empty: a step with nothing on it to approve.
+     *
+     * The rules the controller enforces, and this has to satisfy them or the
+     * seeded row is one a user could never have submitted:
+     *   tarik maju   — bulan_tujuan < bulan_awal, and >= the PABD's own month
+     *   tarik mundur — bulan_tujuan > bulan_awal, and bulan_awal >= that month
+     *
+     * So: pull the nearest later month forward if there is one, otherwise push
+     * this month's own budget back — which the month-move guard permits, and
+     * which is the more honest change for the last month of a programme.
+     */
+    private function perubahanForPabd(string $teamKey, int $bulan): array
+    {
+        for ($sumber = $bulan + 1; $sumber <= 12; $sumber++) {
+            $anggaran = $this->anggaranForMonth($teamKey, $sumber);
+
+            if ($anggaran->isNotEmpty()) {
+                return [
+                    'tipe_perubahan' => 'tarik_maju',
+                    'pk04_anggaran_id' => $anggaran->first()->id,
+                    'bulan_awal' => $sumber,
+                    'bulan_tujuan' => $bulan,
+                    'komentar' => 'Kegiatan perlu dipercepat sesuai jadwal operasional.',
+                ];
+            }
+        }
+
+        $anggaran = $this->anggaranForMonth($teamKey, $bulan);
+
+        if ($anggaran->isNotEmpty()) {
+            return [
+                'tipe_perubahan' => 'tarik_mundur',
+                'pk04_anggaran_id' => $anggaran->first()->id,
+                'bulan_awal' => $bulan,
+                'bulan_tujuan' => min($bulan + 1, 12),
+                'komentar' => 'Pelaksanaan mundur satu bulan menunggu kesiapan vendor.',
+            ];
+        }
+
+        // Loud on purpose. A silent empty return is what put a review desk with
+        // nothing on it into the demo in the first place.
+        throw new \RuntimeException(
+            "No movable anggaran for team {$teamKey} around month {$bulan}: a PABD02A ".
+            'seeded here would leave PABD02B with nothing to review.'
+        );
     }
 
     private function kegiatanForMonth(string $teamKey, int $bulan): Collection
