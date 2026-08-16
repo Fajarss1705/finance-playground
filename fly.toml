@@ -1,0 +1,41 @@
+# Fly configuration for the public demo.
+#
+# The machine sleeps when nobody is looking and wakes on the next request. That
+# is safe here because the image ships an already-seeded database and a stopped
+# Machine restores its rootfs from the image on wake, so every cold visitor gets
+# a clean demo in about two seconds without paying for an always-on box.
+
+app = 'finance-playground'
+primary_region = 'sin'
+console_command = 'php /app/artisan tinker'
+
+[build]
+
+[env]
+  # 🔴 Not 'production', and this is load-bearing. AppServiceProvider calls
+  # DB::prohibitDestructiveCommands(app()->isProduction()), so under production
+  # the 15-minute migrate:fresh would be refused every time and the demo would
+  # never reset. fly launch wrote 'production' here by convention; the image
+  # says 'demo' for exactly this reason and fly.toml [env] overrides the image.
+  APP_ENV = 'demo'
+  LOG_CHANNEL = 'stderr'
+  LOG_LEVEL = 'info'
+
+  # Cookie sessions, deliberately kept from what fly launch suggested: the
+  # 15-minute reset drops the sessions table, so database sessions would log a
+  # visitor out mid-workflow. Cookies outlive the wipe.
+  SESSION_DRIVER = 'cookie'
+  SESSION_SECURE_COOKIE = 'true'
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpus = 1
