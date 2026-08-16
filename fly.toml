@@ -18,6 +18,9 @@ console_command = 'php /app/artisan tinker'
   # never reset. fly launch wrote 'production' here by convention; the image
   # says 'demo' for exactly this reason and fly.toml [env] overrides the image.
   APP_ENV = 'demo'
+  # Used where there is no request to infer from -- queued mail, artisan output.
+  # In-request URLs come from the forwarded scheme, see trustProxies.
+  APP_URL = 'https://finance-playground.fly.dev'
   LOG_CHANNEL = 'stderr'
   LOG_LEVEL = 'info'
 

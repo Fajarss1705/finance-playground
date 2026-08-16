@@ -18,6 +18,17 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Behind a TLS-terminating proxy the request arrives on plain HTTP, so
+        // without this Laravel builds every asset URL as http:// while the page
+        // itself was served over https:// -- the browser blocks the lot as mixed
+        // content and renders a blank screen. Trusting the proxy lets
+        // X-Forwarded-Proto answer the question instead of the wire.
+        //
+        // '*' is the right scope rather than a lazy one: nothing reaches the
+        // container except through the platform's proxy on a private network,
+        // so there is no untrusted party in a position to forge the header.
+        $middleware->trustProxies(at: '*');
+
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         $middleware->web(append: [
