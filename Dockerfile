@@ -83,6 +83,12 @@ FROM base AS runtime
 # DB::prohibitDestructiveCommands(app()->isProduction()), which is exactly the
 # guard that should stop a `migrate:fresh` on the real system. The playground
 # opts out by not claiming to be production, rather than by weakening the guard.
+#
+# SESSION, CACHE and QUEUE all sit in the same sqlite file as the data, and that
+# is the point: the 15-minute migrate:fresh drops those tables along with
+# everything else, so a visitor is logged out and the box is genuinely stateless
+# every quarter hour. Nothing accrues on disk between resets and there is no
+# second job to keep in step with the first.
 ENV APP_ENV=demo \
     APP_DEBUG=false \
     LOG_CHANNEL=stderr \
