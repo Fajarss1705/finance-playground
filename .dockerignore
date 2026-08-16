@@ -11,6 +11,17 @@ storage/framework/cache/data/*
 storage/framework/sessions/*
 storage/framework/views/*
 storage/logs/*
+
+# Generated exports and uploaded files from local runs. These are working
+# artefacts of whoever ran the app last, they are gitignored so nothing here is
+# reviewed, and without this rule COPY . . bakes all of them into the image.
+# Nothing generated locally belongs in a published artefact; the demo writes its
+# own on first use.
+
+storage/app/private/*
+!storage/app/private/.gitignore
+storage/app/public/*
+!storage/app/public/.gitignore
 database/*.sqlite
 .env
 .env.*
